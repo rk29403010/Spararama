@@ -5,7 +5,7 @@ import { getAuth, signInAnonymously } from 'firebase/auth';
 const firebaseConfig = {
   projectId: "microprojects-481213",
   appId: "1:917911030888:web:c474b419d5a03c0066bfdd",
-  apiKey: "AIzaSyD_F7ZpFV-2AIR5fMJ-6Qray6R-tjf9vKI",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: "microprojects-481213.firebaseapp.com",
 };
 
