@@ -1,0 +1,18 @@
+{
+  "collections": [
+    {
+      "name": "logs",
+      "documentType": "SpaLog",
+      "fields": [
+        { "name": "type", "type": "string" },
+        { "name": "data", "type": "map" },
+        { "name": "timestamp", "type": "timestamp" }
+      ],
+      "rules": [
+        { "action": "read", "allow": "request.auth != null" },
+        { "action": "write", "allow": "request.auth != null" }
+      ]
+    }
+  ],
+  "customTypes": []
+}

@@ -1,0 +1,7 @@
+{
+  "name": "Hot Tub Monitor",
+  "description": "App for monitoring and managing hot tub maintenance, heating, chemicals, and costs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"],
+  "APP_VERSION": "0.1.16"
+}
