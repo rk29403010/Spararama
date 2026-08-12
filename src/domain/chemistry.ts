@@ -80,8 +80,6 @@ function calculateDose(
     return roundDose(scaled, waterBody.doseRounding ?? 1);
   }
 
-  // Be conservative with uncertain readings: use the end of the range closest to target
-  // so we do not calculate an unnecessarily large dose.
   const current = model.direction === 'raise' ? readingBounds.max : readingBounds.min;
   const preferred = target.preferred ?? (model.direction === 'raise' ? target.min : target.max);
   const changeNeeded = model.direction === 'raise' ? preferred - current : current - preferred;
@@ -124,9 +122,9 @@ export function validateReadings(readings: MeasurementReading[]): ChemistryFindi
     if (typeof reading.confidence === 'number' && reading.confidence < 0.55) {
       findings.push({
         measurement: reading.measurement,
-        severity: 'warning',
+        severity: 'error',
         code: 'reading_low_confidence',
-        message: `${reading.measurement} has low confidence and should be confirmed before dosing.`
+        message: `${reading.measurement} has low confidence and must be confirmed before dosing.`
       });
     }
   }
@@ -260,13 +258,11 @@ export function assessChemistry(
       nextAction: {
         kind: 'retest',
         measurements: readings.map(reading => reading.measurement),
-        reason: 'One or more readings are internally inconsistent. Retest before dosing.'
+        reason: 'One or more readings are inconsistent or insufficiently reliable. Confirm them before dosing.'
       }
     };
   }
 
-  // Sequencing is intentional. Correct alkalinity first because it affects pH stability,
-  // then pH, then sanitiser. After every dose the workflow retests and re-runs these rules.
   const order: MeasurementKey[] = ['total_alkalinity', 'ph'];
   if (waterBody.sanitizer === 'bromine') order.push('bromine');
   else order.push('free_chlorine');

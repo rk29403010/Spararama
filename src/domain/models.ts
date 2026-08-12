@@ -108,9 +108,36 @@ export interface EquipmentProfile {
   kind: 'filter' | 'pump' | 'heater' | 'blower' | 'controller' | 'other';
   installedAt?: number;
   runtimeSeconds?: number;
+  runtimeUpdatedAt?: number;
   lastCleanedAt?: number;
   lastReplacedAt?: number;
   metadata?: Record<string, string | number | boolean>;
+}
+
+export interface WaterTestRecord {
+  id: string;
+  timestamp: number;
+  waterBodyId: string;
+  testMethodId: string;
+  readings: MeasurementReading[];
+}
+
+export interface ChemicalDoseEvent {
+  id: string;
+  timestamp: number;
+  waterBodyId: string;
+  productId: string;
+  amount: number;
+  unit: DoseUnit;
+  reason?: string;
+}
+
+export interface MaintenanceEvent {
+  id: string;
+  timestamp: number;
+  equipmentId?: string;
+  type: 'cleaned' | 'replaced' | 'inspected' | 'water_change' | 'other';
+  note?: string;
 }
 
 export interface SpaDomainState {
@@ -120,6 +147,9 @@ export interface SpaDomainState {
   testMethods: TestMethodProfile[];
   products: ChemicalProduct[];
   equipment: EquipmentProfile[];
+  waterTests: WaterTestRecord[];
+  chemicalDoses: ChemicalDoseEvent[];
+  maintenanceEvents: MaintenanceEvent[];
 }
 
 export interface ChemistryFinding {

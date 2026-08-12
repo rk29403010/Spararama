@@ -20,7 +20,6 @@ export async function signInWithGoogle() {
     await signInWithPopup(auth, provider);
   } catch (err: any) {
     console.error("Sign-in failed", err);
-    // You can optionally show a toast or alert here, but we'll log it instead of crashing.
   }
 }
 
@@ -32,7 +31,16 @@ export function subscribeToAuthChanges(callback: (user: User | null) => void) {
   return onAuthStateChanged(auth, callback);
 }
 
-export async function logEvent(type: 'temperature_input' | 'chemical_dose' | 'heating_calculated' | 'manual_log' | 'heating_action', data: any) {
+export type LogEventType =
+  | 'temperature_input'
+  | 'water_test'
+  | 'chemical_dose'
+  | 'heating_calculated'
+  | 'manual_log'
+  | 'heating_action'
+  | 'maintenance';
+
+export async function logEvent(type: LogEventType, data: any) {
   try {
     const user = auth.currentUser;
     if (!user) {
@@ -65,7 +73,8 @@ export async function getLogs(max = 50) {
   }
 }
 
-// Utility to migrate existing logs from the global collection to the user's specific collection
+// Temporary one-off migration utility. Remove this and the corresponding legacy
+// Firestore read rule once the old global logs have been copied successfully.
 export async function migrateOldLogs() {
   try {
     const user = auth.currentUser;
@@ -75,7 +84,7 @@ export async function migrateOldLogs() {
 
     const q = query(collection(db, 'logs'), limit(500));
     const snap = await getDocs(q);
-    
+
     if (snap.empty) {
       return { success: true, count: 0, message: "No old logs found to migrate." };
     }
@@ -85,7 +94,6 @@ export async function migrateOldLogs() {
 
     snap.forEach((oldDoc) => {
       const data = oldDoc.data();
-      // Write to new path
       const newRef = doc(collection(db, 'users', user.uid, 'logs'));
       batch.set(newRef, data);
       count++;

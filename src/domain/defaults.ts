@@ -14,7 +14,7 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
       targets: [
         { measurement: 'free_chlorine', min: 3, max: 5, preferred: 4, unit: 'ppm' },
         { measurement: 'ph', min: 7.2, max: 7.6, preferred: 7.4, unit: 'ph' },
-        { measurement: 'total_alkalinity', min: 80, max: 120, preferred: 100, unit: 'ppm' },
+        { measurement: 'total_alkalinity', min: 80, max: 120, preferred: 80, unit: 'ppm' },
         { measurement: 'calcium_hardness', min: 150, max: 500, preferred: 250, unit: 'ppm' },
         { measurement: 'cyanuric_acid', min: 30, max: 50, preferred: 40, unit: 'ppm' }
       ]
@@ -165,7 +165,10 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
       name: 'CleverSpa controller',
       kind: 'controller'
     }
-  ]
+  ],
+  waterTests: [],
+  chemicalDoses: [],
+  maintenanceEvents: []
 };
 
 export function createDefaultDomainState(): SpaDomainState {

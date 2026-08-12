@@ -28,7 +28,18 @@ export async function loadState(): Promise<AppState> {
       data.inventory = data.inventory || [];
       data.readings = data.readings || [];
       data.heatingSessions = data.heatingSessions || [];
-      data.domain = data.domain || createDefaultDomainState();
+
+      const defaultDomain = createDefaultDomainState();
+      data.domain = data.domain || defaultDomain;
+      data.domain.waterTests = data.domain.waterTests || [];
+      data.domain.chemicalDoses = data.domain.chemicalDoses || [];
+      data.domain.maintenanceEvents = data.domain.maintenanceEvents || [];
+      data.domain.equipment = data.domain.equipment || defaultDomain.equipment;
+      data.domain.products = data.domain.products || defaultDomain.products;
+      data.domain.testMethods = data.domain.testMethods || defaultDomain.testMethods;
+      data.domain.waterBodies = data.domain.waterBodies || defaultDomain.waterBodies;
+      data.domain.activeWaterBodyId = data.domain.activeWaterBodyId || defaultDomain.activeWaterBodyId;
+      data.domain.activeTestMethodId = data.domain.activeTestMethodId || defaultDomain.activeTestMethodId;
       return data;
     }
     return makeDefaultState();
