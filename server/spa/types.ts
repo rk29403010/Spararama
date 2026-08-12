@@ -6,6 +6,8 @@ export interface SpaStatus {
   heaterOn: boolean;
   filterOn: boolean;
   bubblesOn: boolean;
+  filterRuntimeSeconds: number;
+  heaterRuntimeSeconds: number;
   updatedAt: number;
 }
 

@@ -1,23 +1,34 @@
 import type { SpaAdapter, SpaStatus } from './types';
 
 export class MockSpaAdapter implements SpaAdapter {
-  private state: SpaStatus = {
-    transport: 'mock',
-    connected: true,
-    waterTemperatureC: 28,
-    targetTemperatureC: 38,
-    heaterOn: false,
-    filterOn: false,
-    bubblesOn: false,
-    updatedAt: Date.now()
-  };
+  private state: SpaStatus;
+  private lastSimulationAt: number;
 
-  private lastSimulationAt = Date.now();
+  constructor(private readonly now: () => number = Date.now) {
+    const timestamp = this.now();
+    this.lastSimulationAt = timestamp;
+    this.state = {
+      transport: 'mock',
+      connected: true,
+      waterTemperatureC: 28,
+      targetTemperatureC: 38,
+      heaterOn: false,
+      filterOn: false,
+      bubblesOn: false,
+      filterRuntimeSeconds: 0,
+      heaterRuntimeSeconds: 0,
+      updatedAt: timestamp
+    };
+  }
 
   private simulate() {
-    const now = Date.now();
-    const elapsedHours = (now - this.lastSimulationAt) / 3_600_000;
+    const now = this.now();
+    const elapsedSeconds = Math.max(0, (now - this.lastSimulationAt) / 1000);
+    const elapsedHours = elapsedSeconds / 3600;
     this.lastSimulationAt = now;
+
+    if (this.state.filterOn) this.state.filterRuntimeSeconds += elapsedSeconds;
+    if (this.state.heaterOn) this.state.heaterRuntimeSeconds += elapsedSeconds;
 
     if (elapsedHours > 0) {
       if (this.state.heaterOn && this.state.filterOn && this.state.waterTemperatureC < this.state.targetTemperatureC) {
