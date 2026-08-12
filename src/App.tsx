@@ -6,15 +6,24 @@ import { Heating } from './components/Heating';
 import { Logs } from './components/Logs';
 import { ReminderModal } from './components/ReminderModal';
 import { ManualLogModal } from './components/ManualLogModal';
-import { Droplets, Flame, Settings, List, Plus } from 'lucide-react';
+import { Droplets, Flame, Settings, List, Plus, LogIn, LogOut, User as UserIcon } from 'lucide-react';
+import { subscribeToAuthChanges, signInWithGoogle, signOutUser } from './lib/firebase';
+import type { User } from 'firebase/auth';
 
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
   const [activeTab, setActiveTab] = useState<'chemicals' | 'heating' | 'settings' | 'logs'>('heating');
   const [showManualLog, setShowManualLog] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [authInitialized, setAuthInitialized] = useState(false);
 
   useEffect(() => {
     loadState().then(s => setState(s));
+    const unsubscribe = subscribeToAuthChanges((u) => {
+      setUser(u);
+      setAuthInitialized(true);
+    });
+    return () => unsubscribe();
   }, []);
 
   const updateState = (newState: AppState) => {
@@ -22,7 +31,7 @@ export default function App() {
     saveState(newState);
   };
 
-  if (!state) {
+  if (!state || !authInitialized) {
     return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500">Loading...</div>;
   }
 
@@ -36,13 +45,38 @@ export default function App() {
             </div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">Spa Monitor</h1>
           </div>
-          <button 
-            onClick={() => setShowManualLog(true)}
-            className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 hover:bg-slate-200 transition-colors"
-          >
-            <Plus className="w-6 h-6" />
-          </button>
+          
+          <div className="flex items-center gap-3">
+            {!user ? (
+              <button 
+                onClick={signInWithGoogle}
+                className="flex items-center gap-2 text-sm font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full hover:bg-indigo-100 transition-colors"
+              >
+                <LogIn className="w-4 h-4" /> Sign In
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-700">
+                  <UserIcon className="w-4 h-4" />
+                </span>
+              </div>
+            )}
+            
+            <button 
+              onClick={() => setShowManualLog(true)}
+              className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 hover:bg-slate-200 transition-colors"
+            >
+              <Plus className="w-6 h-6" />
+            </button>
+          </div>
         </div>
+        
+        {/* Auth Warning Bar */}
+        {!user && (
+          <div className="bg-amber-100 px-4 py-2 text-center text-amber-800 text-xs font-semibold">
+            You are not signed in. Activity logs and history will not be saved.
+          </div>
+        )}
       </header>
 
       <main className="flex-1 pb-20 overflow-y-auto">
@@ -54,6 +88,25 @@ export default function App() {
             <h2 className="text-2xl font-semibold text-slate-900 mb-6 text-center">Settings</h2>
             
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-6">
+              <label className="flex items-center justify-between">
+                <span className="font-medium text-slate-700 text-lg">Account</span>
+                {user ? (
+                   <button 
+                     className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-bold flex items-center gap-2 hover:bg-slate-200"
+                     onClick={signOutUser}
+                   >
+                     <LogOut className="w-4 h-4" /> Sign Out
+                   </button>
+                ) : (
+                   <button 
+                     className="px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-100"
+                     onClick={signInWithGoogle}
+                   >
+                     <LogIn className="w-4 h-4" /> Sign In
+                   </button>
+                )}
+              </label>
+
               <label className="flex items-center justify-between">
                 <span className="font-medium text-slate-700 text-lg">Temperature Scale</span>
                 <div className="flex bg-slate-100 p-1 rounded-xl">

@@ -1,18 +1,44 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { getLogs } from '../lib/firebase';
-import { Activity, Thermometer, Droplet, Clock, TrendingUp } from 'lucide-react';
+import { getLogs, migrateOldLogs, subscribeToAuthChanges } from '../lib/firebase';
+import { Activity, Thermometer, Droplet, Clock, TrendingUp, Download } from 'lucide-react';
 import { ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 
 export function Logs() {
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [migrating, setMigrating] = useState(false);
+  const [migrationResult, setMigrationResult] = useState<string | null>(null);
+  const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
-    getLogs().then(data => {
-      setLogs(data);
-      setLoading(false);
+    const unsub = subscribeToAuthChanges((u) => {
+      setUser(u);
+      if (u) {
+        setLoading(true);
+        getLogs().then(data => {
+          setLogs(data);
+          setLoading(false);
+        });
+      } else {
+        setLogs([]);
+        setLoading(false);
+      }
     });
+    return () => unsub();
   }, []);
+
+  const handleMigrate = async () => {
+    setMigrating(true);
+    setMigrationResult(null);
+    const res = await migrateOldLogs();
+    setMigrationResult(res.message);
+    if (res.success && res.count > 0) {
+      // Refresh logs
+      const data = await getLogs();
+      setLogs(data);
+    }
+    setMigrating(false);
+  };
 
   const chartData = useMemo(() => {
     return [...logs]
@@ -47,12 +73,44 @@ export function Logs() {
     return <div className="p-8 text-center text-slate-500">Loading logs...</div>;
   }
 
-  if (logs.length === 0) {
-    return <div className="p-8 text-center text-slate-500">No logs found yet. Calculate heating or scan chemicals to generate logs.</div>;
+  if (!user) {
+    return (
+      <div className="p-8 text-center text-slate-500 space-y-4">
+        <p>You must sign in to view and save activity logs.</p>
+        <p className="text-sm">Go to the Settings tab to authenticate with Google.</p>
+      </div>
+    );
   }
 
   return (
     <div className="p-4 max-w-xl mx-auto space-y-6 pb-8">
+      
+      {migrationResult ? (
+        <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl text-indigo-800 text-sm">
+          {migrationResult}
+        </div>
+      ) : (
+        <div className="bg-slate-100 border border-slate-200 p-4 rounded-xl flex items-center justify-between">
+          <div className="text-sm text-slate-600">
+            <strong>Have older public logs?</strong><br/>
+            Copy them to your private account securely.
+          </div>
+          <button 
+            onClick={handleMigrate} 
+            disabled={migrating}
+            className="flex items-center gap-2 bg-white text-slate-800 border border-slate-200 shadow-sm px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-slate-50 transition-colors disabled:opacity-50"
+          >
+            <Download className="w-4 h-4" />
+            {migrating ? 'Migrating...' : 'Migrate'}
+          </button>
+        </div>
+      )}
+
+      {logs.length === 0 && (
+        <div className="p-8 text-center text-slate-500 bg-white rounded-3xl border border-slate-100">
+          No logs found in your account. Calculate heating or scan chemicals to generate new logs.
+        </div>
+      )}
       
       {chartData.length > 1 && (
         <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">

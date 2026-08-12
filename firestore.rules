@@ -1,8 +1,21 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Only permit a signed-in user to access documents beneath their own UID
+    match /users/{uid}/logs/{logId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Allow authenticated users to read (but NOT write) the legacy global logs collection 
+    // for migration purposes.
     match /logs/{logId} {
-      allow read, write: if true;
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+    
+    // Explicitly reject all other access
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
