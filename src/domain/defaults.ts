@@ -10,6 +10,7 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
       kind: 'spa',
       volumeLiters: 800,
       sanitizer: 'chlorine',
+      connectivity: 'wifi',
       doseRounding: 1,
       targets: [
         { measurement: 'free_chlorine', min: 3, max: 5, preferred: 4, unit: 'ppm' },
@@ -69,17 +70,7 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
       brand: 'CleverSpa',
       form: 'powder',
       activeIngredient: 'alkalinity increaser',
-      doseModels: [
-        {
-          kind: 'linear_raise',
-          measurement: 'total_alkalinity',
-          direction: 'raise',
-          amount: 16,
-          unit: 'g',
-          referenceVolumeLiters: 1000,
-          raisesBy: 10
-        }
-      ],
+      doseModels: [{ kind: 'linear_raise', measurement: 'total_alkalinity', direction: 'raise', amount: 16, unit: 'g', referenceVolumeLiters: 1000, raisesBy: 10 }],
       mixMinutes: 20,
       circulationRequired: true,
       notes: 'Label: 16 g raises 1000 L by 10 ppm.'
@@ -90,17 +81,7 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
       brand: 'CleverSpa',
       form: 'powder',
       activeIngredient: 'pH increaser',
-      doseModels: [
-        {
-          kind: 'fixed_label',
-          measurement: 'ph',
-          direction: 'raise',
-          amount: 11,
-          unit: 'g',
-          referenceVolumeLiters: 1000,
-          note: 'Use one label dose, circulate, then retest rather than assuming a linear pH change.'
-        }
-      ],
+      doseModels: [{ kind: 'fixed_label', measurement: 'ph', direction: 'raise', amount: 11, unit: 'g', referenceVolumeLiters: 1000, note: 'Use one label dose, circulate, then retest rather than assuming a linear pH change.' }],
       mixMinutes: 15,
       circulationRequired: true
     },
@@ -110,17 +91,7 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
       brand: 'CleverSpa',
       form: 'powder',
       activeIngredient: 'pH reducer',
-      doseModels: [
-        {
-          kind: 'fixed_label',
-          measurement: 'ph',
-          direction: 'lower',
-          amount: 11,
-          unit: 'g',
-          referenceVolumeLiters: 1000,
-          note: 'Use one label dose, circulate, then retest rather than assuming a linear pH change.'
-        }
-      ],
+      doseModels: [{ kind: 'fixed_label', measurement: 'ph', direction: 'lower', amount: 11, unit: 'g', referenceVolumeLiters: 1000, note: 'Use one label dose, circulate, then retest rather than assuming a linear pH change.' }],
       mixMinutes: 15,
       circulationRequired: true
     },
@@ -130,41 +101,16 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
       brand: 'CleverSpa',
       form: 'granules',
       activeIngredient: 'sodium dichloroisocyanurate dihydrate',
-      doseModels: [
-        {
-          kind: 'linear_raise',
-          measurement: 'free_chlorine',
-          direction: 'raise',
-          amount: 2,
-          unit: 'g',
-          referenceVolumeLiters: 1000,
-          raisesBy: 1
-        }
-      ],
+      doseModels: [{ kind: 'linear_raise', measurement: 'free_chlorine', direction: 'raise', amount: 2, unit: 'g', referenceVolumeLiters: 1000, raisesBy: 1 }],
       mixMinutes: 15,
       circulationRequired: true,
       notes: 'Label: 2 g raises 1000 L by 1 ppm free chlorine.'
     }
   ],
   equipment: [
-    {
-      id: 'cleverspa-filter',
-      name: 'CleverSpa filter cartridge',
-      kind: 'filter',
-      runtimeSeconds: 0
-    },
-    {
-      id: 'cleverspa-heater',
-      name: 'CleverSpa heater',
-      kind: 'heater',
-      runtimeSeconds: 0,
-      metadata: { powerWatts: 1800 }
-    },
-    {
-      id: 'cleverspa-controller',
-      name: 'CleverSpa controller',
-      kind: 'controller'
-    }
+    { id: 'cleverspa-filter', name: 'CleverSpa filter cartridge', kind: 'filter', runtimeSeconds: 0 },
+    { id: 'cleverspa-heater', name: 'CleverSpa heater', kind: 'heater', runtimeSeconds: 0, metadata: { powerWatts: 1800 } },
+    { id: 'cleverspa-controller', name: 'CleverSpa controller', kind: 'controller' }
   ],
   waterTests: [],
   chemicalDoses: [],
