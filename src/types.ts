@@ -1,3 +1,5 @@
+import type { SpaDomainState } from './domain/models';
+
 export interface ChemicalInventory {
   id: string;
   name: string;
@@ -51,9 +53,9 @@ export const DEFAULT_SPA_CONFIG: SpaConfig = {
   maxTemp: 40,
   heaterPowerWatts: 1800,
   pumpPowerWatts: 600,
-  electricityRatePerKwh: 0.2086, // GBP/kWh or USD/kWh roughly
-  baseHeatingRatePerHour: 1.5, // 1.5-2C per hour
-  heatLossRatePerHour: 0.5, // Default guess, learned over time
+  electricityRatePerKwh: 0.2086,
+  baseHeatingRatePerHour: 1.5,
+  heatLossRatePerHour: 0.5,
   temperatureScale: 'C',
   defaultReadyTime: '17:00',
   timeFormat: '12h',
@@ -74,4 +76,5 @@ export interface AppState {
   heatingSessions: HeatingSession[];
   reminders: ActiveReminder[];
   config: SpaConfig;
+  domain: SpaDomainState;
 }

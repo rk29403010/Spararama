@@ -2,6 +2,8 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
+import { MockSpaAdapter } from './server/spa/mock';
+import { registerSpaRoutes } from './server/spa/routes';
 
 async function startServer() {
   const app = express();
@@ -9,25 +11,28 @@ async function startServer() {
 
   app.use(express.json({ limit: "50mb" }));
 
-  // API Routes
+  const spaAdapter = new MockSpaAdapter();
+  registerSpaRoutes(app, spaAdapter);
+
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
+    res.json({ status: "ok", spaTransport: 'mock' });
   });
 
-  // Analyze Test Strip or Barcode using Gemini
+  // AI remains optional and observation-only. It is not used by the deterministic
+  // chemistry rules engine or by spa control decisions.
   app.post("/api/analyze-image", async (req, res) => {
     try {
-      const { imageBase64, type } = req.body; // type = 'barcode' or 'test_strip'
+      const { imageBase64, type } = req.body;
       if (!imageBase64) {
         return res.status(400).json({ error: "No image provided" });
       }
-      
+
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
         return res.status(500).json({ error: "Gemini API key not configured" });
       }
 
-      const ai = new GoogleGenAI({ 
+      const ai = new GoogleGenAI({
         apiKey,
         httpOptions: {
           headers: { 'User-Agent': 'aistudio-build' }
@@ -38,7 +43,7 @@ async function startServer() {
       let responseSchema: any = null;
 
       if (type === "barcode") {
-        prompt = "Analyze this image and identify the hot tub or pool chemical. Return the name of the chemical, its primary active ingredient (e.g. Chlorine, Bromine, pH Plus), and the quantity if visible. Return as a JSON object.";
+        prompt = "Analyze this image and identify the hot tub or pool chemical. Return the name of the chemical, its primary active ingredient, and the quantity if visible. Return as a JSON object.";
         responseSchema = {
           type: Type.OBJECT,
           properties: {
@@ -49,23 +54,21 @@ async function startServer() {
           required: ["name"]
         };
       } else if (type === "test_strip") {
-         prompt = "Analyze this hot tub test strip. Identify the values for Free Chlorine (or Bromine), pH, and Total Alkalinity. Compare the colors to the standard chart if visible, or estimate based on standard hot tub test strips. Return the readings as numbers if possible, or null if unreadable. Return as JSON.";
-         responseSchema = {
+        prompt = "Analyze this hot tub test strip as an observation only. Identify Free Chlorine (or Bromine), pH, and Total Alkalinity. Return null for unreadable pads. Do not give dosing advice. Return JSON.";
+        responseSchema = {
           type: Type.OBJECT,
           properties: {
-            chlorine: { type: Type.NUMBER, description: "Free chlorine ppm, e.g. 3.0" },
-            bromine: { type: Type.NUMBER, description: "Bromine ppm, e.g. 4.0" },
-            ph: { type: Type.NUMBER, description: "pH level, e.g. 7.4" },
-            alkalinity: { type: Type.NUMBER, description: "Total Alkalinity ppm, e.g. 100" }
+            chlorine: { type: Type.NUMBER, description: "Free chlorine ppm" },
+            bromine: { type: Type.NUMBER, description: "Bromine ppm" },
+            ph: { type: Type.NUMBER, description: "pH" },
+            alkalinity: { type: Type.NUMBER, description: "Total alkalinity ppm" }
           }
-         };
+        };
       } else {
         return res.status(400).json({ error: "Invalid analysis type" });
       }
 
-      // Remove data:image/jpeg;base64, prefix if present
       const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
-
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: {
@@ -80,15 +83,12 @@ async function startServer() {
         }
       });
 
-      let resultText = response.text || "{}";
-      
+      const resultText = response.text || "{}";
       try {
-        const data = JSON.parse(resultText);
-        res.json(data);
-      } catch(e) {
-         res.json({ raw: resultText });
+        res.json(JSON.parse(resultText));
+      } catch {
+        res.json({ raw: resultText });
       }
-      
     } catch (err: any) {
       console.error(err);
       res.status(500).json({ error: err.message || "Failed to analyze image" });
