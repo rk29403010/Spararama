@@ -1,3 +1,4 @@
+// Domain and server regression suite.
 import './domain/chemistry.test';
 import './domain/camera-confidence.test';
 import './domain/spoons.test';
