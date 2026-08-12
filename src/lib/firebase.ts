@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp, writeBatch, doc } from 'firebase/firestore';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { getAuth, getRedirectResult, GoogleAuthProvider, signInWithRedirect, signOut, onAuthStateChanged, User } from 'firebase/auth';
 
 const firebaseConfig = {
   projectId: "microprojects-481213",
@@ -21,13 +21,19 @@ export const db = app ? getFirestore(app, "ai-studio-hottubmonitor-c4b572e9-4270
 export const auth = app ? getAuth(app) : null;
 const provider = app ? new GoogleAuthProvider() : null;
 
+if (auth) {
+  void getRedirectResult(auth).catch((error) => {
+    console.error('Redirect sign-in failed', error);
+  });
+}
+
 export async function signInWithGoogle() {
   if (!auth || !provider) {
     console.info('Firebase sign-in is unavailable until VITE_FIREBASE_API_KEY is configured.');
     return;
   }
   try {
-    await signInWithPopup(auth, provider);
+    await signInWithRedirect(auth, provider);
   } catch (err: any) {
     console.error("Sign-in failed", err);
   }
