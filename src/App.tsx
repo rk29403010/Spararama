@@ -7,8 +7,9 @@ import { Heating } from './components/Heating';
 import { Logs } from './components/Logs';
 import { ReminderModal } from './components/ReminderModal';
 import { ManualLogModal } from './components/ManualLogModal';
-import { Droplets, Flame, Settings, List, Plus, LogIn, LogOut, User as UserIcon, House } from 'lucide-react';
-import { subscribeToAuthChanges, signInWithGoogle, signOutUser } from './lib/firebase';
+import { GoogleSignInButton } from './components/GoogleSignInButton';
+import { Droplets, Flame, Settings, List, Plus, LogOut, User as UserIcon, House } from 'lucide-react';
+import { subscribeToAuthChanges, signOutUser } from './lib/firebase';
 import type { User } from 'firebase/auth';
 
 export default function App() {
@@ -49,12 +50,7 @@ export default function App() {
 
           <div className="flex items-center gap-3">
             {!user ? (
-              <button
-                onClick={signInWithGoogle}
-                className="flex items-center gap-2 text-sm font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full hover:bg-indigo-100 transition-colors"
-              >
-                <LogIn className="w-4 h-4" /> Sign In
-              </button>
+              <GoogleSignInButton />
             ) : (
               <div className="flex items-center gap-2">
                 <span className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-700">
@@ -96,9 +92,7 @@ export default function App() {
                     <LogOut className="w-4 h-4" /> Sign Out
                   </button>
                 ) : (
-                  <button className="px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-100" onClick={signInWithGoogle}>
-                    <LogIn className="w-4 h-4" /> Sign In
-                  </button>
+                  <GoogleSignInButton />
                 )}
               </label>
 

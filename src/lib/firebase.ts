@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp, writeBatch, doc } from 'firebase/firestore';
-import { getAuth, getRedirectResult, GoogleAuthProvider, signInWithRedirect, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithCredential, signOut, onAuthStateChanged, User } from 'firebase/auth';
 
 const firebaseConfig = {
   projectId: "microprojects-481213",
@@ -19,24 +19,56 @@ export const isFirebaseConfigured = Boolean(apiKey && apiKey !== 'YOUR_FIREBASE_
 const app = isFirebaseConfigured ? initializeApp(firebaseConfig) : null;
 export const db = app ? getFirestore(app, "ai-studio-hottubmonitor-c4b572e9-4270-488c-b8d2-306ccf453f65") : null;
 export const auth = app ? getAuth(app) : null;
-const provider = app ? new GoogleAuthProvider() : null;
 
-if (auth) {
-  void getRedirectResult(auth).catch((error) => {
-    console.error('Redirect sign-in failed', error);
+const googleClientId = '917911030888-umuoc3r4l62j26naqdj474rmjtijd4kn.apps.googleusercontent.com';
+let googleIdentityPromise: Promise<any> | null = null;
+let googleIdentityInitialized = false;
+
+function loadGoogleIdentity() {
+  if ((window as any).google?.accounts?.id) return Promise.resolve((window as any).google);
+  if (googleIdentityPromise) return googleIdentityPromise;
+
+  googleIdentityPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.onload = () => resolve((window as any).google);
+    script.onerror = () => reject(new Error('Google sign-in could not be loaded.'));
+    document.head.appendChild(script);
   });
+  return googleIdentityPromise;
 }
 
-export async function signInWithGoogle() {
-  if (!auth || !provider) {
-    console.info('Firebase sign-in is unavailable until VITE_FIREBASE_API_KEY is configured.');
-    return;
+export async function renderGoogleSignInButton(container: HTMLElement) {
+  if (!auth) throw new Error('Firebase is not configured on this device.');
+  const google = await loadGoogleIdentity();
+
+  if (!googleIdentityInitialized) {
+    google.accounts.id.initialize({
+      client_id: googleClientId,
+      use_fedcm_for_prompt: true,
+      use_fedcm_for_button: true,
+      callback: async (response: { credential?: string }) => {
+        if (!response.credential || !auth) return;
+        try {
+          const credential = GoogleAuthProvider.credential(response.credential);
+          await signInWithCredential(auth, credential);
+        } catch (error) {
+          console.error('Google credential sign-in failed', error);
+        }
+      }
+    });
+    googleIdentityInitialized = true;
   }
-  try {
-    await signInWithRedirect(auth, provider);
-  } catch (err: any) {
-    console.error("Sign-in failed", err);
-  }
+
+  container.replaceChildren();
+  google.accounts.id.renderButton(container, {
+    type: 'standard',
+    theme: 'outline',
+    size: 'medium',
+    text: 'signin_with',
+    shape: 'pill'
+  });
 }
 
 export function signOutUser() {
