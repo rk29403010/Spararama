@@ -8,6 +8,7 @@ export interface SpaStatus {
   bubblesOn: boolean;
   filterRuntimeSeconds: number;
   heaterRuntimeSeconds: number;
+  deviceFilterMinutes?: number;
   updatedAt: number;
 }
 
