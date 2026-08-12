@@ -10,6 +10,7 @@ import type {
   TargetRange,
   WaterBodyProfile
 } from './models';
+import { spoonDoseForProduct } from './spoons';
 
 interface ReadingBounds {
   min: number;
@@ -158,10 +159,17 @@ function doseActionFor(
   const amount = calculateDose(selected.product, selected.model, waterBody, reading, target);
   if (!amount) return null;
 
+  const spoonDose = selected.model.unit === 'g'
+    ? spoonDoseForProduct(selected.product.id, amount)
+    : null;
+  const productName = spoonDose
+    ? `${selected.product.name} (~${spoonDose.text})`
+    : selected.product.name;
+
   return {
     kind: 'dose',
     productId: selected.product.id,
-    productName: selected.product.name,
+    productName,
     amount,
     unit: selected.model.unit,
     measurement: target.measurement,
