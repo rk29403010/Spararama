@@ -10,12 +10,22 @@ const firebaseConfig = {
   authDomain: "microprojects-481213.firebaseapp.com",
 };
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, "ai-studio-hottubmonitor-c4b572e9-4270-488c-b8d2-306ccf453f65");
-export const auth = getAuth(app);
-const provider = new GoogleAuthProvider();
+const apiKey = String(firebaseConfig.apiKey || '').trim();
+export const isFirebaseConfigured = Boolean(apiKey && apiKey !== 'YOUR_FIREBASE_API_KEY');
+
+// Firebase is optional for a local-only installation. Do not initialise Auth or
+// Firestore until a real browser API key has been provided; the SDK otherwise
+// throws during module evaluation and prevents the whole UI from loading.
+const app = isFirebaseConfigured ? initializeApp(firebaseConfig) : null;
+export const db = app ? getFirestore(app, "ai-studio-hottubmonitor-c4b572e9-4270-488c-b8d2-306ccf453f65") : null;
+export const auth = app ? getAuth(app) : null;
+const provider = app ? new GoogleAuthProvider() : null;
 
 export async function signInWithGoogle() {
+  if (!auth || !provider) {
+    console.info('Firebase sign-in is unavailable until VITE_FIREBASE_API_KEY is configured.');
+    return;
+  }
   try {
     await signInWithPopup(auth, provider);
   } catch (err: any) {
@@ -24,10 +34,15 @@ export async function signInWithGoogle() {
 }
 
 export function signOutUser() {
+  if (!auth) return Promise.resolve();
   return signOut(auth);
 }
 
 export function subscribeToAuthChanges(callback: (user: User | null) => void) {
+  if (!auth) {
+    callback(null);
+    return () => {};
+  }
   return onAuthStateChanged(auth, callback);
 }
 
@@ -42,6 +57,7 @@ export type LogEventType =
 
 export async function logEvent(type: LogEventType, data: any) {
   try {
+    if (!auth || !db) return;
     const user = auth.currentUser;
     if (!user) {
       console.warn("User is not signed in. Log event skipped.");
@@ -59,6 +75,7 @@ export async function logEvent(type: LogEventType, data: any) {
 
 export async function getLogs(max = 50) {
   try {
+    if (!auth || !db) return [];
     const user = auth.currentUser;
     if (!user) {
       console.warn("User is not signed in. Returning empty logs.");
@@ -77,6 +94,9 @@ export async function getLogs(max = 50) {
 // Firestore read rule once the old global logs have been copied successfully.
 export async function migrateOldLogs() {
   try {
+    if (!auth || !db) {
+      return { success: false, count: 0, message: 'Firebase is not configured on this device.' };
+    }
     const user = auth.currentUser;
     if (!user) {
       throw new Error("You must be signed in to migrate logs.");
