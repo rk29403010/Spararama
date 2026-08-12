@@ -2,6 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { CirclePower, Loader2, RefreshCw } from 'lucide-react';
 import { spaApi, type SpaStatusDto } from '../lib/spaApi';
 
+function hours(seconds: number | undefined) {
+  return ((seconds ?? 0) / 3600).toFixed(1);
+}
+
 export function SpaStatusCard() {
   const [status, setStatus] = useState<SpaStatusDto | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -71,6 +75,17 @@ export function SpaStatusCard() {
           {busy === 'heater' ? <Loader2 className="w-5 h-5 animate-spin" /> : <CirclePower className="w-5 h-5" />}
           Heat {status?.heaterOn ? 'On' : 'Off'}
         </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="rounded-xl bg-slate-50 px-3 py-2">
+          <span className="block text-xs font-bold uppercase tracking-wider text-slate-400">Filter runtime</span>
+          <strong className="text-slate-800">{hours(status?.filterRuntimeSeconds)} h</strong>
+        </div>
+        <div className="rounded-xl bg-slate-50 px-3 py-2">
+          <span className="block text-xs font-bold uppercase tracking-wider text-slate-400">Heater runtime</span>
+          <strong className="text-slate-800">{hours(status?.heaterRuntimeSeconds)} h</strong>
+        </div>
       </div>
 
       {error && <div className="rounded-xl bg-red-50 text-red-700 p-3 text-sm font-semibold">{error}</div>}
