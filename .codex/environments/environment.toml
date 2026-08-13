@@ -1,0 +1,50 @@
+# Codex desktop project actions for Spararama.
+#
+# Keep the commands deliberately small and deterministic. On Windows, launch
+# PowerShell scripts through powershell.exe rather than embedding PowerShell
+# expressions directly in the action command.
+
+[[actions]]
+name = "Update local app"
+icon = "run"
+command = 'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\update-local.ps1'
+
+[[actions]]
+name = "Sync chatgpt-dev"
+icon = "run"
+command = 'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\sync-dev.ps1'
+
+[[actions]]
+name = "Start local app"
+icon = "run"
+command = 'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-local.ps1'
+
+[[actions]]
+name = "Stop local app"
+icon = "run"
+command = 'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\stop-local.ps1'
+
+[[actions]]
+name = "Local app status"
+icon = "run"
+command = 'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\status-local.ps1'
+
+[[actions]]
+name = "Run tests"
+icon = "run"
+command = "pnpm.cmd test"
+
+[[actions]]
+name = "Typecheck"
+icon = "run"
+command = "pnpm.cmd lint"
+
+[[actions]]
+name = "Build app"
+icon = "run"
+command = "pnpm.cmd build"
+
+[[actions]]
+name = "Diagnose Firebase"
+icon = "run"
+command = "pnpm.cmd firebase:diagnose"
