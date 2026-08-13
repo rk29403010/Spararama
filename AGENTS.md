@@ -2,7 +2,15 @@
 
 Before making architectural, Firebase, telemetry, spa-control, persistence, networking, or authentication changes, read [`architecture.md`](./architecture.md).
 
-Key constraints:
+## Repository workflow
+
+- The active Spararama development/integration branch is **`chatgpt-dev`**.
+- GitHub's default branch, **`main`**, is intentionally retained for the AI Studio snapshot/integration workflow. Do not use `main` as the normal base for local Spararama development unless explicitly asked.
+- Before starting local work, fetch and fast-forward `chatgpt-dev`. `scripts/sync-dev.ps1` provides a safe local helper that refuses to overwrite uncommitted work.
+- Codex worktrees/feature branches should normally be based on the current `chatgpt-dev` head and merged/ported back there.
+- Do not merge `chatgpt-dev` into `main`, or change the GitHub default branch, as an incidental development task.
+
+## Key constraints
 
 - The Spararama browser/frontend Firebase session is a **human user identity**.
 - The always-on telemetry backend uses a **separate machine/server identity** through Firebase Admin / Application Default Credentials.
