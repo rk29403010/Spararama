@@ -9,14 +9,21 @@
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
+    "clean": "node -e \"const fs=require('node:fs'); for (const p of ['dist','server.js']) fs.rmSync(p,{recursive:true,force:true})\"",
     "lint": "tsc --noEmit",
     "test": "pnpm run test:app && pnpm run test:cleverspa",
     "test:app": "tsx test/run.ts",
     "test:cleverspa": "pnpm --dir services/cleverspa test",
     "cleverspa:start": "node --env-file-if-exists=.env services/cleverspa/src/server.js",
     "cleverspa:dev": "node --env-file-if-exists=.env --watch services/cleverspa/src/server.js",
-    "firebase:diagnose": "tsx scripts/diagnose-firebase.ts"
+    "firebase:diagnose": "tsx scripts/diagnose-firebase.ts",
+    "local": "node scripts/local.mjs",
+    "local:update": "node scripts/local.mjs update",
+    "local:sync": "node scripts/local.mjs sync",
+    "local:start": "node scripts/local.mjs start",
+    "local:stop": "node scripts/local.mjs stop",
+    "local:restart": "node scripts/local.mjs restart",
+    "local:status": "node scripts/local.mjs status"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
