@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$RecoveryPath = (Join-Path (Split-Path $PSScriptRoot -Parent) '..\Spararama')
+  [string]$RecoveryPath = (Join-Path (Split-Path $PSScriptRoot -Parent) '..\spararama-cleverspa-recovery')
 )
 
 $ErrorActionPreference = 'Stop'
