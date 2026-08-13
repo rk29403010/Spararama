@@ -1,5 +1,6 @@
-# Single-package workspace. pnpm 11 blocks dependency install scripts unless they
-# are explicitly approved; keep this allowlist narrow and review additions.
+# Spararama's main app is the dependency-bearing package. Hardware adapter
+# services are kept under services/ and may be deployed independently; the
+# CleverSpa service currently has no third-party runtime dependencies.
 allowBuilds:
   '@firebase/util': true
   '@google/genai': true

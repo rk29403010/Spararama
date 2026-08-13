@@ -1,27 +1,40 @@
 # AGENTS.md
 
-Before making architectural, Firebase, telemetry, spa-control, persistence, networking, or authentication changes, read [`architecture.md`](./architecture.md).
+Before architectural, Firebase, telemetry, spa-control, persistence, networking or authentication changes, read [`architecture.md`](./architecture.md).
 
 ## Repository workflow
 
-- The active Spararama development/integration branch is **`chatgpt-dev`**.
-- GitHub's default branch, **`main`**, is intentionally retained for the AI Studio snapshot/integration workflow. Do not use `main` as the normal base for local Spararama development unless explicitly asked.
-- Before starting local work, fetch and fast-forward `chatgpt-dev`. `scripts/sync-dev.ps1` provides a safe local helper that refuses to overwrite uncommitted work.
-- Codex worktrees/feature branches should normally be based on the current `chatgpt-dev` head and merged/ported back there.
-- Do not merge `chatgpt-dev` into `main`, or change the GitHub default branch, as an incidental development task.
-- Codex desktop project actions are versioned in `.codex/environments/environment.toml`. Keep routine local operations exposed there so the user does not need to remember script/CLI commands.
+- Active development/integration branch: **`chatgpt-dev`**.
+- `main` is intentionally retained for the AI Studio snapshot/integration workflow. Do not use it as the normal local-development base unless explicitly asked.
+- Fetch and fast-forward `chatgpt-dev` before local work. `scripts/sync-dev.ps1` is the safe helper and refuses to overwrite uncommitted work.
+- Codex worktrees/feature branches should normally be based on current `chatgpt-dev` and returned there.
+- Do not merge `chatgpt-dev` into `main` or change the GitHub default branch incidentally.
+- **pnpm** is the repository package manager; respect the pinned version and `pnpm-lock.yaml`.
 
-## Key constraints
+## Component boundaries
 
-- The Spararama browser/frontend Firebase session is a **human user identity**.
-- The always-on telemetry backend uses a **separate machine/server identity** through Firebase Admin / Application Default Credentials.
-- Never make the unattended backend depend on a browser Google/Firebase login.
-- Never expose service-account/Admin credentials or privileged API secrets to browser code or Git.
-- The frontend and backend must target the same Firebase project **and the same named Firestore database** unless an intentional migration says otherwise.
-- Do not weaken Firestore client rules to make Firebase Admin telemetry writes work.
-- Always-on telemetry writes locally first and must continue through Firebase/network outages.
-- Keep spa-specific protocols behind the `SpaAdapter` boundary.
-- Preserve the distinction between non-networked tubs, network-capable but unreachable tubs, and contactable tubs.
-- **pnpm is the repository package manager.** Respect the pinned `packageManager` version in `package.json`, use `pnpm-lock.yaml` as the authoritative dependency lockfile, and do not reintroduce npm or Bun lockfiles/package-manager commands unless explicitly migrating away from pnpm.
+- This is a **single repository with separately deployable components**.
+- The main UI/backend live at repository root; hardware-specific services live under `services/`.
+- `services/cleverspa` is the CleverSpa/Gizwits hardware adapter. Do not move its wire protocol into React or the core domain layer.
+- Keep hardware integrations behind the `SpaAdapter` boundary so other spa/pool adapters can be added later.
+- The old `spararama-cleverspa-recovery` repository is historical/recovery reference only; normal development must not depend on a sibling checkout.
 
-For current component boundaries, data flow, credential roles, Firestore paths, and relevant source files, see [`architecture.md`](./architecture.md).
+## Connectivity/manual operation
+
+- Hardware connectivity is optional, not an error prerequisite.
+- Preserve three normal states: manual-only, adapter configured but unreachable, adapter live.
+- Manual temperature/equipment observations must remain available in all states.
+- Never invent zeroes for unavailable sensor readings; preserve unknown/null/gaps and the observation source/timestamp.
+- A partial/unreachable hardware response must not crash a page or the application shell.
+
+## Firebase/security constraints
+
+- Browser Firebase identity = **human user**.
+- Always-on backend Firebase identity = **machine/server**, through Firebase Admin/Application Default Credentials.
+- Never make the unattended backend depend on browser Google/Firebase login.
+- Never expose service-account/Admin credentials or privileged secrets to browser code or Git.
+- Frontend/backend must target the same Firebase project and named Firestore database unless intentionally migrating.
+- Do not weaken Firestore client rules to make Admin telemetry writes work.
+- Always-on telemetry writes locally first and continues through Firebase/network outages.
+
+For current data flow, deployment shapes, authentication roles and source boundaries, see [`architecture.md`](./architecture.md).

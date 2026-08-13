@@ -1,224 +1,225 @@
-# Spararama Architecture
+# Spararama architecture
 
-Spararama is split into separate local-control, backend telemetry, frontend, and Firebase concerns. Do not treat the browser Firebase session as the identity for the unattended backend collector.
+Spararama is intended to work for different spas and pools, from fully manual water bodies to remotely controllable equipment. Hardware connectivity is optional: chemistry, maintenance, history and manual observations must remain useful when no controller exists or when a controller is temporarily unreachable.
+
+## Repository layout
+
+Spararama is a single repository containing separately deployable components:
+
+```text
+Spararama/
+  src/                       React browser UI
+  server/                    main Spararama API + telemetry collector
+    spa/                     stable SpaAdapter boundary
+    telemetry/               local archive, queue and cloud sinks
+  services/
+    cleverspa/               standalone CleverSpa/Gizwits adapter service
+  scripts/                   local lifecycle/dev helpers
+  test/                      main app tests
+```
+
+Keeping components in one repository is a source-control/developer-experience decision. It does **not** require them to run in one process or on one computer.
+
+The former `spararama-cleverspa-recovery` repository supplied the CleverSpa/Gizwits implementation. Its live status/control core now lives under `services/cleverspa`. Keep the old repository archived as historical reference until the remaining recovery-only Wi-Fi reprovisioning tooling is deliberately re-homed or retired.
 
 ## System overview
 
 ```text
-                           +-------------------------------+
-                           |        CleverSpa tub          |
-                           |  real spa on local network    |
-                           +---------------+---------------+
-                                           |
-                                           | LAN
-                                           |
-                    +----------------------v----------------------+
-                    |     CleverSpa recovery bridge / API         |
-                    |       localhost service (127.0.0.1:8787)    |
-                    | exposes spa status + control endpoints      |
-                    +----------------------+----------------------+
-                                           |
-                                           | localhost HTTP
-                                           |
-        +----------------------------------v----------------------------------+
-        |                 Spararama always-on backend/logger                 |
-        |                                                                     |
-| - polls spa status at a backend-owned configurable interval       |
-        | - appends local telemetry archive                                  |
-        | - maintains pending Firebase upload queue                          |
-        | - exposes API used by the frontend                                 |
-        | - uploads telemetry with Firebase Admin credentials when enabled   |
-        +----------------+-------------------------------+--------------------+
-                         |                               |
-                         | local files                   | Firebase Admin SDK
-                         |                               |
-                         v                               v
-         +---------------------------+      +--------------------------------+
-         | local telemetry archive   |      | Firestore / Firebase project   |
-         | NDJSON + pending queue    |      | telemetry + user-facing data   |
-         +---------------------------+      +---------------+----------------+
-                                                            |
-                                                            | Firebase client SDK
-                                                            |
-                                  +-------------------------v------------------------+
-                                  |          Spararama frontend (browser)            |
-                                  |                                                  |
-                                  | - runs from Spararama local web server           |
-                                  | - reachable from phone over the home LAN          |
-                                  | - signs a human user in with Google/Firebase Auth|
-                                  | - calls local Spararama API for live spa control |
-                                  | - reads/writes user-owned Firestore data          |
-                                  +-------------------------+------------------------+
-                                                            |
-                                                            | LAN
-                                                            |
-                                                 +----------v----------+
-                                                 |  phone / PC browser |
-                                                 +---------------------+
+                         optional hardware adapter
+                       +---------------------------+
+                       | services/cleverspa :8787 |
+                       | or another SpaAdapter     |
+                       +-------------+-------------+
+                                     |
+                          local/LAN/API connection
+                                     |
++--------------------+       +-------v--------------------------------+
+| spa / pool hardware|<----->| Spararama always-on backend :3000      |
+| (when supported)   |       |                                        |
++--------------------+       | - stable /api/spa interface            |
+                             | - telemetry collector                   |
+                             | - local durable archive + retry queue   |
+                             | - Firebase Admin upload                 |
+                             | - future weather/sensor adapters        |
+                             +----------+------------------+-----------+
+                                        |                  |
+                                  local files        Firebase Admin
+                                        |                  |
+                                        v                  v
+                                  local archive       Firestore
+                                                           ^
+                                                           |
+                                                 Firebase client SDK
+                                                           |
+                             +-----------------------------+-----------+
+                             | React frontend / phone / PC browser     |
+                             | - live status/control when available    |
+                             | - manual observations always available  |
+                             | - chemistry, maintenance, history       |
+                             | - human Google/Firebase login           |
+                             +-----------------------------------------+
 ```
 
-## Spa control path
+## A hardware connection is optional
 
-The current real-spa path is:
+Do not model "no controller" as an application error. There are three normal states:
+
+1. **Manual-only water body** - no remote hardware integration exists. Users enter temperature/equipment observations themselves.
+2. **Adapter configured but unreachable** - the spa/pool is normally connected but cannot currently be contacted. Live controls are disabled; manual observations remain available.
+3. **Adapter live** - current sensor values and supported controls are available.
+
+A fourth condition is also possible: an adapter is live but returns only a subset of fields. Missing measurements are `unknown`, not zero and not a reason to crash the UI.
+
+Manual observations and automated telemetry are both observations of the same physical water body, but they must retain their source and timestamp. A manual reading must never be presented as if it were a current live sensor value.
+
+The Home UI therefore always has a route to manual reporting. When remote control is unavailable, manual monitoring becomes the primary interaction rather than an error dead-end.
+
+## SpaAdapter boundary
+
+The main backend talks to hardware through `server/spa/types.ts`. Hardware-specific protocols stay outside the application/domain layer.
+
+Current adapter modes include:
+
+- `bridge` / `cleverspa` - HTTP adapter to `services/cleverspa`
+- `manual` / `none` - no remote hardware; manual observations only
+- `mock` - development/test simulation
+
+Future adapters can represent another spa brand, pool controller, Home Assistant, MQTT, a vendor cloud API, Modbus, etc. The frontend should not need to know those protocols.
+
+The current CleverSpa path is:
 
 ```text
-Browser -> Spararama API -> Recovery bridge -> CleverSpa LAN protocol -> Tub
+Browser -> Spararama API -> SpaAdapter -> CleverSpa service -> Gizwits LAN -> tub
 ```
 
-The frontend must not talk directly to the recovery bridge. The recovery bridge can remain localhost-only. Spararama exposes the stable application-facing `/api/spa/...` interface.
+The CleverSpa service remains a separate process by design. It can later run:
 
-The current adapter model also supports a mock adapter for development. Future tubs may have no network control at all, so vessel configuration distinguishes Wi-Fi-capable from non-networked tubs. A Wi-Fi-capable tub may also be temporarily unreachable; the UI must distinguish this from a tub that has no network capability.
+- on the same laptop/headless box as Spararama;
+- on another machine on the user's home LAN;
+- as a small local agent while the main Spararama service is hosted elsewhere.
+
+This separation is useful if Spararama is ever offered as a hosted service: internet-facing application code does not need direct access to a customer's private LAN or spa protocol.
+
+## Deployment shapes
+
+### Personal/local installation
+
+```text
+one machine
+  Spararama backend :3000
+  CleverSpa adapter :8787 (if required)
+  browser(s) over LAN
+  local telemetry archive
+  optional Firebase sync
+```
+
+### Split home installation
+
+```text
+always-on home node
+  hardware adapter(s)
+  local collector
+        |
+        +----> main Spararama backend/UI elsewhere on LAN
+```
+
+### Possible hosted service
+
+```text
+customer LAN                       hosted Spararama
+local agent/adapter  <secure sync> backend + account + UI
+      |
+      +--> spa/pool
+```
+
+A hosted design must preserve local operation and avoid exposing spa control ports directly to the internet.
 
 ## Always-on telemetry collector
 
-The backend collector runs independently of any browser session. It polls whichever `SpaAdapter` is active, currently normally the recovery bridge, and records frequent samples.
+The collector is independent of any browser session. It polls the selected `SpaAdapter` at a backend-owned configurable interval and records samples locally before cloud upload.
 
-The sampling interval is a backend-owned setting, defaults to five minutes, and is persisted locally so it remains effective with no browser open.
-
-Typical spa fields include:
+Typical automated fields:
 
 - water temperature
 - target temperature
-- heater state
-- filter state
-- bubbles state
-- connection/transport state
+- heater/filter/bubbles state
+- adapter connection/transport state
 - runtime counters
-- changed fields
-- timestamp, host ID, collector version
+- timestamp and host ID
+- later local environmental sensors/weather observations
 
-The telemetry schema also has room for later local sensor and weather observations.
-
-Each sample is written locally before cloud upload:
+Disconnected/partial samples are legitimate data. Missing values remain missing so graphs show gaps rather than invented readings.
 
 ```text
 sample
-  |
-  +--> data/telemetry/telemetry.ndjson   (append-only archive)
-  |
-  +--> data/telemetry/pending.ndjson     (upload queue)
+  +--> data/telemetry/telemetry.ndjson   append-only local archive
+  +--> data/telemetry/pending.ndjson     retry queue
                      |
                      +--> Firebase when available
 ```
 
-A Firebase/network outage must not create a telemetry hole. Successful cloud upload clears the pending copy but does not delete the local archive.
+A network/Firebase outage must not create a telemetry hole. Successful cloud upload clears the queued copy, never the local archive. Sample UUIDs are used as document IDs so retries are idempotent.
 
-Firebase telemetry documents use the sample UUID as their document ID, so retrying an upload is idempotent.
+Manual observations are event records rather than synthetic polling samples. Heating models may use them, but must account for their age/source/precision.
 
-## Firebase: two separate authentication models
+## Firebase identities are deliberately separate
 
-### Frontend / human user
+### Browser / human identity
 
-The browser uses the Firebase JavaScript client SDK.
+The browser uses Firebase's JavaScript client SDK and Google/Firebase Auth. It currently targets:
 
-Current client configuration is in `src/lib/firebase.ts` and targets:
+- project `microprojects-481213`
+- named Firestore database `ai-studio-hottubmonitor-c4b572e9-4270-488c-b8d2-306ccf453f65`
 
-- Firebase project: `microprojects-481213`
-- Firestore database: `ai-studio-hottubmonitor-c4b572e9-4270-488c-b8d2-306ccf453f65`
-- browser API key: `VITE_FIREBASE_API_KEY`
-- human authentication: Google identity -> Firebase Auth
-
-User-owned application logs are stored below paths such as:
-
-```text
-/users/{uid}/logs/{logId}
-```
-
-Firestore security rules apply to these browser/client requests. The authenticated Firebase user's UID determines which user-owned paths may be accessed.
-
-The browser Firebase API key is normal Firebase web configuration. It is not an Admin credential and must not be used as backend authentication.
+User-owned application data lives under paths such as `/users/{uid}/logs/{logId}` and is subject to Firestore client security rules.
 
 ### Always-on backend / machine identity
 
-The telemetry collector uses the Firebase Admin SDK in `server/telemetry/firebase-sink.ts`.
+The telemetry backend uses Firebase Admin / Application Default Credentials. It must continue working with no browser open and must never depend on the user's browser token.
 
-It is deliberately independent of the browser's Google/Firebase user session. The logger must continue running when:
-
-- no browser is open
-- the human user is signed out
-- the phone is switched off
-- the frontend auth token is refreshed or expires
-
-The current backend configuration uses:
-
-```text
-FIREBASE_TELEMETRY_ENABLED=true
-FIREBASE_PROJECT_ID=microprojects-481213
-FIRESTORE_DATABASE_ID=ai-studio-hottubmonitor-c4b572e9-4270-488c-b8d2-306ccf453f65
-```
-
-`FirebaseTelemetrySink` initializes Firebase Admin with `applicationDefault()` and then explicitly opens the named Firestore database with:
-
-```text
-getFirestore(app, FIRESTORE_DATABASE_ID)
-```
-
-Therefore the local process needs valid Google Application Default Credentials. For a local unattended installation this will normally be provided by a service-account credential or another supported ADC mechanism. A browser `VITE_FIREBASE_API_KEY` is not sufficient.
-
-The Admin SDK writes telemetry under:
+Telemetry is written under:
 
 ```text
 /telemetryCollectors/{hostId}/samples/{sampleId}
 ```
 
-Admin SDK access is a privileged server path and is separate from the browser Firestore rules used for human-user data. Do not weaken browser Firestore rules to make backend telemetry work.
-
-## Credential lifetime
-
-Frontend Firebase Auth uses short-lived user tokens which the client SDK refreshes as part of the signed-in browser session. It is appropriate for interactive user access but is not suitable as the credential source for an always-on daemon.
-
-The backend uses a machine/service identity. The Admin SDK obtains short-lived access tokens from its configured application credentials automatically. The underlying service-account credential remains usable until revoked/rotated or otherwise invalidated, so it is suitable for unattended operation. It must be kept outside Git and browser-delivered code.
-
-## Critical Firebase consistency rule
-
-The frontend and backend must agree on both:
-
-1. Firebase project ID
-2. Firestore database ID
-
-Using the correct project but accidentally connecting the backend to `(default)` while the frontend uses the named database will appear superficially successful but put data in different databases.
-
-When debugging Firebase, always print/verify the resolved project ID and database ID on both client and server sides.
+Frontend and backend must target both the same Firebase project **and the same named Firestore database**. Do not weaken browser rules to fix an Admin credential problem.
 
 ## Local and cloud data roles
 
-During development, Firebase is useful as a durable off-machine working dataset while the collector host may move between the laptop and a future headless box.
-
-Current intended hierarchy:
+Current development hierarchy:
 
 ```text
-NOW
 local NDJSON archive + retry queue
               |
-              +--> Firebase working dataset
-
-LATER
-local SQLite/Postgres authoritative store
-              |
-              +--> optional Firebase sync / remote UI
+              +--> Firebase working/off-machine dataset
 ```
 
-The data model should therefore avoid making Firestore the core domain abstraction.
+Longer term:
 
-## Relevant source files
+```text
+local SQLite/Postgres authoritative store
+              |
+              +--> optional cloud sync / hosted UI
+```
 
-- `server.ts` - local Spararama server startup and APIs
-- `server/spa/types.ts` - stable spa adapter interface
-- `server/spa/recovery-bridge.ts` - adapter to the localhost CleverSpa recovery app
-- `server/spa/mock.ts` - development mock
-- `server/telemetry/collector.ts` - always-on polling/logger
-- `server/telemetry/local-store.ts` - local archive and pending queue
-- `server/telemetry/firebase-sink.ts` - Firebase Admin telemetry upload
-- `src/lib/spaApi.ts` - frontend API client for live spa control
-- `src/lib/firebase.ts` - browser Firebase/Auth client
-- `firestore.rules` - browser/client Firestore authorization rules
+Do not make Firestore-specific structures the core domain model.
 
-## Design rules for future work
+## AI Studio / branches
 
-- The always-on backend must not depend on a human browser login.
-- Never put service-account credentials, Admin credentials, or Gemini/API secrets in browser code or Git.
-- Do not weaken Firestore client rules to fix Admin SDK authentication.
-- Local telemetry must continue during cloud outages.
-- UI state should distinguish: no remote capability, remote-capable but unreachable, and live/contactable.
-- Keep spa hardware protocols behind `SpaAdapter`.
-- Keep telemetry sinks replaceable so Firebase can later become optional sync rather than primary storage.
+`chatgpt-dev` is the active development/integration branch used by local development, ChatGPT and Codex.
+
+`main` is retained as an AI-Studio-friendly integration/snapshot branch. AI Studio compatibility is a nice-to-have and must not force the runtime architecture or split the project into separate repositories.
+
+## Design rules
+
+- One repository, separately deployable components.
+- Hardware connectivity is optional.
+- Manual observations are first-class and always available.
+- Distinguish manual-only, unreachable and live hardware states in UI and data.
+- Missing data is unknown/null, never silently converted to zero.
+- Hardware protocols stay behind `SpaAdapter`.
+- The frontend talks to the Spararama API, not hardware adapters directly.
+- The unattended backend does not depend on human browser authentication.
+- Local telemetry survives cloud/network failure.
+- Keep adapter and telemetry sinks replaceable so the project can support other spas/pools and different deployment models.
