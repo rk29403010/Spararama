@@ -19,6 +19,9 @@ jobs:
           runtime: node@22
           cache: true
 
+      - name: Check local runner
+        run: node --check scripts/local.mjs && node scripts/local.mjs help
+
       - name: Run tests
         run: pnpm test
 
