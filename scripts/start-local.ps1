@@ -37,21 +37,27 @@ if (-not (Test-Http 'http://127.0.0.1:8787/api/status')) {
   if (-not (Wait-Http 'http://127.0.0.1:8787/api/status')) { throw "Recovery bridge did not become healthy. See $bridgeLog" }
 }
 
-if (-not (Test-Path (Join-Path $appPath 'dist\server.cjs'))) {
+$appRunning = Test-Http 'http://127.0.0.1:3000/api/health'
+if (-not $appRunning) {
+  if (Get-Listener 3000) { throw 'Port 3000 is occupied but is not serving Spararama.' }
   if (-not (Get-Command pnpm.cmd -ErrorAction SilentlyContinue)) {
     throw 'pnpm is required to build Spararama. Install it once with: npx get-pnpm'
   }
+
+  # A frozen install is cheap when nothing changed and guarantees that a newly
+  # pulled lockfile/package change is reflected before we build the local app.
+  & pnpm.cmd install --frozen-lockfile
+  if ($LASTEXITCODE -ne 0) { throw 'Spararama dependency install failed.' }
+
   & pnpm.cmd build
   if ($LASTEXITCODE -ne 0) { throw 'Spararama build failed.' }
-}
-if (-not (Test-Http 'http://127.0.0.1:3000/api/health')) {
-  if (Get-Listener 3000) { throw 'Port 3000 is occupied but is not serving Spararama.' }
+
   $appLog = Join-Path $logPath 'spararama.log'
   $appErrorLog = Join-Path $logPath 'spararama-error.log'
   Start-Process -FilePath cmd.exe -ArgumentList '/c', 'set "NODE_ENV=production" && node dist/server.cjs' -WorkingDirectory $appPath -RedirectStandardOutput $appLog -RedirectStandardError $appErrorLog -WindowStyle Hidden
   if (-not (Wait-Http 'http://127.0.0.1:3000/api/health')) { throw "Spararama did not become healthy. See $appLog" }
 } else {
-  Write-Warning 'Spararama is already running. Changes to .env or dist require a restart before the process can use them.'
+  Write-Warning 'Spararama is already running. Changes to .env or pulled source require stop-local.ps1 followed by start-local.ps1.'
 }
 
 $lanIp = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254*' -and $_.AddressState -eq 'Preferred' } | Select-Object -First 1 -ExpandProperty IPAddress)
