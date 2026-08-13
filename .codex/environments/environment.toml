@@ -8,49 +8,49 @@ script = ""
 [[actions]]
 name = "Update local app"
 icon = "run"
-command = 'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\update-local.ps1'
+command = "node ./scripts/local.mjs update"
 
 [[actions]]
 name = "Restart local app"
 icon = "run"
-command = 'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\restart-local.ps1'
+command = "node ./scripts/local.mjs restart"
 
 [[actions]]
 name = "Sync chatgpt-dev"
 icon = "run"
-command = 'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\sync-dev.ps1'
+command = "node ./scripts/local.mjs sync"
 
 [[actions]]
 name = "Start local app"
 icon = "run"
-command = 'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-local.ps1'
+command = "node ./scripts/local.mjs start"
 
 [[actions]]
 name = "Stop local app"
 icon = "run"
-command = 'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\stop-local.ps1'
+command = "node ./scripts/local.mjs stop"
 
 [[actions]]
 name = "Local app status"
 icon = "run"
-command = 'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\status-local.ps1'
+command = "node ./scripts/local.mjs status"
 
 [[actions]]
 name = "Run tests"
 icon = "run"
-command = "pnpm.cmd test"
+command = "pnpm test"
 
 [[actions]]
 name = "Typecheck"
 icon = "run"
-command = "pnpm.cmd lint"
+command = "pnpm lint"
 
 [[actions]]
 name = "Build app"
 icon = "run"
-command = "pnpm.cmd build"
+command = "pnpm build"
 
 [[actions]]
 name = "Diagnose Firebase"
 icon = "run"
-command = "pnpm.cmd firebase:diagnose"
+command = "pnpm firebase:diagnose"
