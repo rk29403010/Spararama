@@ -13,19 +13,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Install pnpm and Node.js
+        uses: pnpm/setup@c9883cc79df532ad1a7b81bf9ab944ceb090d65c
         with:
-          node-version: 22
-
-      - name: Install dependencies
-        run: npm install
+          runtime: node@22
+          cache: true
 
       - name: Run tests
-        run: npm test
+        run: pnpm test
 
       - name: Typecheck
-        run: npm run lint
+        run: pnpm lint
 
       - name: Build
-        run: npm run build
+        run: pnpm build
