@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install pnpm and Node.js
         uses: pnpm/setup@c9883cc79df532ad1a7b81bf9ab944ceb090d65c
         with:
@@ -34,4 +36,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add pnpm-lock.yaml
           git commit -m "build: refresh pnpm lockfile"
+          git pull --rebase origin chatgpt-dev
           git push origin HEAD:chatgpt-dev
