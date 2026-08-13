@@ -37,7 +37,13 @@ if (-not (Test-Http 'http://127.0.0.1:8787/api/status')) {
   if (-not (Wait-Http 'http://127.0.0.1:8787/api/status')) { throw "Recovery bridge did not become healthy. See $bridgeLog" }
 }
 
-if (-not (Test-Path (Join-Path $appPath 'dist\server.cjs'))) { & npm.cmd run build; if ($LASTEXITCODE -ne 0) { throw 'Spararama build failed.' } }
+if (-not (Test-Path (Join-Path $appPath 'dist\server.cjs'))) {
+  if (-not (Get-Command pnpm.cmd -ErrorAction SilentlyContinue)) {
+    throw 'pnpm is required to build Spararama. Install it once with: npx get-pnpm'
+  }
+  & pnpm.cmd build
+  if ($LASTEXITCODE -ne 0) { throw 'Spararama build failed.' }
+}
 if (-not (Test-Http 'http://127.0.0.1:3000/api/health')) {
   if (Get-Listener 3000) { throw 'Port 3000 is occupied but is not serving Spararama.' }
   $appLog = Join-Path $logPath 'spararama.log'
