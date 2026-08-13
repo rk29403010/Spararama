@@ -10,7 +10,16 @@ $logPath = Join-Path $appPath '.local\logs'
 New-Item -ItemType Directory -Force -Path $logPath | Out-Null
 
 function Test-Http([string]$Url) {
-  try { return (Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 $Url).StatusCode -eq 200 } catch { return $false }
+  # The recovery bridge can take several seconds to report a disconnected tub;
+  # that is still a healthy bridge process rather than a failed service.
+  try { return (Invoke-WebRequest -UseBasicParsing -TimeoutSec 15 $Url).StatusCode -eq 200 } catch { return $false }
+}
+function Wait-Http([string]$Url) {
+  foreach ($attempt in 1..10) {
+    if (Test-Http $Url) { return $true }
+    Start-Sleep -Seconds 1
+  }
+  return $false
 }
 function Get-Listener([int]$Port) {
   Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -25,8 +34,7 @@ if (-not (Test-Http 'http://127.0.0.1:8787/api/status')) {
   $bridgeLog = Join-Path $logPath 'recovery-bridge.log'
   $bridgeErrorLog = Join-Path $logPath 'recovery-bridge-error.log'
   Start-Process -FilePath node.exe -ArgumentList 'src/server.js' -WorkingDirectory $RecoveryPath -RedirectStandardOutput $bridgeLog -RedirectStandardError $bridgeErrorLog -WindowStyle Hidden
-  1..10 | ForEach-Object { if (Test-Http 'http://127.0.0.1:8787/api/status') { return }; Start-Sleep -Seconds 1 }
-  if (-not (Test-Http 'http://127.0.0.1:8787/api/status')) { throw "Recovery bridge did not become healthy. See $bridgeLog" }
+  if (-not (Wait-Http 'http://127.0.0.1:8787/api/status')) { throw "Recovery bridge did not become healthy. See $bridgeLog" }
 }
 
 if (-not (Test-Path (Join-Path $appPath 'dist\server.cjs'))) { & npm.cmd run build; if ($LASTEXITCODE -ne 0) { throw 'Spararama build failed.' } }
@@ -35,8 +43,9 @@ if (-not (Test-Http 'http://127.0.0.1:3000/api/health')) {
   $appLog = Join-Path $logPath 'spararama.log'
   $appErrorLog = Join-Path $logPath 'spararama-error.log'
   Start-Process -FilePath cmd.exe -ArgumentList '/c', 'set "NODE_ENV=production" && node dist/server.cjs' -WorkingDirectory $appPath -RedirectStandardOutput $appLog -RedirectStandardError $appErrorLog -WindowStyle Hidden
-  1..10 | ForEach-Object { if (Test-Http 'http://127.0.0.1:3000/api/health') { return }; Start-Sleep -Seconds 1 }
-  if (-not (Test-Http 'http://127.0.0.1:3000/api/health')) { throw "Spararama did not become healthy. See $appLog" }
+  if (-not (Wait-Http 'http://127.0.0.1:3000/api/health')) { throw "Spararama did not become healthy. See $appLog" }
+} else {
+  Write-Warning 'Spararama is already running. Changes to .env or dist require a restart before the process can use them.'
 }
 
 $lanIp = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254*' -and $_.AddressState -eq 'Preferred' } | Select-Object -First 1 -ExpandProperty IPAddress)
@@ -44,3 +53,6 @@ $telemetry = Invoke-RestMethod 'http://127.0.0.1:3000/api/telemetry/status'
 Write-Host "Laptop UI: http://127.0.0.1:3000"
 Write-Host "Phone UI:  http://${lanIp}:3000"
 Write-Host "Telemetry running: $($telemetry.running); Firebase upload enabled: $($telemetry.firebaseEnabled)"
+Write-Host "Firebase project: $($telemetry.firebaseProjectId)"
+Write-Host "Firestore database: $($telemetry.firestoreDatabaseId)"
+Write-Host "Credential source: $($telemetry.firebaseCredentialSource)"

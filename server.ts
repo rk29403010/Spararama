@@ -6,18 +6,31 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { createSpaAdapter } from './server/spa/factory';
 import { registerSpaRoutes } from './server/spa/routes';
 import { TelemetryCollector } from './server/telemetry/collector';
+import { TelemetrySettingsStore, validateTelemetryIntervalSeconds } from './server/telemetry/settings';
 
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT || 3000);
 
+  app.use((_req, res, next) => {
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+    next();
+  });
   app.use(express.json({ limit: "50mb" }));
 
   const spaAdapter = createSpaAdapter();
   registerSpaRoutes(app, spaAdapter);
 
   const telemetry = new TelemetryCollector(spaAdapter);
+  const telemetrySettingsStore = new TelemetrySettingsStore();
+  const telemetrySettings = await telemetrySettingsStore.load();
+  telemetry.setIntervalSeconds(telemetrySettings.intervalSeconds);
   telemetry.start();
+  const telemetryStatus = telemetry.getStatus();
+  console.log(`Firebase telemetry enabled: ${telemetryStatus.firebaseEnabled}`);
+  console.log(`Firebase project: ${telemetryStatus.firebaseProjectId || 'not resolved'}`);
+  console.log(`Firestore database: ${telemetryStatus.firestoreDatabaseId || 'not resolved'}`);
+  console.log(`Firebase credential source: ${telemetryStatus.firebaseCredentialSource || 'not resolved'}`);
 
   app.get("/api/health", (_req, res) => {
     res.json({
@@ -29,6 +42,31 @@ async function startServer() {
 
   app.get('/api/telemetry/status', (_req, res) => {
     res.json(telemetry.getStatus());
+  });
+
+  app.get('/api/telemetry/config', (_req, res) => {
+    res.json({ intervalSeconds: telemetry.getStatus().intervalMs / 1000 });
+  });
+
+  app.put('/api/telemetry/config', async (req, res) => {
+    try {
+      const intervalSeconds = validateTelemetryIntervalSeconds(req.body?.intervalSeconds);
+      await telemetrySettingsStore.save({ intervalSeconds });
+      telemetry.setIntervalSeconds(intervalSeconds);
+      res.json({ intervalSeconds });
+    } catch (error: any) {
+      res.status(400).json({ error: error?.message || 'Invalid telemetry configuration' });
+    }
+  });
+
+  app.get('/api/telemetry/samples', async (req, res) => {
+    try {
+      const requestedLimit = Number(req.query.limit || 200);
+      const limit = Number.isFinite(requestedLimit) ? requestedLimit : 200;
+      res.json(await telemetry.readRecentSamples(limit));
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || 'Unable to read telemetry history' });
+    }
   });
 
   app.post('/api/telemetry/collect-now', async (_req, res) => {

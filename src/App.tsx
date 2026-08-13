@@ -8,6 +8,7 @@ import { Logs } from './components/Logs';
 import { ReminderModal } from './components/ReminderModal';
 import { ManualLogModal } from './components/ManualLogModal';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
+import { TelemetrySettings } from './components/TelemetrySettings';
 import { Droplets, Flame, Settings, List, Plus, LogOut, User as UserIcon, House } from 'lucide-react';
 import { subscribeToAuthChanges, signOutUser } from './lib/firebase';
 import type { User } from 'firebase/auth';
@@ -141,6 +142,7 @@ export default function App() {
                 </div>
               </label>
             </div>
+            <TelemetrySettings />
           </div>
         )}
       </main>

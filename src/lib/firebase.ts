@@ -46,8 +46,8 @@ export async function renderGoogleSignInButton(container: HTMLElement) {
   if (!googleIdentityInitialized) {
     google.accounts.id.initialize({
       client_id: googleClientId,
-      use_fedcm_for_prompt: true,
-      use_fedcm_for_button: true,
+      use_fedcm_for_prompt: false,
+      use_fedcm_for_button: false,
       callback: async (response: { credential?: string }) => {
         if (!response.credential || !auth) return;
         try {

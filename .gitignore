@@ -9,4 +9,8 @@ coverage/
 firebase-applet-config.json
 data/
 secrets/
+credentials/
+service-account*.json
+*.service-account.json
+firebase-admin*.json
 .local/

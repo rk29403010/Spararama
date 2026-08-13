@@ -43,4 +43,7 @@ export interface TelemetryCollectorStatus {
   lastError?: string;
   localArchivePath: string;
   firebaseEnabled: boolean;
+  firebaseProjectId?: string;
+  firestoreDatabaseId?: string;
+  firebaseCredentialSource?: string;
 }

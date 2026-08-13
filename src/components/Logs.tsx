@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { getLogs, migrateOldLogs, subscribeToAuthChanges } from '../lib/firebase';
-import { Activity, Thermometer, Droplet, Clock, TrendingUp, Download } from 'lucide-react';
+import { telemetryApi, type TelemetryHistoryDto, type TelemetryStatusDto } from '../lib/telemetryApi';
+import { Activity, Thermometer, Droplet, Clock, TrendingUp, Download, Radio, Cloud, CloudOff } from 'lucide-react';
 import { ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 
 export function Logs() {
@@ -9,6 +10,10 @@ export function Logs() {
   const [migrating, setMigrating] = useState(false);
   const [migrationResult, setMigrationResult] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
+  const [telemetry, setTelemetry] = useState<TelemetryHistoryDto>({ samples: [], total: 0 });
+  const [telemetryStatus, setTelemetryStatus] = useState<TelemetryStatusDto | null>(null);
+  const [telemetryLoading, setTelemetryLoading] = useState(true);
+  const [telemetryError, setTelemetryError] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = subscribeToAuthChanges((u) => {
@@ -25,6 +30,29 @@ export function Logs() {
       }
     });
     return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const loadTelemetry = async () => {
+      try {
+        const [history, status] = await Promise.all([telemetryApi.history(200), telemetryApi.status()]);
+        if (!active) return;
+        setTelemetry(history);
+        setTelemetryStatus(status);
+        setTelemetryError(null);
+      } catch (error: any) {
+        if (active) setTelemetryError(error?.message || 'Unable to load automatic telemetry.');
+      } finally {
+        if (active) setTelemetryLoading(false);
+      }
+    };
+    void loadTelemetry();
+    const timer = window.setInterval(loadTelemetry, 30_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, []);
 
   const handleMigrate = async () => {
@@ -69,23 +97,108 @@ export function Logs() {
       .sort((a, b) => a.timestamp - b.timestamp);
   }, [logs]);
 
-  if (loading) {
-    return <div className="p-8 text-center text-slate-500">Loading logs...</div>;
-  }
+  const telemetryChartData = useMemo(() => {
+    return [...telemetry.samples].reverse().map(sample => ({
+      timestamp: sample.timestamp,
+      timeLabel: new Date(sample.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      fullLabel: new Date(sample.timestamp).toLocaleString(),
+      water: sample.spa.connected ? sample.spa.waterTemperatureC : null,
+      target: sample.spa.targetTemperatureC
+    }));
+  }, [telemetry.samples]);
 
-  if (!user) {
-    return (
-      <div className="p-8 text-center text-slate-500 space-y-4">
-        <p>You must sign in to view and save activity logs.</p>
-        <p className="text-sm">Go to the Settings tab to authenticate with Google.</p>
-      </div>
-    );
-  }
+  const latestTelemetry = telemetry.samples[0];
+  const lastConnectedTelemetry = telemetry.samples.find(sample => sample.spa.connected);
 
   return (
     <div className="p-4 max-w-xl mx-auto space-y-6 pb-8">
-      
-      {migrationResult ? (
+
+      <section className="space-y-4">
+        <div className="flex items-start justify-between gap-4 px-1">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">Automatic Telemetry</h2>
+            <p className="text-sm text-slate-500">Always-on spa samples recorded by the local collector.</p>
+          </div>
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${telemetryStatus?.firebaseEnabled && telemetryStatus.pendingUploads === 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>
+            {telemetryStatus?.firebaseEnabled ? <Cloud className="w-3.5 h-3.5" /> : <CloudOff className="w-3.5 h-3.5" />}
+            {telemetryStatus?.firebaseEnabled
+              ? `${telemetryStatus.pendingUploads} pending`
+              : 'Cloud off'}
+          </div>
+        </div>
+
+        {telemetryLoading ? (
+          <div className="p-8 text-center text-slate-500 bg-white rounded-3xl border border-slate-100">Loading telemetry...</div>
+        ) : telemetryError ? (
+          <div className="p-5 text-sm text-red-700 bg-red-50 rounded-2xl border border-red-100">{telemetryError}</div>
+        ) : telemetry.samples.length === 0 ? (
+          <div className="p-8 text-center text-slate-500 bg-white rounded-3xl border border-slate-100">No automatic telemetry has been recorded yet.</div>
+        ) : (
+          <>
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><Radio className="w-5 h-5" /></div>
+                  <div>
+                    <p className="font-bold text-slate-900">Water temperature</p>
+                    <p className="text-xs text-slate-500">Showing {telemetry.samples.length} of {telemetry.total} archived samples</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-bold text-slate-900">{latestTelemetry.spa.connected ? `${latestTelemetry.spa.waterTemperatureC.toFixed(1)}°C` : 'Unreachable'}</p>
+                  <p className="text-xs text-slate-500">
+                    {latestTelemetry.spa.connected
+                      ? `Target ${latestTelemetry.spa.targetTemperatureC.toFixed(1)}°C`
+                      : lastConnectedTelemetry
+                        ? `Last connected ${new Date(lastConnectedTelemetry.timestamp).toLocaleString()}`
+                        : 'No connected reading'}
+                  </p>
+                </div>
+              </div>
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={telemetryChartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="timeLabel" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} minTickGap={28} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} domain={['dataMin - 1', 'dataMax + 1']} />
+                    <Tooltip labelFormatter={(_label, payload) => payload?.[0]?.payload?.fullLabel || ''} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                    <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
+                    <Line type="monotone" dataKey="water" name="Water °C" stroke="#4f46e5" strokeWidth={3} dot={false} connectNulls={false} />
+                    <Line type="stepAfter" dataKey="target" name="Target °C" stroke="#f97316" strokeWidth={2} strokeDasharray="5 4" dot={false} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {telemetry.samples.slice(0, 20).map(sample => (
+                <div key={sample.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+                  <div className={`p-3 rounded-xl ${sample.spa.connected ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
+                    <Thermometer className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-semibold text-slate-900">{sample.spa.waterTemperatureC.toFixed(1)}°C water</p>
+                      <span className={`text-xs font-semibold ${sample.spa.connected ? 'text-emerald-600' : 'text-slate-500'}`}>{sample.spa.connected ? 'Connected' : 'Unreachable'}</span>
+                    </div>
+                    <p className="text-sm text-slate-500">Target {sample.spa.targetTemperatureC.toFixed(1)}°C · Heater {sample.spa.heaterOn ? 'on' : 'off'} · Filter {sample.spa.filterOn ? 'on' : 'off'}</p>
+                    <div className="flex items-center gap-1 mt-1.5 text-xs font-medium text-slate-400"><Clock className="w-3 h-3" />{new Date(sample.timestamp).toLocaleString()}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </section>
+
+      <h2 className="text-xl font-bold text-slate-900 px-1">Your Activity History</h2>
+
+      {!user ? (
+        <div className="p-6 text-center text-slate-500 bg-white rounded-3xl border border-slate-100 space-y-2">
+          <p>Sign in to view and save your manual activity logs.</p>
+          <p className="text-sm">Automatic telemetry above continues without a browser login.</p>
+        </div>
+      ) : migrationResult ? (
         <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl text-indigo-800 text-sm">
           {migrationResult}
         </div>
@@ -106,13 +219,17 @@ export function Logs() {
         </div>
       )}
 
-      {logs.length === 0 && (
+      {user && loading && (
+        <div className="p-8 text-center text-slate-500">Loading activity logs...</div>
+      )}
+
+      {user && !loading && logs.length === 0 && (
         <div className="p-8 text-center text-slate-500 bg-white rounded-3xl border border-slate-100">
-          No logs found in your account. Calculate heating or scan chemicals to generate new logs.
+          No manual activity logs found in your account. Automatic telemetry is shown above.
         </div>
       )}
       
-      {chartData.length > 1 && (
+      {user && chartData.length > 1 && (
         <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
           <div className="flex items-center gap-2 mb-6">
             <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
@@ -177,8 +294,6 @@ export function Logs() {
         </div>
       )}
 
-      <h2 className="text-xl font-bold text-slate-900 mb-4 px-1">Activity History</h2>
-      
       <div className="space-y-4">
         {logs.map(log => {
         let icon = <Activity className="w-5 h-5 text-slate-400" />;

@@ -6,6 +6,11 @@ import type { TelemetryCollectorStatus, TelemetrySample } from './types';
 
 interface TelemetrySink {
   enabled: boolean;
+  config?: {
+    projectId: string;
+    databaseId: string;
+    credentialSource: string;
+  };
   writeSamples(samples: TelemetrySample[]): Promise<void>;
 }
 
@@ -30,7 +35,7 @@ function changedFields(previous: SpaStatus | null, current: SpaStatus) {
 }
 
 export class TelemetryCollector {
-  private readonly intervalMs: number;
+  private intervalMs: number;
   private readonly hostId = safeHostId();
   private readonly collectorVersion = process.env.SPARARAMA_COLLECTOR_VERSION || '0.1.0';
   private timer: NodeJS.Timeout | null = null;
@@ -43,15 +48,18 @@ export class TelemetryCollector {
     private readonly store = new LocalTelemetryStore(),
     private readonly firebase: TelemetrySink = new FirebaseTelemetrySink()
   ) {
-    const configured = Number(process.env.TELEMETRY_INTERVAL_SECONDS || 30);
-    this.intervalMs = Math.max(5, Number.isFinite(configured) ? configured : 30) * 1000;
+    const configured = Number(process.env.TELEMETRY_INTERVAL_SECONDS || 300);
+    this.intervalMs = Math.max(60, Number.isFinite(configured) ? configured : 300) * 1000;
     this.status = {
       running: false,
       intervalMs: this.intervalMs,
       samplesCollected: 0,
       pendingUploads: 0,
       localArchivePath: this.store.archivePath,
-      firebaseEnabled: this.firebase.enabled
+      firebaseEnabled: this.firebase.enabled,
+      firebaseProjectId: this.firebase.config?.projectId,
+      firestoreDatabaseId: this.firebase.config?.databaseId,
+      firebaseCredentialSource: this.firebase.config?.credentialSource
     };
   }
 
@@ -59,8 +67,22 @@ export class TelemetryCollector {
     if (this.timer) return;
     this.status.running = true;
     void this.collectNow();
+    this.schedule();
+  }
+
+  private schedule() {
     this.timer = setInterval(() => void this.collectNow(), this.intervalMs);
     this.timer.unref?.();
+  }
+
+  setIntervalSeconds(intervalSeconds: number) {
+    this.intervalMs = intervalSeconds * 1000;
+    this.status.intervalMs = this.intervalMs;
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.schedule();
+    }
+    return this.getStatus();
   }
 
   stop() {
@@ -71,6 +93,10 @@ export class TelemetryCollector {
 
   getStatus() {
     return { ...this.status };
+  }
+
+  readRecentSamples(limit?: number) {
+    return this.store.readRecent(limit);
   }
 
   collectNow() {
@@ -106,19 +132,23 @@ export class TelemetryCollector {
   }
 
   async flushPending() {
-    const pending = await this.store.readPending();
-    this.status.pendingUploads = pending.length;
-    if (!this.firebase.enabled || pending.length === 0) return;
-
     try {
+      const pending = await this.store.readPending();
+      this.status.pendingUploads = pending.length;
+      if (!this.firebase.enabled || pending.length === 0) return;
+
       await this.firebase.writeSamples(pending);
-      await this.store.replacePending([]);
-      this.status.pendingUploads = 0;
+      await this.store.acknowledgePending(pending.map(sample => sample.id));
+      this.status.pendingUploads = await this.store.pendingCount();
       this.status.lastUploadAt = Date.now();
       this.status.lastError = undefined;
     } catch (error: any) {
       this.status.lastError = `upload: ${error?.message || String(error)}`;
-      this.status.pendingUploads = pending.length;
+      try {
+        this.status.pendingUploads = await this.store.pendingCount();
+      } catch {
+        // Preserve the original upload/queue error as the actionable status.
+      }
     }
   }
 }

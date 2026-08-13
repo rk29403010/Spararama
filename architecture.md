@@ -23,7 +23,7 @@ Spararama is split into separate local-control, backend telemetry, frontend, and
         +----------------------------------v----------------------------------+
         |                 Spararama always-on backend/logger                 |
         |                                                                     |
-        | - polls spa status every ~30 seconds                               |
+| - polls spa status at a backend-owned configurable interval       |
         | - appends local telemetry archive                                  |
         | - maintains pending Firebase upload queue                          |
         | - exposes API used by the frontend                                 |
@@ -72,6 +72,8 @@ The current adapter model also supports a mock adapter for development. Future t
 ## Always-on telemetry collector
 
 The backend collector runs independently of any browser session. It polls whichever `SpaAdapter` is active, currently normally the recovery bridge, and records frequent samples.
+
+The sampling interval is a backend-owned setting, defaults to five minutes, and is persisted locally so it remains effective with no browser open.
 
 Typical spa fields include:
 
