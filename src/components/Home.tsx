@@ -7,6 +7,10 @@ interface HomeProps {
   state: AppState;
 }
 
+function finiteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
 function ControlSwitch({
   label,
   on,
@@ -87,12 +91,6 @@ export function Home({ state }: HomeProps) {
     }
   };
 
-  const setTarget = (value: number) => {
-    const max = state.config.maxTemp || 40;
-    const clamped = Math.max(5, Math.min(max, value));
-    void command('target', () => spaApi.setTargetTemperature(clamped));
-  };
-
   if (!waterBody) return null;
 
   if (connectivity === 'none') {
@@ -129,9 +127,17 @@ export function Home({ state }: HomeProps) {
     );
   }
 
-  const current = status?.waterTemperatureC ?? 0;
-  const target = status?.targetTemperatureC ?? state.config.defaultHeatingTarget;
+  const current = finiteNumber(status?.waterTemperatureC) ? status.waterTemperatureC : null;
+  const statusTarget = finiteNumber(status?.targetTemperatureC) ? status.targetTemperatureC : null;
+  const fallbackTarget = finiteNumber(state.config.defaultHeatingTarget) ? state.config.defaultHeatingTarget : 40;
+  const target = statusTarget ?? fallbackTarget;
   const disabled = !status || busy !== null;
+
+  const setTarget = (value: number) => {
+    const max = state.config.maxTemp || 40;
+    const clamped = Math.max(5, Math.min(max, value));
+    void command('target', () => spaApi.setTargetTemperature(clamped));
+  };
 
   return (
     <div className="p-4 max-w-xl mx-auto space-y-5">
@@ -139,7 +145,7 @@ export function Home({ state }: HomeProps) {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-emerald-300">
             <Wifi className="w-5 h-5" />
-            <span className="font-extrabold uppercase tracking-widest text-xs">Live - {status?.transport}</span>
+            <span className="font-extrabold uppercase tracking-widest text-xs">Live - {status?.transport || 'connected'}</span>
           </div>
           <button type="button" onClick={() => void refresh()} className="w-11 h-11 rounded-full bg-white/10 flex items-center justify-center" aria-label="Refresh">
             <RefreshCw className="w-5 h-5" />
@@ -149,13 +155,14 @@ export function Home({ state }: HomeProps) {
         <div className="mt-5 grid grid-cols-2 gap-4">
           <div>
             <p className="text-xs uppercase tracking-widest text-slate-400 font-bold">Water now</p>
-            <p className="text-6xl font-black tabular-nums mt-1">{current.toFixed(1)}°</p>
+            <p className="text-6xl font-black tabular-nums mt-1">{current === null ? '—' : `${current.toFixed(1)}°`}</p>
           </div>
           <div>
             <p className="text-xs uppercase tracking-widest text-slate-400 font-bold">Target</p>
             <p className="text-6xl font-black tabular-nums mt-1">{target.toFixed(0)}°</p>
           </div>
         </div>
+        {current === null && <p className="mt-3 text-sm text-amber-200">The tub is connected, but it did not return a usable water-temperature reading.</p>}
       </section>
 
       <section className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm">
