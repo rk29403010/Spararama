@@ -13,5 +13,6 @@ Key constraints:
 - Always-on telemetry writes locally first and must continue through Firebase/network outages.
 - Keep spa-specific protocols behind the `SpaAdapter` boundary.
 - Preserve the distinction between non-networked tubs, network-capable but unreachable tubs, and contactable tubs.
+- **pnpm is the repository package manager.** Respect the pinned `packageManager` version in `package.json`, use `pnpm-lock.yaml` as the authoritative dependency lockfile, and do not reintroduce npm or Bun lockfiles/package-manager commands unless explicitly migrating away from pnpm.
 
 For current component boundaries, data flow, credential roles, Firestore paths, and relevant source files, see [`architecture.md`](./architecture.md).
