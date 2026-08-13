@@ -1,0 +1,7 @@
+# Single-package workspace. pnpm 11 blocks dependency install scripts unless they
+# are explicitly approved; keep this allowlist narrow and review additions.
+allowBuilds:
+  '@firebase/util': true
+  '@google/genai': true
+  esbuild: true
+  protobufjs: true
