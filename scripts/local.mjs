@@ -36,12 +36,12 @@ function ensureLocalDirs() {
   fs.mkdirSync(PID_DIR, { recursive: true });
 }
 
-function run(command, args, { capture = false, allowFailure = false } = {}) {
+function run(command, args, { capture = false, allowFailure = false, shell = false } = {}) {
   const result = spawnSync(command, args, {
     cwd: ROOT,
     env: process.env,
     encoding: 'utf8',
-    shell: false,
+    shell,
     stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit'
   });
   if (result.error && !allowFailure) throw result.error;
@@ -56,8 +56,15 @@ function capture(command, args, allowFailure = false) {
   return run(command, args, { capture: true, allowFailure });
 }
 
+function runPnpm(args, { capture: captureOutput = false, allowFailure = false } = {}) {
+  // npm-installed pnpm is normally a .cmd shim on Windows. Use the Windows
+  // command processor only for these short-lived package-manager calls; the
+  // long-running Spararama services are spawned directly as Node processes.
+  return run(PNPM, args, { capture: captureOutput, allowFailure, shell: IS_WINDOWS });
+}
+
 function assertPnpm() {
-  const result = capture(PNPM, ['--version'], true);
+  const result = runPnpm(['--version'], { capture: true, allowFailure: true });
   if (result.status !== 0) {
     throw new Error('pnpm is required. Install the pinned version with: npm install -g pnpm@11.21.0');
   }
@@ -107,13 +114,13 @@ function prepare() {
   assertPnpm();
   if (dependenciesNeedInstall()) {
     console.log('Installing changed dependencies...');
-    run(PNPM, ['install', '--frozen-lockfile']);
+    runPnpm(['install', '--frozen-lockfile']);
   } else {
     console.log('Dependencies are current.');
   }
   if (buildNeedsRefresh()) {
     console.log('Building changed source...');
-    run(PNPM, ['build']);
+    runPnpm(['build']);
   } else {
     console.log('Production build is current.');
   }
