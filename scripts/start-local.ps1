@@ -41,7 +41,7 @@ $appRunning = Test-Http 'http://127.0.0.1:3000/api/health'
 if (-not $appRunning) {
   if (Get-Listener 3000) { throw 'Port 3000 is occupied but is not serving Spararama.' }
   if (-not (Get-Command pnpm.cmd -ErrorAction SilentlyContinue)) {
-    throw 'pnpm is required to build Spararama. Install it once with: npx get-pnpm'
+    throw 'pnpm 11.21.0 is required to build Spararama. Install it once with: npm install -g pnpm@11.21.0'
   }
 
   # A frozen install is cheap when nothing changed and guarantees that a newly
