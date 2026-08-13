@@ -6,7 +6,8 @@ Before architectural, Firebase, telemetry, spa-control, persistence, networking 
 
 - Active development/integration branch: **`chatgpt-dev`**.
 - `main` is intentionally retained for the AI Studio snapshot/integration workflow. Do not use it as the normal local-development base unless explicitly asked.
-- Fetch and fast-forward `chatgpt-dev` before local work. `scripts/sync-dev.ps1` is the safe helper and refuses to overwrite uncommitted work.
+- Fetch and fast-forward `chatgpt-dev` before local work. Use `node scripts/local.mjs sync`; it refuses to overwrite uncommitted work.
+- Routine local lifecycle commands are handled by the cross-platform `scripts/local.mjs` runner (`update`, `sync`, `start`, `stop`, `restart`, `status`). Do not add shell-specific wrappers unless there is a genuine OS-specific requirement.
 - Codex worktrees/feature branches should normally be based on current `chatgpt-dev` and returned there.
 - Do not merge `chatgpt-dev` into `main` or change the GitHub default branch incidentally.
 - **pnpm** is the repository package manager; respect the pinned version and `pnpm-lock.yaml`.
