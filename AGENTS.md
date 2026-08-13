@@ -9,6 +9,7 @@ Before making architectural, Firebase, telemetry, spa-control, persistence, netw
 - Before starting local work, fetch and fast-forward `chatgpt-dev`. `scripts/sync-dev.ps1` provides a safe local helper that refuses to overwrite uncommitted work.
 - Codex worktrees/feature branches should normally be based on the current `chatgpt-dev` head and merged/ported back there.
 - Do not merge `chatgpt-dev` into `main`, or change the GitHub default branch, as an incidental development task.
+- Codex desktop project actions are versioned in `.codex/environments/environment.toml`. Keep routine local operations exposed there so the user does not need to remember script/CLI commands.
 
 ## Key constraints
 
