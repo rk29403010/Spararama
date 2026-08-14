@@ -49,7 +49,7 @@ export default function App() {
           {activeTab === 'home' && <Home state={state} />}
           {activeTab === 'heating' && <Heating state={state} updateState={updateState} />}
           {activeTab === 'chemicals' && <Chemicals state={state} updateState={updateState} />}
-          {activeTab === 'logs' && <Logs />}
+          {activeTab === 'logs' && <Logs state={state} />}
           {activeTab === 'settings' && (
             <div className="p-4 sm:p-8 text-slate-500 max-w-md mx-auto space-y-6">
               <h2 className="text-2xl font-semibold text-slate-900 text-center">Settings</h2>
