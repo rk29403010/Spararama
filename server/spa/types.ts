@@ -9,7 +9,12 @@ export interface SpaStatus {
   filterRuntimeSeconds: number;
   heaterRuntimeSeconds: number;
   deviceFilterMinutes?: number;
+  /** Timestamp of the data currently displayed. Preserved when a connection drops. */
   updatedAt: number;
+  /** Last time the backend successfully contacted the spa. */
+  lastContactAt?: number;
+  /** Consecutive backend status cycles that could not contact the spa. */
+  contactFailureCount?: number;
 }
 
 export interface SpaAdapter {
