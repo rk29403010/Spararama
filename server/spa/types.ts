@@ -14,6 +14,7 @@ export interface SpaStatus {
 
 export interface SpaAdapter {
   getStatus(): Promise<SpaStatus>;
+  connect?(): Promise<SpaStatus>;
   setHeater(on: boolean): Promise<SpaStatus>;
   setFilter(on: boolean): Promise<SpaStatus>;
   setBubbles(on: boolean): Promise<SpaStatus>;
