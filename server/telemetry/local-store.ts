@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { TelemetrySample } from './types';
+import { rollUpTelemetry } from './rollup';
 
 export class LocalTelemetryStore {
   readonly archivePath: string;
@@ -47,19 +48,45 @@ export class LocalTelemetryStore {
   }
 
   private parsePending(text: string): TelemetrySample[] {
-      const samples: TelemetrySample[] = [];
-      let lineNumber = 0;
-      for (const line of text.split(/\r?\n/)) {
-        lineNumber += 1;
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          samples.push(JSON.parse(trimmed));
-        } catch {
-          throw new Error(`Malformed telemetry queue entry at line ${lineNumber}; queue was left intact.`);
-        }
+    const samples: TelemetrySample[] = [];
+    let lineNumber = 0;
+    for (const line of text.split(/\r?\n/)) {
+      lineNumber += 1;
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        samples.push(JSON.parse(trimmed));
+      } catch {
+        throw new Error(`Malformed telemetry queue entry at line ${lineNumber}; queue was left intact.`);
       }
-      return samples;
+    }
+    return samples;
+  }
+
+  private parseArchive(text: string): TelemetrySample[] {
+    const samples: TelemetrySample[] = [];
+    let lineNumber = 0;
+    for (const line of text.split(/\r?\n/)) {
+      lineNumber += 1;
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        samples.push(JSON.parse(trimmed));
+      } catch {
+        throw new Error(`Malformed telemetry archive entry at line ${lineNumber}; archive was left intact.`);
+      }
+    }
+    return samples;
+  }
+
+  private async readArchiveText() {
+    await this.ensureDir();
+    try {
+      return await fs.readFile(this.archivePath, 'utf8');
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') return '';
+      throw error;
+    }
   }
 
   async replacePending(samples: TelemetrySample[]) {
@@ -93,32 +120,26 @@ export class LocalTelemetryStore {
 
   async readRecent(limit = 200) {
     return this.serialized(async () => {
-      await this.ensureDir();
-      let text = '';
-      try {
-        text = await fs.readFile(this.archivePath, 'utf8');
-      } catch (error: any) {
-        if (error?.code === 'ENOENT') return { samples: [], total: 0 };
-        throw error;
-      }
-
-      const samples: TelemetrySample[] = [];
-      let lineNumber = 0;
-      for (const line of text.split(/\r?\n/)) {
-        lineNumber += 1;
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          samples.push(JSON.parse(trimmed));
-        } catch {
-          throw new Error(`Malformed telemetry archive entry at line ${lineNumber}; archive was left intact.`);
-        }
-      }
-
+      const samples = this.parseArchive(await this.readArchiveText());
       const safeLimit = Math.max(1, Math.min(500, Math.floor(limit) || 200));
       return {
         samples: samples.slice(-safeLimit).reverse(),
         total: samples.length
+      };
+    });
+  }
+
+  async readChartRange(since: number, maxPoints = 500) {
+    return this.serialized(async () => {
+      const samples = this.parseArchive(await this.readArchiveText())
+        .filter(sample => Number.isFinite(sample.timestamp) && sample.timestamp >= since)
+        .sort((a, b) => a.timestamp - b.timestamp);
+      const safeMax = Math.max(50, Math.min(800, Math.floor(maxPoints) || 500));
+      const rolled = rollUpTelemetry(samples, safeMax);
+      return {
+        samples: rolled,
+        rawTotal: samples.length,
+        rolledUp: rolled.length < samples.length
       };
     });
   }
