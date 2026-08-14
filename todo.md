@@ -40,6 +40,59 @@ Outstanding ideas and follow-up work discussed but not yet implemented or comple
   - Retain multiple nearby weather sources where useful because no single station reliably represents the local microclimate.
   - Prefer local sensor observations over external weather for current conditions when available.
 
+## History and actionable analytics
+
+The Logs page now has visual Today / 2-day / week / month / year temperature views, a shape-preserving chart roll-up, heater-on shading, typical-use markers, manual-temperature points, and an initial water-balance chart. The following are the next questions rather than reasons to add more decoration immediately.
+
+- [ ] **Detect explicit heating episodes and calculate useful outcomes**
+  - Start temperature and target.
+  - Time to target and °C/hour while actively heating.
+  - Heater runtime and estimated/actual energy per degree gained.
+  - Cooling rate after heater-off and overnight.
+  - Water-to-air temperature difference during the episode.
+  - Flag interruptions/outages rather than treating them as real flat temperature data.
+
+- [ ] **Event-centred comparison views**
+  - Compare heating runs aligned at heater-on or target-reached rather than only by calendar date.
+  - Compare bathing sessions aligned at “got in”, especially temperature drop/recovery and chlorine demand.
+  - Suggested questions: “Is it heating faster?”, “Did it retain heat better?”, “How long did recovery after bathing take?”.
+
+- [ ] **Make interventions first-class experiment markers**
+  - Record when a solar cover, insulation, different main cover, pump/filter change or other physical change starts being used.
+  - Allow optional notes/tags such as `solar-cover`, `cover-off-sunny`, `new-filter`.
+  - Compare before/after only against reasonably similar starting temperature/weather conditions.
+
+- [ ] **Answer cover/solar questions with matched comparisons**
+  - “Did the new solar cover reduce overnight heat loss?”
+  - “On sunny days, is leaving the cover off a net heat gain or loss?”
+  - Match or normalise for water-air temperature difference, wind, sunshine/solar radiation and starting water temperature instead of comparing arbitrary days.
+
+- [ ] **Persist long-term telemetry roll-ups when the archive becomes large**
+  - Current long charts roll raw telemetry up on demand while keeping the raw archive intact.
+  - If the archive becomes expensive to scan, create derived hourly/daily summaries rather than deleting raw history.
+  - Preserve state transitions plus first/min/max/last temperature; do not replace behaviour with a simple daily average.
+
+- [ ] **Weather data and long-view roll-ups**
+  - Collect historical ambient temperature, wind and ideally solar radiation/sunshine alongside spa telemetry.
+  - For longer views, preserve temperature min/max plus a representative central value; retain meaningful wind peaks as well as typical wind; sum rainfall and solar energy over the bucket.
+  - For heating analysis, derive water-minus-air temperature difference and solar input because they are more actionable than generic “weather”.
+  - The Logs graph already renders outside temperature automatically if telemetry weather observations become available.
+
+- [ ] **Expand the water-balance graph once more event data exists**
+  - Add TA as a separate/selectable view rather than forcing it onto the pH/chlorine scales.
+  - Show filtration periods, confirmed bathing periods, refills/dilution and flushes on the event strip.
+  - Measure response to dosing: nearest valid test before dose → first valid post-mix/retest result.
+  - Estimate chlorine decay between undosed tests and compare decay after bathing vs quiet periods.
+  - Look for pH/TA drift and whether repeated corrections indicate a systematic setup issue.
+
+- [ ] **Define the minimum event logging needed for useful comparisons**
+  - Confirmed bathing start/end, not merely planned use.
+  - Cover on/off where it materially affects heating/cooling.
+  - Filtration state/duration around chemistry treatment.
+  - Refill/dilution amount where known.
+  - Exact completed chemical dose and time.
+  - Physical changes/interventions with a start date.
+
 ## Sensors and microclimate
 
 - [ ] **Generic local sensor ingestion**
