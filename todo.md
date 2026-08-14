@@ -67,6 +67,13 @@ The Logs page now has visual Today / 2-day / week / month / year temperature vie
   - “On sunny days, is leaving the cover off a net heat gain or loss?”
   - Match or normalise for water-air temperature difference, wind, sunshine/solar radiation and starting water temperature instead of comparing arbitrary days.
 
+- [ ] **Model off-peak electricity windows and heating cost**
+  - Allow one or more tariff periods/rates rather than assuming a single all-day electricity price.
+  - Overlay cheap-rate periods subtly on Today / 2-day heating views when configured.
+  - Attribute heater runtime and estimated energy cost to tariff periods so a heating episode answers “what did this cost?” rather than only “how long did it take?”.
+  - Let the future ready-at planner prefer cheap overnight heating where practical, but never at the expense of missing the requested bathing time or reheating excessively early and losing the saving through extra heat loss.
+  - Compare strategies using observed heat-loss data: heat early in cheap hours vs delay heating closer to use time.
+
 - [ ] **Persist long-term telemetry roll-ups when the archive becomes large**
   - Current long charts roll raw telemetry up on demand while keeping the raw archive intact.
   - If the archive becomes expensive to scan, create derived hourly/daily summaries rather than deleting raw history.
