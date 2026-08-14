@@ -11,6 +11,7 @@ Before architectural, Firebase, telemetry, spa-control, persistence, networking 
 - Codex worktrees/feature branches should normally be based on current `chatgpt-dev` and returned there.
 - Do not merge `chatgpt-dev` into `main` or change the GitHub default branch incidentally.
 - **pnpm** is the repository package manager; respect the pinned version and `pnpm-lock.yaml`.
+- Persistent spa history/reference files belong in this repository under `history/` (`spa-events.jsonl`, `spa-reference.md`). Do not append new project history to the old recovery repository.
 
 ## Component boundaries
 
@@ -18,7 +19,7 @@ Before architectural, Firebase, telemetry, spa-control, persistence, networking 
 - The main UI/backend live at repository root; hardware-specific services live under `services/`.
 - `services/cleverspa` is the CleverSpa/Gizwits hardware adapter. Do not move its wire protocol into React or the core domain layer.
 - Keep hardware integrations behind the `SpaAdapter` boundary so other spa/pool adapters can be added later.
-- The old `spararama-cleverspa-recovery` repository is historical/recovery reference only; normal development must not depend on a sibling checkout.
+- The old `spararama-cleverspa-recovery` repository is historical/recovery reference only; normal development must not depend on a sibling checkout or write new application/history data there.
 
 ## Connectivity/manual operation
 
