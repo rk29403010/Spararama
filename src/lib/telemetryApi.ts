@@ -37,9 +37,13 @@ export interface TelemetryConfigDto { intervalSeconds: number; }
 
 async function requestTelemetry<T>(path: string): Promise<T> {
   const response = await fetch(path);
+  const contentType = response.headers.get('content-type') || '';
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
+    const body = contentType.includes('application/json') ? await response.json().catch(() => ({})) : {};
     throw new Error(body.error || `Telemetry request failed (${response.status})`);
+  }
+  if (!contentType.includes('application/json')) {
+    throw new Error('The Spararama backend is older than the page currently loaded. Restart or update the local app so the UI and backend use the same build.');
   }
   return response.json();
 }
