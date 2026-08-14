@@ -22,15 +22,16 @@ function ControlSwitch({ label, on, disabled, busy, onToggle }: { label: string;
 export function Home({ state }: HomeProps) {
   const waterBody = useMemo(() => state.domain.waterBodies.find(item => item.id === state.domain.activeWaterBodyId) ?? state.domain.waterBodies[0], [state.domain.waterBodies, state.domain.activeWaterBodyId]);
   const connectivity = waterBody?.connectivity ?? 'wifi';
+  const liveConnectorAvailable = waterBody?.connectorId === 'cleverspa';
   const [status, setStatus] = useState<SpaStatusDto | null>(null);
   const [reachable, setReachable] = useState(false);
-  const [loading, setLoading] = useState(connectivity === 'wifi');
+  const [loading, setLoading] = useState(connectivity === 'wifi' && liveConnectorAvailable);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [showManualLog, setShowManualLog] = useState(false);
 
   const refresh = async () => {
-    if (connectivity !== 'wifi') return;
+    if (connectivity !== 'wifi' || !liveConnectorAvailable) return;
     setLoading(true); setError('');
     try { const next = await spaApi.status(); setStatus(next); setReachable(Boolean(next.connected)); }
     catch (err: any) { setReachable(false); setError(err?.message || 'The hot tub could not be contacted.'); }
@@ -38,9 +39,9 @@ export function Home({ state }: HomeProps) {
   };
 
   useEffect(() => {
-    if (connectivity !== 'wifi') { setReachable(false); setLoading(false); return; }
+    if (connectivity !== 'wifi' || !liveConnectorAvailable) { setReachable(false); setLoading(false); return; }
     void refresh(); const timer = window.setInterval(() => void refresh(), 15000); return () => window.clearInterval(timer);
-  }, [connectivity]);
+  }, [connectivity, liveConnectorAvailable]);
 
   const command = async (name: string, action: () => Promise<SpaStatusDto>) => {
     setBusy(name); setError('');
@@ -53,29 +54,31 @@ export function Home({ state }: HomeProps) {
   const manualModal = showManualLog ? <ManualLogModal state={state} onClose={() => setShowManualLog(false)} /> : null;
 
   if (connectivity === 'none') return <>
-    <div className="p-4 max-w-xl mx-auto space-y-5">
-      <section className="rounded-3xl bg-white border border-slate-200 p-6 shadow-sm">
-        <div className="flex items-center gap-3 text-slate-500 mb-4"><WifiOff className="w-6 h-6" /><span className="font-extrabold uppercase tracking-widest text-xs">Manual monitoring</span></div>
-        <h2 className="text-3xl font-black text-slate-900">{waterBody.name}</h2>
-        <p className="mt-3 text-slate-600">This water body has no remote hardware connection. Spararama still works: record temperature and equipment state manually, and use chemistry, maintenance and history normally.</p>
-        <div className="mt-5"><ManualReadingButton onClick={() => setShowManualLog(true)} /></div>
-      </section>
-    </div>{manualModal}
+    <div className="p-4 max-w-xl mx-auto space-y-5"><section className="rounded-3xl bg-white border border-slate-200 p-6 shadow-sm">
+      <div className="flex items-center gap-3 text-slate-500 mb-4"><WifiOff className="w-6 h-6" /><span className="font-extrabold uppercase tracking-widest text-xs">Manual monitoring</span></div>
+      <h2 className="text-3xl font-black text-slate-900">{waterBody.name}</h2>
+      <p className="mt-3 text-slate-600">This water body has no remote hardware connection. Spararama still works: record temperature and equipment state manually, and use chemistry, maintenance and history normally.</p>
+      <div className="mt-5"><ManualReadingButton onClick={() => setShowManualLog(true)} /></div>
+    </section></div>{manualModal}
+  </>;
+
+  if (!liveConnectorAvailable) return <>
+    <div className="p-4 max-w-xl mx-auto space-y-5"><section className="rounded-3xl bg-white border border-slate-200 p-6 shadow-sm">
+      <div className="flex items-center gap-3 text-indigo-700 mb-4"><Wifi className="w-6 h-6" /><span className="font-extrabold uppercase tracking-widest text-xs">Wi-Fi capable</span></div>
+      <h2 className="text-3xl font-black text-slate-900">{waterBody.name}</h2>
+      <p className="mt-3 text-slate-600">The manufacturer offers Wi-Fi for this model, but Spararama does not yet have a connector for it. Live controls are therefore disabled rather than showing data from the wrong spa.</p>
+      <div className="mt-5"><ManualReadingButton onClick={() => setShowManualLog(true)} /></div>
+    </section></div>{manualModal}
   </>;
 
   if (!reachable) return <>
-    <div className="p-4 max-w-xl mx-auto space-y-5">
-      <section className="rounded-3xl bg-white border border-slate-200 p-6 shadow-sm">
-        <div className="flex items-center gap-3 text-amber-700 mb-4"><AlertTriangle className="w-6 h-6" /><span className="font-extrabold uppercase tracking-widest text-xs">Remote tub - currently unreachable</span></div>
-        <h2 className="text-3xl font-black text-slate-900">{waterBody.name}</h2>
-        <p className="mt-3 text-slate-600">{loading ? 'Checking the hot tub…' : 'Spararama cannot currently contact the tub. Live controls are disabled, but you can continue recording observations manually.'}</p>
-        {error && <p className="mt-3 text-sm text-amber-800 bg-amber-50 rounded-xl p-3">{error}</p>}
-        <div className="mt-5 flex flex-wrap gap-3">
-          <button type="button" onClick={() => void refresh()} className="min-h-12 px-5 rounded-xl bg-slate-900 text-white font-extrabold flex items-center gap-2"><RefreshCw className="w-5 h-5" />Try again</button>
-          <ManualReadingButton onClick={() => setShowManualLog(true)} />
-        </div>
-      </section>
-    </div>{manualModal}
+    <div className="p-4 max-w-xl mx-auto space-y-5"><section className="rounded-3xl bg-white border border-slate-200 p-6 shadow-sm">
+      <div className="flex items-center gap-3 text-amber-700 mb-4"><AlertTriangle className="w-6 h-6" /><span className="font-extrabold uppercase tracking-widest text-xs">Remote tub - currently unreachable</span></div>
+      <h2 className="text-3xl font-black text-slate-900">{waterBody.name}</h2>
+      <p className="mt-3 text-slate-600">{loading ? 'Checking the hot tub…' : 'Spararama cannot currently contact the tub. Live controls are disabled, but you can continue recording observations manually.'}</p>
+      {error && <p className="mt-3 text-sm text-amber-800 bg-amber-50 rounded-xl p-3">{error}</p>}
+      <div className="mt-5 flex flex-wrap gap-3"><button type="button" onClick={() => void refresh()} className="min-h-12 px-5 rounded-xl bg-slate-900 text-white font-extrabold flex items-center gap-2"><RefreshCw className="w-5 h-5" />Try again</button><ManualReadingButton onClick={() => setShowManualLog(true)} /></div>
+    </section></div>{manualModal}
   </>;
 
   const current = finiteNumber(status?.waterTemperatureC) ? status.waterTemperatureC : null;
