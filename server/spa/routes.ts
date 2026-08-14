@@ -15,6 +15,10 @@ export function registerSpaRoutes(app: Express, adapter: SpaAdapter) {
     res.json(await adapter.getStatus());
   }));
 
+  app.post('/api/spa/connect', asyncRoute(async (_req, res) => {
+    res.json(adapter.connect ? await adapter.connect() : await adapter.getStatus());
+  }));
+
   app.post('/api/spa/heater', asyncRoute(async (req, res) => {
     if (typeof req.body?.on !== 'boolean') {
       res.status(400).json({ error: 'Expected boolean field: on' });
