@@ -9,6 +9,8 @@ export interface SpaStatusDto {
   filterRuntimeSeconds: number;
   heaterRuntimeSeconds: number;
   updatedAt: number;
+  lastContactAt?: number;
+  contactFailureCount?: number;
 }
 
 async function requestSpa(path: string, init?: RequestInit): Promise<SpaStatusDto> {
