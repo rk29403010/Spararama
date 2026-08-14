@@ -7,6 +7,7 @@ import { createSpaAdapter } from './server/spa/factory';
 import { registerSpaRoutes } from './server/spa/routes';
 import { TelemetryCollector } from './server/telemetry/collector';
 import { TelemetrySettingsStore, validateTelemetryIntervalSeconds } from './server/telemetry/settings';
+import { registerSpaHistoryRoutes } from './server/history/spa-events';
 
 async function startServer() {
   const app = express();
@@ -20,6 +21,7 @@ async function startServer() {
 
   const spaAdapter = createSpaAdapter();
   registerSpaRoutes(app, spaAdapter);
+  registerSpaHistoryRoutes(app);
 
   const telemetry = new TelemetryCollector(spaAdapter);
   const telemetrySettingsStore = new TelemetrySettingsStore();
@@ -66,6 +68,20 @@ async function startServer() {
       res.json(await telemetry.readRecentSamples(limit));
     } catch (error: any) {
       res.status(500).json({ error: error?.message || 'Unable to read telemetry history' });
+    }
+  });
+
+  app.get('/api/telemetry/chart', async (req, res) => {
+    try {
+      const since = Number(req.query.since || Date.now() - 48 * 60 * 60 * 1000);
+      const maxPoints = Number(req.query.maxPoints || 500);
+      if (!Number.isFinite(since)) {
+        res.status(400).json({ error: 'Expected numeric query parameter: since' });
+        return;
+      }
+      res.json(await telemetry.readChartRange(since, maxPoints));
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || 'Unable to prepare telemetry chart history' });
     }
   });
 
