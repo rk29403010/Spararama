@@ -1,6 +1,17 @@
 import type { SpaStatusDto } from './spaApi';
 import type { EquipmentCatalogResponse } from '../domain/equipmentCatalog';
 
+export interface WeatherObservationDto {
+  source: string;
+  station?: string;
+  temperatureC?: number;
+  humidityPercent?: number;
+  windSpeedMps?: number;
+  cloudPercent?: number;
+  precipitationMm?: number;
+  observedAt?: number;
+}
+
 export interface TelemetrySampleDto {
   schemaVersion: 1;
   id: string;
@@ -9,9 +20,11 @@ export interface TelemetrySampleDto {
   collectorVersion: string;
   spa: SpaStatusDto;
   changedFields: string[];
+  weather?: WeatherObservationDto[];
 }
 
 export interface TelemetryHistoryDto { samples: TelemetrySampleDto[]; total: number; }
+export interface TelemetryChartDto { samples: TelemetrySampleDto[]; rawTotal: number; rolledUp: boolean; }
 export interface TelemetryStatusDto {
   running: boolean;
   pendingUploads: number;
@@ -42,6 +55,7 @@ async function updateTelemetry<T>(path: string, body: unknown): Promise<T> {
 
 export const telemetryApi = {
   history: (limit = 200) => requestTelemetry<TelemetryHistoryDto>(`/api/telemetry/samples?limit=${limit}`),
+  chart: (since: number, maxPoints = 500) => requestTelemetry<TelemetryChartDto>(`/api/telemetry/chart?since=${Math.floor(since)}&maxPoints=${Math.floor(maxPoints)}`),
   status: () => requestTelemetry<TelemetryStatusDto>('/api/telemetry/status'),
   config: () => requestTelemetry<TelemetryConfigDto>('/api/telemetry/config'),
   updateConfig: (intervalSeconds: number) => updateTelemetry<TelemetryConfigDto>('/api/telemetry/config', { intervalSeconds })
