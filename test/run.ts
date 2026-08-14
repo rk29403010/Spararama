@@ -8,3 +8,4 @@ import './server/manual-spa.test';
 import './server/runtime.test';
 import './server/recovery-bridge.test';
 import './server/telemetry.test';
+import './server/telemetry-rollup.test';
