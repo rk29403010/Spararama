@@ -71,6 +71,7 @@ export class TelemetryCollector {
   stop() { if (this.timer) clearInterval(this.timer); this.timer = null; this.status.running = false; }
   getStatus() { return { ...this.status, equipmentCatalog: this.equipmentCatalog }; }
   readRecentSamples(limit?: number) { return this.store.readRecent(limit); }
+  readChartRange(since: number, maxPoints?: number) { return this.store.readChartRange(since, maxPoints); }
 
   collectNow() {
     const result = this.operation.then(() => this.collectAndFlush(), () => this.collectAndFlush());
