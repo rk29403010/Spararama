@@ -112,18 +112,23 @@ function buildNeedsRefresh() {
 
 function prepare() {
   assertPnpm();
+  let dependenciesInstalled = false;
+  let built = false;
   if (dependenciesNeedInstall()) {
     console.log('Installing changed dependencies...');
     runPnpm(['install', '--frozen-lockfile']);
+    dependenciesInstalled = true;
   } else {
     console.log('Dependencies are current.');
   }
   if (buildNeedsRefresh()) {
     console.log('Building changed source...');
     runPnpm(['build']);
+    built = true;
   } else {
     console.log('Production build is current.');
   }
+  return { dependenciesInstalled, built };
 }
 
 async function getJson(url, timeoutMs = 5000) {
@@ -306,8 +311,17 @@ function syncDev() {
 }
 
 async function start() {
-  prepare();
+  const prepared = prepare();
   await startOne('cleverspa');
+  // A production Express process keeps its route table in memory, while static
+  // frontend assets are read from dist on each request. If prepare() rebuilt dist
+  // while an older backend was still running, leaving that process alive creates
+  // a split-version app: new UI + old API routes. Restart the backend whenever a
+  // fresh build was produced so the frontend and API always come from one build.
+  if (prepared.built && await getJson(SERVICES.spararama.healthUrl, 3000)) {
+    console.log('spararama: source changed; restarting backend to match the new build.');
+    await stopOne('spararama');
+  }
   await startOne('spararama');
   await status();
 }
