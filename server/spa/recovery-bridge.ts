@@ -12,6 +12,13 @@ interface RecoveryStatus {
   filterMinutes?: number;
 }
 
+const STATUS_ATTEMPTS = 3;
+const RETRY_DELAYS_MS = [350, 800];
+
+function delay(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export class RecoveryBridgeSpaAdapter implements SpaAdapter {
   private readonly baseUrl: string;
   private readonly token: string;
@@ -21,6 +28,8 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
   private lastFilterOn = false;
   private lastHeaterOn = false;
   private lastDiscoveryAttemptAt = 0;
+  private lastGoodStatus: SpaStatus | null = null;
+  private contactFailureCount = 0;
 
   constructor(baseUrl = process.env.CLEVERSPA_BRIDGE_URL || 'http://127.0.0.1:8787') {
     this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -64,8 +73,10 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
   private normalize(raw: RecoveryStatus): SpaStatus {
     const filterOn = Boolean(raw.filter);
     const heaterOn = Boolean(raw.heater);
+    const now = Date.now();
     this.accumulateRuntime(filterOn, heaterOn);
-    return {
+    const parsedUpdatedAt = raw.updatedAt ? new Date(raw.updatedAt).getTime() : now;
+    const status: SpaStatus = {
       transport: raw.transport === 'cloud' ? 'cloud' : 'lan',
       connected: Boolean(raw.connected),
       waterTemperatureC: Number.isFinite(raw.currentTemperature) ? Number(raw.currentTemperature) : Number.NaN,
@@ -76,12 +87,32 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
       filterRuntimeSeconds: this.filterRuntimeSeconds,
       heaterRuntimeSeconds: this.heaterRuntimeSeconds,
       deviceFilterMinutes: Number.isFinite(raw.filterMinutes) ? Number(raw.filterMinutes) : undefined,
-      updatedAt: raw.updatedAt ? new Date(raw.updatedAt).getTime() : Date.now()
+      updatedAt: Number.isFinite(parsedUpdatedAt) ? parsedUpdatedAt : now,
+      lastContactAt: now,
+      contactFailureCount: 0
     };
+    if (status.connected) {
+      this.contactFailureCount = 0;
+      this.lastGoodStatus = status;
+    }
+    return status;
   }
 
   private disconnectedStatus(): SpaStatus {
+    this.contactFailureCount += 1;
+    // Runtime cannot be inferred while the spa is unreachable, so stop accumulating
+    // it until a real state is observed again. Preserve the last displayed state as
+    // stale data rather than replacing it with invented zeros.
     this.accumulateRuntime(false, false);
+    if (this.lastGoodStatus) {
+      return {
+        ...this.lastGoodStatus,
+        connected: false,
+        filterRuntimeSeconds: this.filterRuntimeSeconds,
+        heaterRuntimeSeconds: this.heaterRuntimeSeconds,
+        contactFailureCount: this.contactFailureCount
+      };
+    }
     return {
       transport: 'lan',
       connected: false,
@@ -92,7 +123,8 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
       bubblesOn: false,
       filterRuntimeSeconds: this.filterRuntimeSeconds,
       heaterRuntimeSeconds: this.heaterRuntimeSeconds,
-      updatedAt: Date.now()
+      updatedAt: 0,
+      contactFailureCount: this.contactFailureCount
     };
   }
 
@@ -104,20 +136,32 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
   }
 
   async getStatus(): Promise<SpaStatus> {
-    try {
-      let raw = await this.request<RecoveryStatus>('/api/status');
-      if (!raw.connected) {
-        try {
-          await this.discoverIfNeeded();
-          raw = await this.request<RecoveryStatus>('/api/status');
-        } catch {
-          return this.disconnectedStatus();
+    for (let attempt = 0; attempt < STATUS_ATTEMPTS; attempt += 1) {
+      try {
+        const raw = await this.request<RecoveryStatus>('/api/status');
+        if (raw.connected) return this.normalize(raw);
+
+        // A disconnected response can simply mean that the outdoor device has
+        // dropped off Wi-Fi. Give LAN discovery one chance before the retries.
+        if (attempt === 0) {
+          try { await this.discoverIfNeeded(); } catch { /* retry status below */ }
+        }
+      } catch {
+        if (attempt === 0) {
+          try { await this.discoverIfNeeded(); } catch { /* retry status below */ }
         }
       }
-      return this.normalize(raw);
-    } catch {
-      return this.disconnectedStatus();
+
+      if (attempt < STATUS_ATTEMPTS - 1) {
+        await delay(RETRY_DELAYS_MS[attempt] ?? 800);
+      }
     }
+    return this.disconnectedStatus();
+  }
+
+  async connect(): Promise<SpaStatus> {
+    try { await this.request('/api/discover', { method: 'POST', body: '{}' }); } catch { /* status retries provide the final result */ }
+    return this.getStatus();
   }
 
   async setHeater(on: boolean): Promise<SpaStatus> {
