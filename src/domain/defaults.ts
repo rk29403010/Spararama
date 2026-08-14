@@ -11,6 +11,12 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
       volumeLiters: 800,
       sanitizer: 'chlorine',
       connectivity: 'wifi',
+      manufacturerId: 'cleverspa',
+      manufacturer: 'CleverSpa',
+      modelId: 'cleverspa-current-800',
+      model: 'Current 800 L Wi-Fi profile',
+      modelCapacityLiters: 800,
+      connectorId: 'cleverspa',
       doseRounding: 1,
       targets: [
         { measurement: 'free_chlorine', min: 3, max: 5, preferred: 4, unit: 'ppm' },
@@ -65,46 +71,24 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
   ],
   products: [
     {
-      id: 'cleverspa-ta-plus',
-      name: 'Total Alkalinity Increaser',
-      brand: 'CleverSpa',
-      form: 'powder',
-      activeIngredient: 'alkalinity increaser',
+      id: 'cleverspa-ta-plus', name: 'Total Alkalinity Increaser', brand: 'CleverSpa', form: 'powder', activeIngredient: 'alkalinity increaser',
       doseModels: [{ kind: 'linear_raise', measurement: 'total_alkalinity', direction: 'raise', amount: 16, unit: 'g', referenceVolumeLiters: 1000, raisesBy: 10 }],
-      mixMinutes: 20,
-      circulationRequired: true,
-      notes: 'Label: 16 g raises 1000 L by 10 ppm.'
+      mixMinutes: 20, circulationRequired: true, notes: 'Label: 16 g raises 1000 L by 10 ppm.'
     },
     {
-      id: 'cleverspa-ph-plus',
-      name: 'pH Plus',
-      brand: 'CleverSpa',
-      form: 'powder',
-      activeIngredient: 'pH increaser',
+      id: 'cleverspa-ph-plus', name: 'pH Plus', brand: 'CleverSpa', form: 'powder', activeIngredient: 'pH increaser',
       doseModels: [{ kind: 'fixed_label', measurement: 'ph', direction: 'raise', amount: 11, unit: 'g', referenceVolumeLiters: 1000, note: 'Use one label dose, circulate, then retest rather than assuming a linear pH change.' }],
-      mixMinutes: 15,
-      circulationRequired: true
+      mixMinutes: 15, circulationRequired: true
     },
     {
-      id: 'cleverspa-ph-minus',
-      name: 'pH Minus',
-      brand: 'CleverSpa',
-      form: 'powder',
-      activeIngredient: 'pH reducer',
+      id: 'cleverspa-ph-minus', name: 'pH Minus', brand: 'CleverSpa', form: 'powder', activeIngredient: 'pH reducer',
       doseModels: [{ kind: 'fixed_label', measurement: 'ph', direction: 'lower', amount: 11, unit: 'g', referenceVolumeLiters: 1000, note: 'Use one label dose, circulate, then retest rather than assuming a linear pH change.' }],
-      mixMinutes: 15,
-      circulationRequired: true
+      mixMinutes: 15, circulationRequired: true
     },
     {
-      id: 'cleverspa-chlorine-granules',
-      name: 'Stabilised Chlorine Granules',
-      brand: 'CleverSpa',
-      form: 'granules',
-      activeIngredient: 'sodium dichloroisocyanurate dihydrate',
+      id: 'cleverspa-chlorine-granules', name: 'Stabilised Chlorine Granules', brand: 'CleverSpa', form: 'granules', activeIngredient: 'sodium dichloroisocyanurate dihydrate',
       doseModels: [{ kind: 'linear_raise', measurement: 'free_chlorine', direction: 'raise', amount: 2, unit: 'g', referenceVolumeLiters: 1000, raisesBy: 1 }],
-      mixMinutes: 15,
-      circulationRequired: true,
-      notes: 'Label: 2 g raises 1000 L by 1 ppm free chlorine.'
+      mixMinutes: 15, circulationRequired: true, notes: 'Label: 2 g raises 1000 L by 1 ppm free chlorine.'
     }
   ],
   equipment: [
@@ -112,9 +96,7 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
     { id: 'cleverspa-heater', name: 'CleverSpa heater', kind: 'heater', runtimeSeconds: 0, metadata: { powerWatts: 1800 } },
     { id: 'cleverspa-controller', name: 'CleverSpa controller', kind: 'controller' }
   ],
-  waterTests: [],
-  chemicalDoses: [],
-  maintenanceEvents: []
+  waterTests: [], chemicalDoses: [], maintenanceEvents: []
 };
 
 export function createDefaultDomainState(): SpaDomainState {
