@@ -1,4 +1,5 @@
 import type { SpaStatusDto } from './spaApi';
+import type { EquipmentCatalogResponse } from '../domain/equipmentCatalog';
 
 export interface TelemetrySampleDto {
   schemaVersion: 1;
@@ -10,22 +11,16 @@ export interface TelemetrySampleDto {
   changedFields: string[];
 }
 
-export interface TelemetryHistoryDto {
-  samples: TelemetrySampleDto[];
-  total: number;
-}
-
+export interface TelemetryHistoryDto { samples: TelemetrySampleDto[]; total: number; }
 export interface TelemetryStatusDto {
   running: boolean;
   pendingUploads: number;
   firebaseEnabled: boolean;
   lastUploadAt?: number;
   lastError?: string;
+  equipmentCatalog?: EquipmentCatalogResponse;
 }
-
-export interface TelemetryConfigDto {
-  intervalSeconds: number;
-}
+export interface TelemetryConfigDto { intervalSeconds: number; }
 
 async function requestTelemetry<T>(path: string): Promise<T> {
   const response = await fetch(path);
@@ -37,11 +32,7 @@ async function requestTelemetry<T>(path: string): Promise<T> {
 }
 
 async function updateTelemetry<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
+  const response = await fetch(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (!response.ok) {
     const responseBody = await response.json().catch(() => ({}));
     throw new Error(responseBody.error || `Telemetry update failed (${response.status})`);
