@@ -37,6 +37,12 @@ export interface WaterBodyProfile {
   volumeLiters: number;
   sanitizer: SanitizerSystem;
   connectivity?: 'none' | 'wifi';
+  manufacturerId?: string;
+  manufacturer?: string;
+  modelId?: string;
+  model?: string;
+  modelCapacityLiters?: number;
+  connectorId?: string;
   targets: TargetRange[];
   doseRounding?: number;
 }
