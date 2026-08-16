@@ -10,6 +10,7 @@ import { ManualLogModal } from './components/ManualLogModal';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
 import { TelemetrySettings } from './components/TelemetrySettings';
 import { SpaConfiguration } from './components/SpaConfiguration';
+import { WeatherConfiguration } from './components/WeatherConfiguration';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Droplets, Flame, Settings, List, Plus, LogOut, User as UserIcon, House } from 'lucide-react';
 import { subscribeToAuthChanges, signOutUser } from './lib/firebase';
@@ -54,6 +55,7 @@ export default function App() {
             <div className="p-4 sm:p-8 text-slate-500 max-w-md mx-auto space-y-6">
               <h2 className="text-2xl font-semibold text-slate-900 text-center">Settings</h2>
               <ErrorBoundary resetKey="spa-configuration" title="Spa / pool configuration hit a problem"><SpaConfiguration state={state} updateState={updateState} /></ErrorBoundary>
+              <ErrorBoundary resetKey="weather-configuration" title="Weather configuration hit a problem"><WeatherConfiguration /></ErrorBoundary>
 
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-6">
                 <label className="flex items-center justify-between"><span className="font-medium text-slate-700 text-lg">Account</span>{user ? <button className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-bold flex items-center gap-2 hover:bg-slate-200" onClick={signOutUser}><LogOut className="w-4 h-4" /> Sign Out</button> : <GoogleSignInButton />}</label>
