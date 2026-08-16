@@ -8,16 +8,23 @@ export function HeatingNotifications() {
   const [notice, setNotice] = useState<HeatingNotificationDto | null>(null);
   const [busy, setBusy] = useState(false);
   const seen = useRef(new Set<string>());
-
-  useEffect(() => {
-    // Do not prompt on startup. If this browser was already granted permission,
-    // refresh its FCM token/registration so background delivery stays healthy.
-    void syncPushRegistration().catch(() => undefined);
-  }, []);
+  const pushSynced = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+
+    const syncPushIfAllowed = async () => {
+      if (pushSynced.current || !('Notification' in window) || Notification.permission !== 'granted') return;
+      try {
+        const result = await syncPushRegistration();
+        if (!cancelled && result.status === 'enabled') pushSynced.current = true;
+      } catch {
+        // Registration is best effort here. Polling continues as the fallback.
+      }
+    };
+
     const poll = async () => {
+      await syncPushIfAllowed();
       try {
         const { notifications } = await heatingApi.notifications();
         if (cancelled) return;
@@ -40,6 +47,7 @@ export function HeatingNotifications() {
         // Backend notification polling is best effort; the next poll retries.
       }
     };
+
     void poll();
     const timer = window.setInterval(() => void poll(), 10_000);
     return () => { cancelled = true; window.clearInterval(timer); };
