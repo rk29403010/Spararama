@@ -5,7 +5,9 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import { createSpaAdapter } from './server/spa/factory';
 import { registerSpaRoutes } from './server/spa/routes';
+import { BestEffortTemperatureResolver } from './server/spa/temperature';
 import { TelemetryCollector } from './server/telemetry/collector';
+import { LocalTelemetryStore } from './server/telemetry/local-store';
 import { TelemetrySettingsStore, validateTelemetryIntervalSeconds } from './server/telemetry/settings';
 import { registerSpaHistoryRoutes } from './server/history/spa-events';
 
@@ -20,10 +22,12 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
 
   const spaAdapter = createSpaAdapter();
-  registerSpaRoutes(app, spaAdapter);
+  const telemetryStore = new LocalTelemetryStore();
+  const temperatureResolver = new BestEffortTemperatureResolver(spaAdapter, telemetryStore);
+  registerSpaRoutes(app, spaAdapter, temperatureResolver);
   registerSpaHistoryRoutes(app);
 
-  const telemetry = new TelemetryCollector(spaAdapter);
+  const telemetry = new TelemetryCollector(spaAdapter, telemetryStore);
   const telemetrySettingsStore = new TelemetrySettingsStore();
   const telemetrySettings = await telemetrySettingsStore.load();
   telemetry.setIntervalSeconds(telemetrySettings.intervalSeconds);
