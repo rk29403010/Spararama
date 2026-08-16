@@ -20,7 +20,10 @@ export function HeatingNotifications() {
         for (const item of notifications) {
           if (seen.current.has(item.id) || item.deliveredAt) continue;
           seen.current.add(item.id);
-          if ('Notification' in window && Notification.permission === 'granted') {
+          // If FCM already accepted this notification, do not create a second
+          // browser Notification while the app is open. The in-app notice/prompt
+          // still appears and deliveredAt remains distinct from pushSentAt.
+          if (!item.pushSentAt && 'Notification' in window && Notification.permission === 'granted') {
             new Notification(item.title, { body: item.message, tag: `spararama-${item.id}` });
           }
           await heatingApi.markDelivered(item.id);
