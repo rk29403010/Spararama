@@ -37,6 +37,11 @@ export interface HeatingNotification {
   requiresConfirmation: boolean;
   deliveredAt?: number;
   resolvedAt?: number;
+  pushSentAt?: number;
+  pushAttempts?: number;
+  pushLastAttemptAt?: number;
+  pushNextAttemptAt?: number;
+  pushLastError?: string;
 }
 
 export interface HeatingEvent {
