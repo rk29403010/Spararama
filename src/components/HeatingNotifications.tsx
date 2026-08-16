@@ -1,12 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Bell, Check, X } from 'lucide-react';
 import { heatingApi, type HeatingNotificationDto } from '../lib/heatingApi';
+import { syncPushRegistration } from '../lib/pushNotifications';
 
 export function HeatingNotifications() {
   const [manualPrompt, setManualPrompt] = useState<HeatingNotificationDto | null>(null);
   const [notice, setNotice] = useState<HeatingNotificationDto | null>(null);
   const [busy, setBusy] = useState(false);
   const seen = useRef(new Set<string>());
+
+  useEffect(() => {
+    // Do not prompt on startup. If this browser was already granted permission,
+    // refresh its FCM token/registration so background delivery stays healthy.
+    void syncPushRegistration().catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
