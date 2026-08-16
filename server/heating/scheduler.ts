@@ -1,4 +1,4 @@
-import type { PushService } from '../push/service';
+import { PushService } from '../push/service';
 import type { SpaAdapter } from '../spa/types';
 import { HeatingStore } from './store';
 import type { HeatingNotification, HeatingSchedule } from './types';
@@ -27,7 +27,7 @@ export class HeatingScheduler {
   constructor(
     private readonly spa: SpaAdapter,
     private readonly store = new HeatingStore(),
-    private readonly push?: PushService
+    private readonly push: PushService = new PushService()
   ) {}
 
   start() {
@@ -178,7 +178,7 @@ export class HeatingScheduler {
       }
     }
 
-    if (this.push?.enabled) {
+    if (this.push.enabled) {
       for (const notification of state.notifications) {
         if (notification.resolvedAt || notification.pushSentAt) continue;
         if (notification.pushNextAttemptAt && now < notification.pushNextAttemptAt) continue;
