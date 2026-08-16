@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { AppState, HeatingSession } from '../types';
 import { format, addDays } from 'date-fns';
-import { logEvent } from '../lib/firebase';
 import { volumeAdjustedHeatingRate } from '../domain/heating';
+import { spaApi, type BestEffortTemperatureDto } from '../lib/spaApi';
 import { Save, Cloud, Wind, CloudFog } from 'lucide-react';
 import axios from 'axios';
 
@@ -11,8 +11,28 @@ interface HeatingProps {
   updateState: (newState: AppState) => void;
 }
 
+function displayTemperature(celsius: number, scale: 'C' | 'F') {
+  return scale === 'F' ? Math.round((celsius * 9/5) + 32) : Math.round(celsius);
+}
+
+function temperatureSourceLabel(estimate: BestEffortTemperatureDto | null) {
+  if (!estimate) return 'Finding current temperature…';
+  const labels: Record<BestEffortTemperatureDto['source'], string> = {
+    'live-spa': 'live spa',
+    'recent-telemetry': 'recent reading',
+    'last-known-water': 'last known water',
+    'ambient-sensor': 'ambient sensor estimate',
+    'weather': 'weather estimate',
+    'ambient-default': 'ambient fallback'
+  };
+  const prefix = estimate.estimated ? 'Estimated' : 'Measured';
+  return `${prefix} · ${estimate.confidence} confidence · ${labels[estimate.source]}`;
+}
+
 export function Heating({ state, updateState }: HeatingProps) {
   const [currentTemp, setCurrentTemp] = useState(20);
+  const [temperatureEstimate, setTemperatureEstimate] = useState<BestEffortTemperatureDto | null>(null);
+  const [temperatureLookupError, setTemperatureLookupError] = useState('');
   const [targetTemp, setTargetTemp] = useState(state.config.defaultHeatingTarget || 40);
   const [readyDay, setReadyDay] = useState<'today' | 'tomorrow'>('today');
   const [readyHour, setReadyHour] = useState(17);
@@ -30,6 +50,22 @@ export function Heating({ state, updateState }: HeatingProps) {
   const maxC = 42;
   const minTemp = scale === 'F' ? Math.round((minC * 9/5) + 32) : minC;
   const maxTemp = scale === 'F' ? Math.round((maxC * 9/5) + 32) : maxC;
+
+  useEffect(() => {
+    let cancelled = false;
+    setTemperatureLookupError('');
+    spaApi.currentTemperature()
+      .then(estimate => {
+        if (cancelled) return;
+        setTemperatureEstimate(estimate);
+        setCurrentTemp(displayTemperature(estimate.valueC, state.config.temperatureScale));
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setTemperatureLookupError(err?.message || 'Could not determine the current temperature.');
+      });
+    return () => { cancelled = true; };
+  }, [activeWaterBody?.id]);
 
   useEffect(() => {
     axios.get('https://api.open-meteo.com/v1/forecast?latitude=51.5074&longitude=-0.1278&hourly=temperature_2m,wind_speed_10m&forecast_days=2')
@@ -126,7 +162,7 @@ export function Heating({ state, updateState }: HeatingProps) {
     <div className="flex flex-col h-full max-w-md mx-auto p-4 space-y-8 pb-8">
       <div className="flex-1 flex justify-around items-center min-h-[280px] relative mt-2">
         <div className="absolute inset-y-8 left-1/2 -translate-x-1/2 flex flex-col justify-between items-center text-xs font-bold text-slate-300 py-4 pointer-events-none z-0"><span>{scale === 'F' ? 104 : 40}</span><span>{scale === 'F' ? 86 : 30}</span><span>{scale === 'F' ? 68 : 20}</span><span>{scale === 'F' ? 50 : 10}</span><div className="absolute top-8 bottom-8 left-1/2 w-[2px] bg-slate-200 -z-10 -translate-x-1/2" /></div>
-        <div className="flex flex-col items-center h-full justify-between z-10"><div className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Current</div><div className="relative w-12 h-64 flex items-center justify-center"><input type="range" min={minTemp} max={maxTemp} step={step} value={currentTemp} onChange={e => setCurrentTemp(Number(e.target.value))} className="absolute w-64 h-12 -rotate-90 appearance-none bg-slate-100 rounded-full outline-none slider-thumb-transparent z-10" /><div className="absolute pointer-events-none w-12 h-12 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg text-lg z-20" style={{ bottom: `calc(${getPercent(currentTemp)} * (100% - 3rem))` }}>{currentTemp}</div></div></div>
+        <div className="flex flex-col items-center h-full justify-between z-10"><div className="text-center mb-4"><div className="text-sm font-bold text-slate-400 uppercase tracking-widest">Current</div><div className={`mt-1 text-[10px] font-bold ${temperatureEstimate?.confidence === 'high' ? 'text-emerald-600' : temperatureEstimate?.confidence === 'medium' ? 'text-amber-600' : 'text-slate-500'}`} title={temperatureEstimate?.reason}>{temperatureLookupError || temperatureSourceLabel(temperatureEstimate)}</div></div><div className="relative w-12 h-64 flex items-center justify-center"><input type="range" min={minTemp} max={maxTemp} step={step} value={currentTemp} onChange={e => setCurrentTemp(Number(e.target.value))} className="absolute w-64 h-12 -rotate-90 appearance-none bg-slate-100 rounded-full outline-none slider-thumb-transparent z-10" /><div className="absolute pointer-events-none w-12 h-12 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg text-lg z-20" style={{ bottom: `calc(${getPercent(currentTemp)} * (100% - 3rem))` }}>{currentTemp}</div></div></div>
         <div className="flex flex-col items-center h-full justify-between z-10"><div className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Target</div><div className="relative w-12 h-64 flex items-center justify-center"><input type="range" min={minTemp} max={maxTemp} step={step} value={targetTemp} onChange={e => setTargetTemp(Number(e.target.value))} className="absolute w-64 h-12 -rotate-90 appearance-none bg-slate-100 rounded-full outline-none slider-thumb-transparent z-10" /><div className="absolute pointer-events-none w-12 h-12 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg text-lg z-20" style={{ bottom: `calc(${getPercent(targetTemp)} * (100% - 3rem))` }}>{targetTemp}</div></div></div>
       </div>
 
