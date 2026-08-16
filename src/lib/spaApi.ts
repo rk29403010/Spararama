@@ -1,7 +1,26 @@
+export type TemperatureConfidence = 'high' | 'medium' | 'low';
+
+export interface BestEffortTemperatureDto {
+  valueC: number;
+  confidence: TemperatureConfidence;
+  confidenceScore: number;
+  source: 'live-spa' | 'recent-telemetry' | 'last-known-water' | 'ambient-sensor' | 'weather' | 'ambient-default';
+  observedAt: number;
+  estimated: boolean;
+  ageMs: number;
+  reason: string;
+}
+
 export interface SpaStatusDto {
   transport: 'mock' | 'lan' | 'cloud' | 'manual';
   connected: boolean;
   waterTemperatureC: number;
+  waterTemperatureConfidence?: TemperatureConfidence;
+  waterTemperatureConfidenceScore?: number;
+  waterTemperatureSource?: BestEffortTemperatureDto['source'];
+  waterTemperatureObservedAt?: number;
+  waterTemperatureEstimated?: boolean;
+  waterTemperatureReason?: string;
   targetTemperatureC: number;
   heaterOn: boolean;
   filterOn: boolean;
@@ -13,7 +32,7 @@ export interface SpaStatusDto {
   contactFailureCount?: number;
 }
 
-async function requestSpa(path: string, init?: RequestInit): Promise<SpaStatusDto> {
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) }
@@ -25,8 +44,13 @@ async function requestSpa(path: string, init?: RequestInit): Promise<SpaStatusDt
   return response.json();
 }
 
+function requestSpa(path: string, init?: RequestInit) {
+  return requestJson<SpaStatusDto>(path, init);
+}
+
 export const spaApi = {
   status: () => requestSpa('/api/spa/status'),
+  currentTemperature: () => requestJson<BestEffortTemperatureDto>('/api/spa/current-temperature'),
   connect: () => requestSpa('/api/spa/connect', { method: 'POST' }),
   setHeater: (on: boolean) => requestSpa('/api/spa/heater', { method: 'POST', body: JSON.stringify({ on }) }),
   setFilter: (on: boolean) => requestSpa('/api/spa/filter', { method: 'POST', body: JSON.stringify({ on }) }),
