@@ -30,7 +30,7 @@ function temperatureSourceLabel(estimate: BestEffortTemperatureDto | null) {
 }
 
 export function Heating({ state, updateState }: HeatingProps) {
-  const [currentTemp, setCurrentTemp] = useState(20);
+  const [currentTemp, setCurrentTemp] = useState<number | null>(null);
   const [temperatureEstimate, setTemperatureEstimate] = useState<BestEffortTemperatureDto | null>(null);
   const [temperatureLookupError, setTemperatureLookupError] = useState('');
   const [targetTemp, setTargetTemp] = useState(state.config.defaultHeatingTarget || 40);
@@ -53,6 +53,8 @@ export function Heating({ state, updateState }: HeatingProps) {
 
   useEffect(() => {
     let cancelled = false;
+    setCurrentTemp(null);
+    setTemperatureEstimate(null);
     setTemperatureLookupError('');
     spaApi.currentTemperature()
       .then(estimate => {
@@ -73,12 +75,12 @@ export function Heating({ state, updateState }: HeatingProps) {
   }, []);
 
   useEffect(() => {
-    if (scale === 'F' && currentTemp < 50) {
-      setCurrentTemp(Math.round((currentTemp * 9/5) + 32));
-      setTargetTemp(Math.round((targetTemp * 9/5) + 32));
-    } else if (scale === 'C' && currentTemp > 45) {
-      setCurrentTemp(Math.round((currentTemp - 32) * 5/9));
-      setTargetTemp(Math.round((targetTemp - 32) * 5/9));
+    if (scale === 'F') {
+      if (currentTemp !== null && currentTemp < 50) setCurrentTemp(Math.round((currentTemp * 9/5) + 32));
+      if (targetTemp < 50) setTargetTemp(Math.round((targetTemp * 9/5) + 32));
+    } else if (scale === 'C') {
+      if (currentTemp !== null && currentTemp > 45) setCurrentTemp(Math.round((currentTemp - 32) * 5/9));
+      if (targetTemp > 45) setTargetTemp(Math.round((targetTemp - 32) * 5/9));
     }
   }, [scale]);
 
@@ -92,6 +94,10 @@ export function Heating({ state, updateState }: HeatingProps) {
   }, [state.config.defaultReadyTime]);
 
   useEffect(() => {
+    if (currentTemp === null) {
+      setCalculation(null);
+      return;
+    }
     const timer = setTimeout(() => { calculateHeating(); setSaveSuccess(false); }, 300);
     return () => clearTimeout(timer);
   }, [currentTemp, targetTemp, readyDay, readyHour, scale, weatherData, waterVolumeLiters, state.config.heatingRateReferenceVolumeLiters]);
@@ -109,6 +115,10 @@ export function Heating({ state, updateState }: HeatingProps) {
   const calculateHeating = () => {
     setError('');
     try {
+      if (currentTemp === null) {
+        setCalculation(null);
+        return;
+      }
       let cTemp = currentTemp;
       let tTemp = targetTemp;
       if (scale === 'F') { cTemp = (currentTemp - 32) * 5/9; tTemp = (targetTemp - 32) * 5/9; }
@@ -157,12 +167,13 @@ export function Heating({ state, updateState }: HeatingProps) {
 
   const getPercent = (val: number) => (val - minTemp) / (maxTemp - minTemp);
   const step = 1;
+  const displayedCurrentTemp = currentTemp ?? minTemp;
 
   return (
     <div className="flex flex-col h-full max-w-md mx-auto p-4 space-y-8 pb-8">
       <div className="flex-1 flex justify-around items-center min-h-[280px] relative mt-2">
         <div className="absolute inset-y-8 left-1/2 -translate-x-1/2 flex flex-col justify-between items-center text-xs font-bold text-slate-300 py-4 pointer-events-none z-0"><span>{scale === 'F' ? 104 : 40}</span><span>{scale === 'F' ? 86 : 30}</span><span>{scale === 'F' ? 68 : 20}</span><span>{scale === 'F' ? 50 : 10}</span><div className="absolute top-8 bottom-8 left-1/2 w-[2px] bg-slate-200 -z-10 -translate-x-1/2" /></div>
-        <div className="flex flex-col items-center h-full justify-between z-10"><div className="text-center mb-4"><div className="text-sm font-bold text-slate-400 uppercase tracking-widest">Current</div><div className={`mt-1 text-[10px] font-bold ${temperatureEstimate?.confidence === 'high' ? 'text-emerald-600' : temperatureEstimate?.confidence === 'medium' ? 'text-amber-600' : 'text-slate-500'}`} title={temperatureEstimate?.reason}>{temperatureLookupError || temperatureSourceLabel(temperatureEstimate)}</div></div><div className="relative w-12 h-64 flex items-center justify-center"><input type="range" min={minTemp} max={maxTemp} step={step} value={currentTemp} onChange={e => setCurrentTemp(Number(e.target.value))} className="absolute w-64 h-12 -rotate-90 appearance-none bg-slate-100 rounded-full outline-none slider-thumb-transparent z-10" /><div className="absolute pointer-events-none w-12 h-12 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg text-lg z-20" style={{ bottom: `calc(${getPercent(currentTemp)} * (100% - 3rem))` }}>{currentTemp}</div></div></div>
+        <div className="flex flex-col items-center h-full justify-between z-10"><div className="text-center mb-4"><div className="text-sm font-bold text-slate-400 uppercase tracking-widest">Current</div><div className={`mt-1 text-[10px] font-bold ${temperatureEstimate?.confidence === 'high' ? 'text-emerald-600' : temperatureEstimate?.confidence === 'medium' ? 'text-amber-600' : 'text-slate-500'}`} title={temperatureEstimate?.reason}>{temperatureLookupError || temperatureSourceLabel(temperatureEstimate)}</div></div><div className="relative w-12 h-64 flex items-center justify-center"><input type="range" min={minTemp} max={maxTemp} step={step} value={displayedCurrentTemp} disabled={currentTemp === null} onChange={e => setCurrentTemp(Number(e.target.value))} className="absolute w-64 h-12 -rotate-90 appearance-none bg-slate-100 rounded-full outline-none slider-thumb-transparent z-10 disabled:opacity-50" /><div className="absolute pointer-events-none w-12 h-12 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg text-lg z-20" style={{ bottom: `calc(${getPercent(displayedCurrentTemp)} * (100% - 3rem))` }}>{currentTemp === null ? '—' : currentTemp}</div></div></div>
         <div className="flex flex-col items-center h-full justify-between z-10"><div className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Target</div><div className="relative w-12 h-64 flex items-center justify-center"><input type="range" min={minTemp} max={maxTemp} step={step} value={targetTemp} onChange={e => setTargetTemp(Number(e.target.value))} className="absolute w-64 h-12 -rotate-90 appearance-none bg-slate-100 rounded-full outline-none slider-thumb-transparent z-10" /><div className="absolute pointer-events-none w-12 h-12 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg text-lg z-20" style={{ bottom: `calc(${getPercent(targetTemp)} * (100% - 3rem))` }}>{targetTemp}</div></div></div>
       </div>
 
