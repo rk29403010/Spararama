@@ -2,7 +2,22 @@ import type { SpaDomainState, WaterBodyKind } from './domain/models';
 
 export interface ChemicalInventory { id: string; name: string; ingredientType: string; quantity: string; addedAt: number; }
 export interface TestReading { id: string; timestamp: number; chlorine: number | null; bromine: number | null; ph: number | null; alkalinity: number | null; recommendation: string; }
-export interface HeatingSession { id: string; targetTemp: number; targetTime: number; startTemp: number; startTime: number; ambientTempAvg: number; avgWindSpeed?: number; expectedDurationHours: number; actualDurationHours?: number; costEstimate: number; }
+export interface HeatingSession {
+  id: string;
+  targetTemp: number;
+  targetTime: number;
+  startTemp: number;
+  startTime: number;
+  ambientTempAvg: number;
+  avgWindSpeed?: number;
+  avgSolarRadiationWm2?: number;
+  weatherSourceCount?: number;
+  weatherSamplingMode?: 'nearest' | 'triangulate';
+  weatherInfluence?: { temperature: number; wind: number; solar: number; precipitation: number; };
+  expectedDurationHours: number;
+  actualDurationHours?: number;
+  costEstimate: number;
+}
 
 export interface SpaConfig {
   model: string;

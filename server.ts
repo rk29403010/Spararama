@@ -5,9 +5,15 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import { createSpaAdapter } from './server/spa/factory';
 import { registerSpaRoutes } from './server/spa/routes';
+import { BestEffortTemperatureResolver } from './server/spa/temperature';
 import { TelemetryCollector } from './server/telemetry/collector';
+import { LocalTelemetryStore } from './server/telemetry/local-store';
 import { TelemetrySettingsStore, validateTelemetryIntervalSeconds } from './server/telemetry/settings';
 import { registerSpaHistoryRoutes } from './server/history/spa-events';
+import { WeatherService } from './server/weather/service';
+import { registerWeatherRoutes } from './server/weather/routes';
+import { HeatingScheduler } from './server/heating/scheduler';
+import { registerHeatingRoutes } from './server/heating/routes';
 
 async function startServer() {
   const app = express();
@@ -20,14 +26,21 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
 
   const spaAdapter = createSpaAdapter();
-  registerSpaRoutes(app, spaAdapter);
+  const telemetryStore = new LocalTelemetryStore();
+  const weather = new WeatherService();
+  const temperatureResolver = new BestEffortTemperatureResolver(spaAdapter, telemetryStore);
+  const heatingScheduler = new HeatingScheduler(spaAdapter);
+  registerSpaRoutes(app, spaAdapter, temperatureResolver);
+  registerWeatherRoutes(app, weather);
+  registerHeatingRoutes(app, heatingScheduler);
   registerSpaHistoryRoutes(app);
 
-  const telemetry = new TelemetryCollector(spaAdapter);
+  const telemetry = new TelemetryCollector(spaAdapter, telemetryStore, undefined, weather);
   const telemetrySettingsStore = new TelemetrySettingsStore();
   const telemetrySettings = await telemetrySettingsStore.load();
   telemetry.setIntervalSeconds(telemetrySettings.intervalSeconds);
   telemetry.start();
+  heatingScheduler.start();
   const telemetryStatus = telemetry.getStatus();
   console.log(`Firebase telemetry enabled: ${telemetryStatus.firebaseEnabled}`);
   console.log(`Firebase project: ${telemetryStatus.firebaseProjectId || 'not resolved'}`);
@@ -193,6 +206,7 @@ async function startServer() {
 
   const shutdown = () => {
     telemetry.stop();
+    heatingScheduler.stop();
     server.close(() => process.exit(0));
   };
   process.once('SIGINT', shutdown);

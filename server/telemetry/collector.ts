@@ -5,6 +5,8 @@ import { FirebaseTelemetrySink } from './firebase-sink';
 import type { TelemetryCollectorStatus, TelemetrySample } from './types';
 import { EquipmentCatalogStore } from '../catalog/store';
 import { EQUIPMENT_CATALOG_SEED, type EquipmentCatalogResponse } from '../../src/domain/equipmentCatalog';
+import type { WeatherService } from '../weather/service';
+import type { CurrentWeatherSnapshot } from '../weather/types';
 
 interface TelemetrySink {
   enabled: boolean;
@@ -35,7 +37,8 @@ export class TelemetryCollector {
   constructor(
     private readonly spa: SpaAdapter,
     private readonly store = new LocalTelemetryStore(),
-    private readonly firebase: TelemetrySink = new FirebaseTelemetrySink()
+    private readonly firebase: TelemetrySink = new FirebaseTelemetrySink(),
+    private readonly weather?: WeatherService
   ) {
     const configured = Number(process.env.TELEMETRY_INTERVAL_SECONDS || 300);
     this.intervalMs = Math.max(60, Number.isFinite(configured) ? configured : 300) * 1000;
@@ -79,12 +82,28 @@ export class TelemetryCollector {
     return result;
   }
 
+  private async readWeather(): Promise<CurrentWeatherSnapshot | null> {
+    if (!this.weather) return null;
+    try {
+      return await this.weather.current();
+    } catch (error: any) {
+      if (!String(error?.message || error).includes('location is not configured')) {
+        console.warn(`Weather telemetry unavailable for this sample: ${error?.message || String(error)}`);
+      }
+      return null;
+    }
+  }
+
   private async collectAndFlush() {
     try {
-      const spa = await this.spa.getStatus();
+      const [spa, weather] = await Promise.all([this.spa.getStatus(), this.readWeather()]);
       const sample: TelemetrySample = {
         schemaVersion: 1, id: crypto.randomUUID(), timestamp: Date.now(), hostId: this.hostId, collectorVersion: this.collectorVersion,
-        spa, changedFields: changedFields(this.previousSpa, spa), sensors: [], weather: []
+        spa, changedFields: changedFields(this.previousSpa, spa), sensors: [],
+        weather: weather?.raw || [],
+        weatherDerived: weather?.derived,
+        weatherInfluence: weather?.influence,
+        weatherSources: weather?.sources
       };
       this.previousSpa = spa;
       await this.store.append(sample);

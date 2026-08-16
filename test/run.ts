@@ -9,3 +9,7 @@ import './server/runtime.test';
 import './server/recovery-bridge.test';
 import './server/telemetry.test';
 import './server/telemetry-rollup.test';
+import './server/temperature-resolver.test';
+import './server/weather.test';
+import './server/heating-scheduler.test';
+import './server/push-store.test';
