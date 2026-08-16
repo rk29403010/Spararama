@@ -30,6 +30,11 @@ export interface HeatingNotificationDto {
   requiresConfirmation: boolean;
   deliveredAt?: number;
   resolvedAt?: number;
+  pushSentAt?: number;
+  pushAttempts?: number;
+  pushLastAttemptAt?: number;
+  pushNextAttemptAt?: number;
+  pushLastError?: string;
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
