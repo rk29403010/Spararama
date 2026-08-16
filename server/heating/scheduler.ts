@@ -80,7 +80,9 @@ export class HeatingScheduler {
     const state = await this.store.load();
     const notification = state.notifications.find(item => item.id === id);
     if (!notification) throw new Error('Heating notification not found.');
-    notification.deliveredAt = notification.deliveredAt || Date.now();
+    const now = Date.now();
+    notification.deliveredAt = notification.deliveredAt || now;
+    if (!notification.requiresConfirmation) notification.resolvedAt = notification.resolvedAt || now;
     await this.store.save(state);
     return notification;
   }
