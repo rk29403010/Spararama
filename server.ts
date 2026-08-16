@@ -10,6 +10,8 @@ import { TelemetryCollector } from './server/telemetry/collector';
 import { LocalTelemetryStore } from './server/telemetry/local-store';
 import { TelemetrySettingsStore, validateTelemetryIntervalSeconds } from './server/telemetry/settings';
 import { registerSpaHistoryRoutes } from './server/history/spa-events';
+import { WeatherService } from './server/weather/service';
+import { registerWeatherRoutes } from './server/weather/routes';
 
 async function startServer() {
   const app = express();
@@ -23,11 +25,13 @@ async function startServer() {
 
   const spaAdapter = createSpaAdapter();
   const telemetryStore = new LocalTelemetryStore();
+  const weather = new WeatherService();
   const temperatureResolver = new BestEffortTemperatureResolver(spaAdapter, telemetryStore);
   registerSpaRoutes(app, spaAdapter, temperatureResolver);
+  registerWeatherRoutes(app, weather);
   registerSpaHistoryRoutes(app);
 
-  const telemetry = new TelemetryCollector(spaAdapter, telemetryStore);
+  const telemetry = new TelemetryCollector(spaAdapter, telemetryStore, undefined, weather);
   const telemetrySettingsStore = new TelemetrySettingsStore();
   const telemetrySettings = await telemetrySettingsStore.load();
   telemetry.setIntervalSeconds(telemetrySettings.intervalSeconds);
