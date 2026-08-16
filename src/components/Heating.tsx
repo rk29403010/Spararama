@@ -4,6 +4,7 @@ import { addDays, format } from 'date-fns';
 import { volumeAdjustedHeatingRate } from '../domain/heating';
 import { spaApi, type BestEffortTemperatureDto } from '../lib/spaApi';
 import { weatherApi, type WeatherForecastDto } from '../lib/weatherApi';
+import { heatingApi } from '../lib/heatingApi';
 import { Cloud, CloudFog, Save, Sun, Wind } from 'lucide-react';
 
 interface HeatingProps {
@@ -52,6 +53,7 @@ export function Heating({ state, updateState }: HeatingProps) {
   const timeFormat = state.config.timeFormat;
   const activeWaterBody = state.domain.waterBodies.find(item => item.id === state.domain.activeWaterBodyId) || state.domain.waterBodies[0];
   const waterVolumeLiters = activeWaterBody?.volumeLiters || state.config.waterCapacityLiters || 800;
+  const autoStartPreferred = activeWaterBody?.connectivity === 'wifi' && Boolean(activeWaterBody?.connectorId);
   const minC = 10;
   const maxC = 42;
   const minTemp = scale === 'F' ? Math.round((minC * 9 / 5) + 32) : minC;
@@ -113,15 +115,27 @@ export function Heating({ state, updateState }: HeatingProps) {
     return () => clearTimeout(timer);
   }, [currentTemp, targetTemp, readyDay, readyHour, scale, weatherData, waterVolumeLiters, state.config.heatingRateReferenceVolumeLiters]);
 
-  const handleSetReminder = async () => {
+  const handleScheduleHeating = async () => {
     if (!calculation) return;
     setIsSaving(true);
-    if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') await Notification.requestPermission();
-    const startReminder = { id: `${Date.now()}_start`, type: 'start_heating' as const, scheduledTime: calculation.startTime, sessionData: calculation };
-    const readyReminder = { id: `${Date.now()}_ready`, type: 'tub_ready' as const, scheduledTime: calculation.targetTime, sessionData: calculation };
-    updateState({ ...state, reminders: [...(state.reminders || []), startReminder, readyReminder] });
-    setIsSaving(false);
-    setSaveSuccess(true);
+    setError('');
+    try {
+      if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+        await Notification.requestPermission();
+      }
+      await heatingApi.schedule(calculation, autoStartPreferred);
+      const readyReminder = { id: `${calculation.id}_ready`, type: 'tub_ready' as const, scheduledTime: calculation.targetTime, sessionData: calculation };
+      updateState({
+        ...state,
+        heatingSessions: [...(state.heatingSessions || []).filter(item => item.id !== calculation.id), calculation],
+        reminders: [...(state.reminders || []).filter(item => item.id !== readyReminder.id), readyReminder]
+      });
+      setSaveSuccess(true);
+    } catch (err: any) {
+      setError(err?.message || 'Could not schedule heating.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const calculateHeating = () => {
@@ -254,9 +268,10 @@ export function Heating({ state, updateState }: HeatingProps) {
 
       <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-lg flex flex-col relative overflow-hidden shrink-0 mb-2 gap-4">
         <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/3 z-0" />
-        <div className="flex justify-between items-center z-10"><div><div className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Start Heating</div><div className="text-4xl font-extrabold tracking-tight">{calculation ? format(calculation.startTime, timeFormat === '12h' ? 'h:mm a' : 'HH:mm') : '--:--'}</div>{calculation && error && <div className="text-amber-400 text-xs font-bold mt-2 uppercase">{error}</div>}{calculation && !error && <div className="text-slate-300 text-sm font-medium mt-1">{format(calculation.startTime, 'MMM d')}</div>}</div><div className="text-right"><div className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Est. Cost</div><div className="text-4xl font-extrabold tracking-tight text-emerald-400">{calculation ? `£${calculation.costEstimate.toFixed(2)}` : '£--'}</div></div></div>
+        <div className="flex justify-between items-center z-10"><div><div className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Start Heating</div><div className="text-4xl font-extrabold tracking-tight">{calculation ? format(calculation.startTime, timeFormat === '12h' ? 'h:mm a' : 'HH:mm') : '--:--'}</div>{calculation && error && <div className="text-amber-400 text-xs font-bold mt-2">{error}</div>}{calculation && !error && <div className="text-slate-300 text-sm font-medium mt-1">{format(calculation.startTime, 'MMM d')}</div>}</div><div className="text-right"><div className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Est. Cost</div><div className="text-4xl font-extrabold tracking-tight text-emerald-400">{calculation ? `£${calculation.costEstimate.toFixed(2)}` : '£--'}</div></div></div>
         {calculation && !error && <div className="grid grid-cols-2 gap-3 text-xs font-bold text-slate-400 border-t border-slate-700/50 pt-4 z-10"><div className="flex items-center gap-1.5"><Cloud className="w-4 h-4 text-slate-300" /><span>{Math.round(calculation.ambientTempAvg)}°C avg</span></div><div className="flex items-center gap-1.5"><Wind className="w-4 h-4 text-slate-300" /><span>{Math.round(calculation.avgWindSpeed || 0)} km/h</span></div><div className="flex items-center gap-1.5"><Sun className="w-4 h-4 text-slate-300" /><span>{Math.round(calculation.avgSolarRadiationWm2 || 0)} W/m²</span></div><div className="flex items-center justify-end gap-1 text-indigo-300"><CloudFog className="w-4 h-4" /><span>{calculation.weatherSourceCount ? `${calculation.weatherSourceCount} wx` : `${waterVolumeLiters.toLocaleString()} L`}</span></div></div>}
-        {calculation && !error && <button onClick={handleSetReminder} disabled={isSaving || saveSuccess} className={`mt-2 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold transition-all z-10 w-full ${saveSuccess ? 'bg-emerald-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'}`}><Save className="w-5 h-5" />{saveSuccess ? 'Reminders Set' : isSaving ? 'Saving...' : 'Set Reminder'}</button>}
+        {calculation && !error && <p className="text-xs text-slate-300 z-10">{autoStartPreferred ? 'Spararama will try to start the heater automatically. If remote control fails after retries, you will be asked to switch it on manually.' : 'This spa is not remotely controllable, so you will be asked to switch the heater on manually.'}</p>}
+        {calculation && !error && <button onClick={handleScheduleHeating} disabled={isSaving || saveSuccess} className={`mt-2 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold transition-all z-10 w-full ${saveSuccess ? 'bg-emerald-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'}`}><Save className="w-5 h-5" />{saveSuccess ? 'Heating Scheduled' : isSaving ? 'Scheduling...' : 'Schedule Heating'}</button>}
       </div>
     </div>
   );
