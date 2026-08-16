@@ -1,4 +1,5 @@
 import type { SpaStatus } from '../spa/types';
+import type { DerivedWeatherReading, WeatherInfluence, WeatherSourceLocation } from '../weather/types';
 
 export interface SensorReading {
   id: string;
@@ -12,12 +13,17 @@ export interface SensorReading {
 export interface WeatherObservation {
   source: string;
   station?: string;
+  provider?: string;
+  sourceLocationId?: string;
+  latitude?: number;
+  longitude?: number;
   temperatureC?: number;
   humidityPercent?: number;
   windSpeedMps?: number;
   windDirectionDegrees?: number;
   cloudPercent?: number;
   precipitationMm?: number;
+  shortwaveRadiationWm2?: number;
   observedAt?: number;
 }
 
@@ -31,6 +37,9 @@ export interface TelemetrySample {
   changedFields: string[];
   sensors: SensorReading[];
   weather: WeatherObservation[];
+  weatherDerived?: DerivedWeatherReading;
+  weatherInfluence?: WeatherInfluence;
+  weatherSources?: WeatherSourceLocation[];
 }
 
 export interface TelemetryCollectorStatus {
