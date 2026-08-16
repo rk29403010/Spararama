@@ -4,6 +4,7 @@ import { AppState } from './types';
 import { Home } from './components/Home';
 import { Chemicals } from './components/Chemicals';
 import { Heating } from './components/Heating';
+import { HeatingNotifications } from './components/HeatingNotifications';
 import { Logs } from './components/Logs';
 import { ReminderModal } from './components/ReminderModal';
 import { ManualLogModal } from './components/ManualLogModal';
@@ -83,6 +84,7 @@ export default function App() {
       </footer>
 
       <ErrorBoundary resetKey={showManualLog ? 'manual-open' : 'manual-closed'} title="Manual log form hit a problem">{showManualLog && <ManualLogModal state={state} onClose={() => setShowManualLog(false)} />}</ErrorBoundary>
+      <ErrorBoundary resetKey="heating-notifications" title="Heating notification hit a problem"><HeatingNotifications /></ErrorBoundary>
       <ErrorBoundary resetKey="reminders" title="Reminder panel hit a problem"><ReminderModal state={state} updateState={updateState} /></ErrorBoundary>
     </div>
   );
