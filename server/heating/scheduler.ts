@@ -1,9 +1,12 @@
+import type { PushService } from '../push/service';
 import type { SpaAdapter } from '../spa/types';
 import { HeatingStore } from './store';
 import type { HeatingNotification, HeatingSchedule } from './types';
 
 const RETRY_DELAY_MS = 20_000;
 const MAX_ATTEMPTS = 3;
+const PUSH_RETRY_BASE_MS = 30_000;
+const PUSH_RETRY_MAX_MS = 15 * 60_000;
 
 function finiteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
@@ -13,11 +16,19 @@ function readyTimeText(timestamp: number) {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+function nextPushRetryDelay(attempts: number) {
+  return Math.min(PUSH_RETRY_MAX_MS, PUSH_RETRY_BASE_MS * (2 ** Math.max(0, attempts - 1)));
+}
+
 export class HeatingScheduler {
   private timer: NodeJS.Timeout | null = null;
   private operation = Promise.resolve();
 
-  constructor(private readonly spa: SpaAdapter, private readonly store = new HeatingStore()) {}
+  constructor(
+    private readonly spa: SpaAdapter,
+    private readonly store = new HeatingStore(),
+    private readonly push?: PushService
+  ) {}
 
   start() {
     if (this.timer) return;
@@ -166,6 +177,36 @@ export class HeatingScheduler {
         }
       }
     }
+
+    if (this.push?.enabled) {
+      for (const notification of state.notifications) {
+        if (notification.resolvedAt || notification.pushSentAt) continue;
+        if (notification.pushNextAttemptAt && now < notification.pushNextAttemptAt) continue;
+
+        const result = await this.push.sendHeatingNotification(notification);
+        if (result.targetCount === 0) continue;
+
+        notification.pushAttempts = (notification.pushAttempts || 0) + 1;
+        notification.pushLastAttemptAt = now;
+        changed = true;
+
+        if (result.successCount > 0) {
+          notification.pushSentAt = now;
+          notification.pushNextAttemptAt = undefined;
+          notification.pushLastError = result.failureCount > 0
+            ? `${result.failureCount} push target(s) failed; ${result.successCount} accepted.`
+            : undefined;
+        } else {
+          notification.pushLastError = result.error || `${result.failureCount} push target(s) failed.`;
+          if (result.retryableFailureCount > 0) {
+            notification.pushNextAttemptAt = now + nextPushRetryDelay(notification.pushAttempts);
+          } else {
+            notification.pushNextAttemptAt = undefined;
+          }
+        }
+      }
+    }
+
     if (changed) await this.store.save(state);
     return state.schedules;
   }
