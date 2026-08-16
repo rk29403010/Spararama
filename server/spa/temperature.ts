@@ -91,6 +91,14 @@ function latestAmbient(samples: TelemetrySample[], now: number) {
       }
     }
 
+    if (finiteTemperature(sample.weatherDerived?.temperatureC)) {
+      const observedAt = Number.isFinite(sample.weatherDerived?.observedAt) ? Number(sample.weatherDerived?.observedAt) : sample.timestamp;
+      if (Math.max(0, now - observedAt) <= AMBIENT_MAX_AGE_MS) {
+        const sourceCount = Math.max(1, Number(sample.weatherDerived?.sourceCount || 1));
+        return { valueC: sample.weatherDerived.temperatureC, observedAt, score: sourceCount >= 3 ? 0.5 : 0.42, source: 'weather' as const };
+      }
+    }
+
     for (const weather of sample.weather || []) {
       if (!finiteTemperature(weather.temperatureC)) continue;
       const observedAt = Number.isFinite(weather.observedAt) ? Number(weather.observedAt) : sample.timestamp;
