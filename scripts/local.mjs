@@ -156,11 +156,15 @@ function isPortOpen(port) {
   });
 }
 
-async function waitForJson(url, attempts = 20) {
-  for (let i = 0; i < attempts; i += 1) {
-    const value = await getJson(url, 3000);
+async function waitForJson(url, startupTimeoutMs = 60_000) {
+  const deadline = Date.now() + startupTimeoutMs;
+  while (Date.now() < deadline) {
+    const remainingMs = deadline - Date.now();
+    const value = await getJson(url, Math.min(3000, remainingMs));
     if (value) return value;
-    await new Promise(resolve => setTimeout(resolve, 500));
+    if (Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, Math.min(500, deadline - Date.now())));
+    }
   }
   return null;
 }
@@ -243,7 +247,7 @@ async function startOne(name) {
   const pid = spawnService(name, definition);
   const healthy = await waitForJson(definition.healthUrl);
   if (!healthy) {
-    throw new Error(`${name} (PID ${pid}) did not become healthy. See .local/logs/${definition.log}-error.log`);
+    throw new Error(`${name} (PID ${pid}) did not become healthy within 60 seconds. See .local/logs/${definition.log}-error.log`);
   }
   console.log(`${name}: started (PID ${pid}).`);
   return healthy;

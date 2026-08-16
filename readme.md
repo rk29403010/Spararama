@@ -31,6 +31,12 @@ Useful Codex project actions are defined in `.codex/environments/environment.tom
 
 Normal development branch: `chatgpt-dev`. `main` is retained as an AI Studio integration/snapshot branch.
 
+## Phone access on the private LAN
+
+Run `pnpm local:start`, then run `scripts/enable-private-lan-phone-access.ps1` from an elevated PowerShell once. It creates one Windows Firewall rule for the running frontend/API: TCP port 3000, only on the active private Wi-Fi/Ethernet interface, only from that interface's IPv4 subnet, and only for `node.exe`. It disables the generic all-port/all-network inbound Node.js rules that Windows' firewall prompt may have created, because those would otherwise bypass this boundary; they are disabled rather than deleted and are recoverable with `Enable-NetFirewallRule`. It never opens the CleverSpa adapter port (8787), enables Public-profile access, or changes router settings.
+
+The script refuses to make a rule if more than one private IPv4 LAN is active, rather than widening access. After DHCP/network changes, run it again to replace its own named rule with the new safe scope. Use `pnpm local:status` for the phone URL.
+
 ## CleverSpa service
 
 The core CleverSpa/Gizwits status and control implementation is now in `services/cleverspa` and defaults to loopback port 8787. The main Spararama API talks to it through the generic `SpaAdapter` boundary.
