@@ -5,7 +5,7 @@ import type { PushRegistration, PushRegistryState } from './types';
 export class PushRegistrationStore {
   readonly statePath: string;
 
-  constructor(baseDir = process.env.PUSH_DIR || path.join(process.cwd(), 'data', 'push')) {
+  constructor(baseDir = process.env.PUSH_REGISTRATION_DIR || process.env.PUSH_DIR || path.join(process.cwd(), 'data', 'push')) {
     this.statePath = path.join(baseDir, 'registrations.json');
   }
 
