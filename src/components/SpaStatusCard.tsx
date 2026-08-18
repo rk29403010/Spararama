@@ -6,6 +6,10 @@ function hours(seconds: number | undefined) {
   return ((seconds ?? 0) / 3600).toFixed(1);
 }
 
+function temperature(value: number | null | undefined, fractionDigits: number) {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(fractionDigits) : '--';
+}
+
 export function SpaStatusCard() {
   const [status, setStatus] = useState<SpaStatusDto | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -47,8 +51,8 @@ export function SpaStatusCard() {
             <span className="text-xs font-extrabold uppercase tracking-widest text-slate-400">{status?.transport || '...'}</span>
           </div>
           <div className="mt-1 flex items-end gap-2">
-            <span className="text-4xl font-black text-slate-900 tabular-nums">{status ? status.waterTemperatureC.toFixed(1) : '--'}°</span>
-            <span className="text-sm font-bold text-slate-400 pb-1">target {status ? status.targetTemperatureC.toFixed(0) : '--'}°C</span>
+            <span className="text-4xl font-black text-slate-900 tabular-nums">{temperature(status?.waterTemperatureC, 1)}°</span>
+            <span className="text-sm font-bold text-slate-400 pb-1">target {temperature(status?.targetTemperatureC, 0)}°C</span>
           </div>
         </div>
         <button type="button" onClick={() => void refresh()} className="w-11 h-11 rounded-full bg-slate-100 flex items-center justify-center text-slate-600" aria-label="Refresh spa status">

@@ -14,14 +14,14 @@ export interface BestEffortTemperatureDto {
 export interface SpaStatusDto {
   transport: 'mock' | 'lan' | 'cloud' | 'manual';
   connected: boolean;
-  waterTemperatureC: number;
+  waterTemperatureC: number | null;
   waterTemperatureConfidence?: TemperatureConfidence;
   waterTemperatureConfidenceScore?: number;
   waterTemperatureSource?: BestEffortTemperatureDto['source'];
   waterTemperatureObservedAt?: number;
   waterTemperatureEstimated?: boolean;
   waterTemperatureReason?: string;
-  targetTemperatureC: number;
+  targetTemperatureC: number | null;
   heaterOn: boolean;
   filterOn: boolean;
   bubblesOn: boolean;
