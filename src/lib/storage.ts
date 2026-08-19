@@ -34,6 +34,8 @@ export async function loadState(): Promise<AppState> {
       data.domain = data.domain || defaultDomain;
       data.domain.waterTests = data.domain.waterTests || [];
       data.domain.chemicalDoses = data.domain.chemicalDoses || [];
+      data.domain.dosingEpisodes = data.domain.dosingEpisodes || [];
+      data.domain.bathingEpisodes = data.domain.bathingEpisodes || [];
       data.domain.maintenanceEvents = data.domain.maintenanceEvents || [];
       data.domain.equipment = data.domain.equipment || defaultDomain.equipment;
       data.domain.products = data.domain.products || defaultDomain.products;
