@@ -170,7 +170,7 @@ export function Home({ state }: HomeProps) {
         </div>
         <h2 className="text-xl font-extrabold mt-3">{waterBody.name}</h2>
         <div className="mt-5 grid grid-cols-2 gap-4">
-          <div><p className="text-xs uppercase tracking-widest text-slate-400 font-bold">{reachable ? 'Water now' : 'Last water'}</p><p className="text-6xl font-black tabular-nums mt-1">{current === null ? '—' : `${current.toFixed(1)}°`}</p></div>
+          <div><p className="text-xs uppercase tracking-widest text-slate-400 font-bold">{reachable ? 'Water now' : 'Last water'}</p><p className="text-6xl font-black tabular-nums mt-1">{current === null ? '—' : `${Math.round(current)}°`}</p></div>
           <div><p className="text-xs uppercase tracking-widest text-slate-400 font-bold">Target</p><p className="text-6xl font-black tabular-nums mt-1">{target.toFixed(0)}°</p></div>
         </div>
         {!reachable && !longOutage && <p className="mt-4 text-sm text-slate-300">Wi-Fi contact dropped out. Showing the last reading from {dataAge}; Spararama is retrying automatically and remote controls are paused.</p>}
