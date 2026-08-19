@@ -3,6 +3,7 @@ import { getLogs, subscribeToAuthChanges } from '../lib/firebase';
 import { telemetryApi, type TelemetryChartDto } from '../lib/telemetryApi';
 import { fetchSpaHistory, type SpaHistoryEventDto } from '../lib/historyApi';
 import type { AppState } from '../types';
+import { formatLogDateTime } from '../lib/dateTime';
 import { Beaker, Droplets, Flame, Thermometer, UserRound, Wrench } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -141,13 +142,13 @@ function usualTubMarkers(since: number, end: number, readyTime: string, enabled:
   return markers;
 }
 
-function ChemistryTooltip({ active, payload, label }: any) {
+function ChemistryTooltip({ active, payload, label, timeFormat = '24h' }: any) {
   if (!active || !payload?.length) return null;
   const point = payload[0]?.payload;
   if (!point) return null;
   return (
     <div className="rounded-xl bg-white px-3 py-2 shadow-lg border border-slate-100 text-xs">
-      <p className="font-bold text-slate-700 mb-1">{new Date(Number(label)).toLocaleString()}</p>
+      <p className="font-bold text-slate-700 mb-1">{formatLogDateTime(Number(label), timeFormat)}</p>
       {point.chlorineLabel && <p className="text-indigo-700">Free chlorine {point.chlorineLabel} ppm</p>}
       {point.phLabel && <p className="text-emerald-700">pH {point.phLabel}</p>}
     </div>
@@ -342,7 +343,7 @@ export function Logs({ state }: LogsProps) {
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                     <XAxis type="number" dataKey="timestamp" domain={[heatWindow.since, heatWindow.end]} scale="time" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} minTickGap={28} tickFormatter={value => tickLabel(Number(value), heatRange)} />
                     <YAxis yAxisId="temp" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} domain={['dataMin - 1', 'dataMax + 1']} tickFormatter={value => `${value}°`} />
-                    <Tooltip labelFormatter={value => new Date(Number(value)).toLocaleString()} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 10px rgb(15 23 42 / 0.12)' }} />
+                    <Tooltip labelFormatter={value => formatLogDateTime(Number(value), state.config.timeFormat)} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 10px rgb(15 23 42 / 0.12)' }} />
                     {heatPeriods.map((period, index) => <ReferenceArea key={`${period.start}-${index}`} yAxisId="temp" x1={period.start} x2={period.end} fill="#f59e0b" fillOpacity={0.10} strokeOpacity={0} />)}
                     {usualMarkers.map((timestamp, index) => <ReferenceLine key={`usual-${timestamp}`} yAxisId="temp" x={timestamp} stroke="#10b981" strokeOpacity={0.45} strokeDasharray="4 4" label={index === usualMarkers.length - 1 ? { value: 'usual tub time', position: 'insideTopRight', fill: '#059669', fontSize: 10 } : undefined} />)}
                     {bathingMarkers.map(marker => <ReferenceLine key={`${marker.timestamp}-${marker.action}`} yAxisId="temp" x={marker.timestamp} stroke="#059669" strokeOpacity={0.8} strokeDasharray="2 3" />)}
@@ -391,7 +392,7 @@ export function Logs({ state }: LogsProps) {
                   <XAxis type="number" dataKey="timestamp" domain={[chemistryWindow.since, chemistryWindow.end]} scale="time" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} minTickGap={28} tickFormatter={value => tickLabel(Number(value), chemistryRange)} />
                   <YAxis yAxisId="chlorine" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6366f1' }} domain={[0, 'auto']} width={35} label={{ value: 'FC', angle: -90, position: 'insideLeft', fill: '#6366f1', fontSize: 10 }} />
                   <YAxis yAxisId="ph" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#059669' }} domain={[6.5, 8]} width={34} label={{ value: 'pH', angle: 90, position: 'insideRight', fill: '#059669', fontSize: 10 }} />
-                  <Tooltip content={<ChemistryTooltip />} />
+                  <Tooltip content={<ChemistryTooltip timeFormat={state.config.timeFormat} />} />
                   <ReferenceArea yAxisId="chlorine" x1={chemistryWindow.since} x2={chemistryWindow.end} y1={3} y2={5} fill="#6366f1" fillOpacity={0.06} strokeOpacity={0} />
                   <ReferenceArea yAxisId="ph" x1={chemistryWindow.since} x2={chemistryWindow.end} y1={7.2} y2={7.6} fill="#10b981" fillOpacity={0.06} strokeOpacity={0} />
                   <Line yAxisId="chlorine" type="monotone" dataKey="chlorine" name="Free chlorine" stroke="#4f46e5" strokeWidth={2.5} dot={{ r: 4, fill: '#fff', strokeWidth: 2 }} connectNulls isAnimationActive={false} />
@@ -406,7 +407,7 @@ export function Logs({ state }: LogsProps) {
               <div className="relative h-12 rounded-xl bg-slate-50 overflow-hidden">
                 {chemistryEvents.slice(-40).map((event, index) => {
                   const left = ((event.timestamp - chemistryWindow.since) / (chemistryWindow.end - chemistryWindow.since)) * 100;
-                  return <span key={`${event.id}-${index}`} title={`${new Date(event.timestamp).toLocaleString()} - ${event.label}`} className={`absolute w-3 h-3 rounded-full border-2 border-white shadow-sm ${eventStyle(event.type)}`} style={{ left: `calc(${Math.max(0, Math.min(100, left))}% - 6px)`, top: index % 2 === 0 ? 10 : 27 }} />;
+                  return <span key={`${event.id}-${index}`} title={`${formatLogDateTime(event.timestamp, state.config.timeFormat)} - ${event.label}`} className={`absolute w-3 h-3 rounded-full border-2 border-white shadow-sm ${eventStyle(event.type)}`} style={{ left: `calc(${Math.max(0, Math.min(100, left))}% - 6px)`, top: index % 2 === 0 ? 10 : 27 }} />;
                 })}
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-2 mt-2 text-xs font-semibold text-slate-500">
