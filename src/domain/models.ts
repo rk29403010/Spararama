@@ -121,12 +121,60 @@ export interface EquipmentProfile {
   metadata?: Record<string, string | number | boolean>;
 }
 
+export type DosingEpisodePurpose = 'pre_bath' | 'post_bath' | 'routine' | 'corrective' | 'other';
+export type DosingEpisodeStatus = 'advice' | 'awaiting_dose' | 'mixing' | 'awaiting_retest' | 'completed' | 'abandoned' | 'uncertain';
+export type DoseConfirmation = 'confirmed_at_time' | 'confirmed_later' | 'uncertain' | 'inferred';
+export type TimePrecision = 'exact' | 'approximate' | 'unknown';
+
+export interface DosingRecommendationSnapshot {
+  kind: 'dose' | 'retest' | 'none';
+  reason: string;
+  productId?: string;
+  productName?: string;
+  amount?: number;
+  unit?: DoseUnit;
+  measurement?: MeasurementKey;
+  mixMinutes?: number;
+  circulationRequired?: boolean;
+}
+
+export interface DosingEpisode {
+  id: string;
+  waterBodyId: string;
+  purpose: DosingEpisodePurpose;
+  startedAt: number;
+  lastActivityAt: number;
+  completedAt?: number;
+  status: DosingEpisodeStatus;
+  initialTestId?: string;
+  latestTestId?: string;
+  testIds: string[];
+  doseEventIds: string[];
+  heatingSessionId?: string;
+  bathingEpisodeId?: string;
+  mixEndsAt?: number;
+  recommendation?: DosingRecommendationSnapshot;
+  doseResponse?: 'not_added' | 'uncertain';
+}
+
+export interface BathingEpisode {
+  id: string;
+  waterBodyId: string;
+  startedAt: number;
+  endedAt?: number;
+  status: 'active' | 'completed';
+  source: 'user_confirmed' | 'inferred';
+  heatingSessionId?: string;
+}
+
 export interface WaterTestRecord {
   id: string;
   timestamp: number;
   waterBodyId: string;
   testMethodId: string;
   readings: MeasurementReading[];
+  dosingEpisodeId?: string;
+  assessment?: ChemistryAssessment;
 }
 
 export interface ChemicalDoseEvent {
@@ -137,6 +185,9 @@ export interface ChemicalDoseEvent {
   amount: number;
   unit: DoseUnit;
   reason?: string;
+  dosingEpisodeId?: string;
+  confirmation?: DoseConfirmation;
+  timePrecision?: TimePrecision;
 }
 
 export interface MaintenanceEvent {
@@ -156,6 +207,8 @@ export interface SpaDomainState {
   equipment: EquipmentProfile[];
   waterTests: WaterTestRecord[];
   chemicalDoses: ChemicalDoseEvent[];
+  dosingEpisodes: DosingEpisode[];
+  bathingEpisodes: BathingEpisode[];
   maintenanceEvents: MaintenanceEvent[];
 }
 
