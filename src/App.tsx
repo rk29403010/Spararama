@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { loadState, saveState } from './lib/storage';
 import { AppState } from './types';
 import { Home } from './components/Home';
+import { BathingControls } from './components/BathingControls';
 import { Chemicals } from './components/Chemicals';
 import { Heating } from './components/Heating';
 import { HeatingNotifications } from './components/HeatingNotifications';
@@ -48,7 +49,7 @@ export default function App() {
 
       <main className="flex-1 pb-20 overflow-y-auto">
         <ErrorBoundary resetKey={activeTab} title={`${activeTab[0].toUpperCase()}${activeTab.slice(1)} page hit a problem`}>
-          {activeTab === 'home' && <Home state={state} />}
+          {activeTab === 'home' && <><Home state={state} /><BathingControls state={state} updateState={updateState} /></>}
           {activeTab === 'heating' && <Heating state={state} updateState={updateState} />}
           {activeTab === 'chemicals' && <Chemicals state={state} updateState={updateState} />}
           {activeTab === 'logs' && <Logs state={state} />}
