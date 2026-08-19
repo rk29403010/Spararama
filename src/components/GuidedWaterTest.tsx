@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronRight, Volume2, VolumeX, X } from 'lucide-react';
 import type { AppState } from '../types';
-import type { ChemistryAssessment, MeasurementKey, MeasurementReading, TestMethodProfile } from '../domain/models';
+import type { ChemistryAssessment, MeasurementReading, TestMethodProfile } from '../domain/models';
 import { assessChemistry } from '../domain/chemistry';
 import { logEvent } from '../lib/firebase';
 import { spaApi } from '../lib/spaApi';
+import { WaterTestReadingEntry } from './WaterTestReadingEntry';
 
 interface GuidedWaterTestProps {
   state: AppState;
@@ -51,27 +52,6 @@ const PAD_CLASSES = [
   'bg-rose-300',
   'bg-emerald-300'
 ];
-
-function parseReading(measurement: MeasurementKey, raw: string): MeasurementReading | null {
-  const cleaned = raw.trim();
-  if (!cleaned) return null;
-
-  const range = cleaned.match(/^(\d+(?:\.\d+)?)\s*(?:-|–|to)\s*(\d+(?:\.\d+)?)$/i);
-  if (range) {
-    const a = Number(range[1]);
-    const b = Number(range[2]);
-    return {
-      measurement,
-      min: Math.min(a, b),
-      max: Math.max(a, b),
-      source: 'manual'
-    };
-  }
-
-  const value = Number(cleaned);
-  if (!Number.isFinite(value)) return null;
-  return { measurement, value, source: 'manual' };
-}
 
 function actionTitle(assessment: ChemistryAssessment) {
   const action = assessment.nextAction;
@@ -372,7 +352,6 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
   const [stepIndex, setStepIndex] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [speechEnabled, setSpeechEnabled] = useState(false);
-  const [values, setValues] = useState<Record<string, string>>({});
   const [assessment, setAssessment] = useState<ChemistryAssessment | null>(null);
   const [entryError, setEntryError] = useState('');
   const [controlError, setControlError] = useState('');
@@ -449,7 +428,6 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
   if (!waterBody) return null;
 
   const startPreparedTest = () => {
-    setValues({});
     setEntryError('');
     setAssessment(null);
     setStripStartedAt(null);
@@ -462,13 +440,9 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
     }
   };
 
-  const submitReadings = () => {
-    const readings = method.parameters
-      .map(parameter => parseReading(parameter.measurement, values[parameter.measurement] || ''))
-      .filter((reading): reading is MeasurementReading => Boolean(reading));
-
+  const submitReadings = (readings: MeasurementReading[]) => {
     if (readings.length === 0) {
-      setEntryError('Enter at least one reading. Use a range such as 80-120 when the colour is ambiguous.');
+      setEntryError('Record at least one reading.');
       return;
     }
 
@@ -536,7 +510,6 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
   };
 
   const restartForRetest = () => {
-    setValues({});
     setAssessment(null);
     setEntryError('');
     setControlError('');
@@ -646,7 +619,7 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
               <div className="rounded-3xl bg-slate-900 text-white p-5 text-center">
                 <ElectronicTesterGraphic />
                 <h3 className="text-3xl font-black -mt-2">Read your tester</h3>
-                <p className="text-slate-300 mt-2">Enter only the measurements your device actually reports.</p>
+                <p className="text-slate-300 mt-2">Set only the measurements your device actually reports.</p>
               </div>
             ) : (
               <>
@@ -670,29 +643,8 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
               </>
             )}
 
-            <div>
-              <h4 className="text-xl font-black text-slate-900">Enter readings</h4>
-              <p className="text-slate-500 mt-1">Exact value or range - for example <strong>80-120</strong>. Leave anything you can’t read blank.</p>
-            </div>
-            <div className="space-y-3">
-              {method.parameters.map((parameter, index) => (
-                <label key={parameter.measurement} className="flex items-center gap-3 rounded-2xl border-2 border-slate-200 bg-slate-50 p-3 focus-within:border-indigo-500 focus-within:bg-white">
-                  {!isElectronic(method.id) && <span className={`w-8 h-8 rounded-lg shrink-0 border-2 border-white shadow-sm ${PAD_CLASSES[index % PAD_CLASSES.length]}`} aria-hidden="true" />}
-                  <span className="text-sm font-extrabold text-slate-600 flex-1">{parameter.label}</span>
-                  <input
-                    inputMode="decimal"
-                    autoComplete="off"
-                    aria-label={parameter.label}
-                    value={values[parameter.measurement] || ''}
-                    onChange={event => setValues(current => ({ ...current, [parameter.measurement]: event.target.value }))}
-                    placeholder="—"
-                    className="w-28 h-12 rounded-xl border border-slate-200 bg-white px-3 text-xl font-black text-slate-900 text-center outline-none focus:border-indigo-500"
-                  />
-                </label>
-              ))}
-            </div>
+            <WaterTestReadingEntry method={method} onSubmit={submitReadings} />
             {entryError && <div className="rounded-2xl bg-amber-50 text-amber-900 p-4 flex gap-3"><AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" /><span>{entryError}</span></div>}
-            <button type="button" onClick={submitReadings} className="w-full min-h-16 rounded-2xl bg-indigo-600 text-white text-xl font-extrabold">Save & assess</button>
           </div>
         )}
 
