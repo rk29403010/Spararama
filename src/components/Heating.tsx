@@ -6,6 +6,7 @@ import { spaApi, type BestEffortTemperatureDto } from '../lib/spaApi';
 import { weatherApi, type WeatherForecastDto } from '../lib/weatherApi';
 import { heatingApi } from '../lib/heatingApi';
 import { Cloud, CloudFog, Save, Sun, Wind } from 'lucide-react';
+import { TemperatureSlider } from './TemperatureSlider';
 
 interface HeatingProps {
   state: AppState;
@@ -201,9 +202,6 @@ export function Heating({ state, updateState }: HeatingProps) {
         state.config.heatingRateReferenceVolumeLiters || 800
       );
 
-      // Initial deterministic microclimate heuristics. Raw weather and the applied
-      // influence factors are retained so these coefficients can later be calibrated
-      // from real heating sessions without losing the original inputs.
       if (avgAmbientTemp < 15) effectiveHeatingRate -= (15 - avgAmbientTemp) * 0.05 * temperatureInfluence;
       if (avgWindSpeed > 10) effectiveHeatingRate -= ((avgWindSpeed - 10) / 5) * 0.05 * windInfluence;
       if (avgSolarRadiationWm2 > 0) effectiveHeatingRate += Math.min(0.12, (avgSolarRadiationWm2 / 800) * 0.12) * solarInfluence;
@@ -245,19 +243,34 @@ export function Heating({ state, updateState }: HeatingProps) {
     }
   };
 
-  const getPercent = (value: number) => (value - minTemp) / (maxTemp - minTemp);
   const displayedCurrentTemp = currentTemp ?? minTemp;
+  const currentDetail = temperatureLookupError || temperatureSourceLabel(temperatureEstimate);
 
   return (
     <div className="flex flex-col h-full max-w-md mx-auto p-4 space-y-8 pb-8">
-      <div className="flex-1 flex justify-around items-center min-h-[280px] relative mt-2">
-        <div className="absolute inset-y-8 left-1/2 -translate-x-1/2 flex flex-col justify-between items-center text-xs font-bold text-slate-300 py-4 pointer-events-none z-0"><span>{scale === 'F' ? 104 : 40}</span><span>{scale === 'F' ? 86 : 30}</span><span>{scale === 'F' ? 68 : 20}</span><span>{scale === 'F' ? 50 : 10}</span><div className="absolute top-8 bottom-8 left-1/2 w-[2px] bg-slate-200 -z-10 -translate-x-1/2" /></div>
-        <div className="flex flex-col items-center h-full justify-between z-10">
-          <div className="text-center mb-4"><div className="text-sm font-bold text-slate-400 uppercase tracking-widest">Current</div><div className={`mt-1 text-[10px] font-bold ${temperatureEstimate?.confidence === 'high' ? 'text-emerald-600' : temperatureEstimate?.confidence === 'medium' ? 'text-amber-600' : 'text-slate-500'}`} title={temperatureEstimate?.reason}>{temperatureLookupError || temperatureSourceLabel(temperatureEstimate)}</div></div>
-          <div className="relative w-12 h-64 flex items-center justify-center"><input type="range" min={minTemp} max={maxTemp} step="1" value={displayedCurrentTemp} disabled={currentTemp === null} onChange={event => setCurrentTemp(Number(event.target.value))} className="absolute w-64 h-12 -rotate-90 appearance-none bg-slate-100 rounded-full outline-none slider-thumb-transparent z-10 disabled:opacity-50" /><div className="absolute pointer-events-none w-12 h-12 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg text-lg z-20" style={{ bottom: `calc(${getPercent(displayedCurrentTemp)} * (100% - 3rem))` }}>{currentTemp === null ? '—' : currentTemp}</div></div>
-        </div>
-        <div className="flex flex-col items-center h-full justify-between z-10"><div className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Target</div><div className="relative w-12 h-64 flex items-center justify-center"><input type="range" min={minTemp} max={maxTemp} step="1" value={targetTemp} onChange={event => setTargetTemp(Number(event.target.value))} className="absolute w-64 h-12 -rotate-90 appearance-none bg-slate-100 rounded-full outline-none slider-thumb-transparent z-10" /><div className="absolute pointer-events-none w-12 h-12 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg text-lg z-20" style={{ bottom: `calc(${getPercent(targetTemp)} * (100% - 3rem))` }}>{targetTemp}</div></div></div>
+      <div className="grid grid-cols-2 gap-4 mt-2">
+        <TemperatureSlider
+          label="Current"
+          value={displayedCurrentTemp}
+          min={minTemp}
+          max={maxTemp}
+          scale={scale}
+          disabled={currentTemp === null}
+          onChange={setCurrentTemp}
+          detail={currentDetail}
+        />
+        <TemperatureSlider
+          label="Target"
+          value={targetTemp}
+          min={minTemp}
+          max={maxTemp}
+          scale={scale}
+          onChange={setTargetTemp}
+          detail="Drag to set the temperature you want."
+        />
       </div>
+
+      <p className="-mt-5 text-center text-xs font-semibold text-slate-400">Blue is cooler; red is hotter. The number above each control stays visible while you drag.</p>
 
       {weatherError && <div className="rounded-xl bg-amber-50 border border-amber-100 px-4 py-3 text-xs font-semibold text-amber-900">{weatherError} Heating will use neutral weather assumptions until a location is configured or weather returns.</div>}
 
