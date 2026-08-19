@@ -158,7 +158,8 @@ export function Chemicals({ state, updateState }: ChemicalsProps) {
     ? episodes.find(episode => episode.id === latestTest.dosingEpisodeId || episode.testIds.includes(latestTest.id))
     : undefined;
   const activeEpisode = episodes.find(episode => episode.waterBodyId === activeWaterBody?.id && isOpenEpisode(episode));
-  const currentEpisode = latestTestEpisode && isOpenEpisode(latestTestEpisode) ? latestTestEpisode : activeEpisode;
+  const currentEpisode = activeEpisode ?? latestTestEpisode;
+  const actionableEpisode = currentEpisode && isOpenEpisode(currentEpisode) ? currentEpisode : undefined;
   const currentStatus = effectiveStatus(currentEpisode, now);
 
   useEffect(() => {
@@ -426,12 +427,11 @@ export function Chemicals({ state, updateState }: ChemicalsProps) {
   };
 
   const continueDosing = () => {
-    if (!currentEpisode) {
+    if (!actionableEpisode) {
       if (latestAssessment?.nextAction.kind === 'dose') startEpisodeFromLatest();
-      else setShowGuidedTest(true);
       return;
     }
-    const status = effectiveStatus(currentEpisode, Date.now());
+    const status = effectiveStatus(actionableEpisode, Date.now());
     if (status === 'awaiting_retest' || status === 'uncertain') {
       setShowGuidedTest(true);
       return;
@@ -439,7 +439,7 @@ export function Chemicals({ state, updateState }: ChemicalsProps) {
     document.getElementById('episode-actions')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
-  const mixMinutesLeft = currentEpisode?.mixEndsAt ? Math.max(0, Math.ceil((currentEpisode.mixEndsAt - now) / 60_000)) : 0;
+  const mixMinutesLeft = actionableEpisode?.mixEndsAt ? Math.max(0, Math.ceil((actionableEpisode.mixEndsAt - now) / 60_000)) : 0;
   const chemistryReady = currentStatus === 'completed' || latestAssessment?.nextAction.kind === 'none';
   const chemistryDueAt = upcomingHeating ? upcomingHeating.targetTime - CHEMISTRY_LEAD_MS : null;
   const testCoversHeatingTarget = Boolean(latestTest && chemistryDueAt && latestTest.timestamp >= chemistryDueAt);
@@ -523,29 +523,29 @@ export function Chemicals({ state, updateState }: ChemicalsProps) {
             <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 space-y-3">
               <div className="flex items-center gap-2 font-extrabold text-slate-800"><StatusIcon status={currentStatus} /><span>{statusLabel(currentStatus, currentEpisode)}</span></div>
 
-              {!currentEpisode && latestAssessment?.nextAction.kind === 'dose' && (
+              {!actionableEpisode && latestAssessment?.nextAction.kind === 'dose' && currentStatus !== 'completed' && (
                 <button type="button" onClick={startEpisodeFromLatest} className="w-full min-h-14 rounded-2xl bg-indigo-600 text-white text-lg font-black">Start dosing</button>
               )}
 
-              {currentEpisode && currentStatus === 'awaiting_dose' && currentEpisode.recommendation?.kind === 'dose' && (
+              {actionableEpisode && currentStatus === 'awaiting_dose' && actionableEpisode.recommendation?.kind === 'dose' && (
                 <div className="space-y-3">
-                  <p className="text-sm text-slate-600">{currentEpisode.doseResponse === 'not_added' ? 'The dose is still due. Add it when ready, then confirm below.' : 'After adding the recommended chemical, tell Spararama what happened.'}</p>
-                  <button type="button" onClick={() => void confirmPendingDose(currentEpisode)} className="w-full min-h-14 rounded-2xl bg-slate-900 text-white text-lg font-black">I’ve added it</button>
+                  <p className="text-sm text-slate-600">{actionableEpisode.doseResponse === 'not_added' ? 'The dose is still due. Add it when ready, then confirm below.' : 'After adding the recommended chemical, tell Spararama what happened.'}</p>
+                  <button type="button" onClick={() => void confirmPendingDose(actionableEpisode)} className="w-full min-h-14 rounded-2xl bg-slate-900 text-white text-lg font-black">I’ve added it</button>
                   <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => updateEpisode({ ...currentEpisode, doseResponse: 'not_added', lastActivityAt: Date.now() })} className="min-h-12 rounded-xl bg-white border border-slate-200 text-slate-700 font-bold">Didn't add it</button>
-                    <button type="button" onClick={() => updateEpisode({ ...currentEpisode, status: 'uncertain', doseResponse: 'uncertain', lastActivityAt: Date.now() })} className="min-h-12 rounded-xl bg-amber-100 text-amber-950 font-bold">Not sure</button>
+                    <button type="button" onClick={() => updateEpisode({ ...actionableEpisode, doseResponse: 'not_added', lastActivityAt: Date.now() })} className="min-h-12 rounded-xl bg-white border border-slate-200 text-slate-700 font-bold">Didn't add it</button>
+                    <button type="button" onClick={() => updateEpisode({ ...actionableEpisode, status: 'uncertain', doseResponse: 'uncertain', lastActivityAt: Date.now() })} className="min-h-12 rounded-xl bg-amber-100 text-amber-950 font-bold">Not sure</button>
                   </div>
                 </div>
               )}
 
-              {currentEpisode && currentStatus === 'mixing' && (
+              {actionableEpisode && currentStatus === 'mixing' && (
                 <div className="rounded-2xl bg-sky-50 border border-sky-100 p-4 text-center">
                   <p className="text-3xl font-black text-sky-800">{mixMinutesLeft} min</p>
                   <p className="text-sm font-bold text-sky-700 mt-1">Keep circulating, then retest.</p>
                 </div>
               )}
 
-              {currentEpisode && (currentStatus === 'awaiting_retest' || currentStatus === 'uncertain') && (
+              {actionableEpisode && (currentStatus === 'awaiting_retest' || currentStatus === 'uncertain') && (
                 <button type="button" onClick={() => setShowGuidedTest(true)} className="w-full min-h-14 rounded-2xl bg-indigo-600 text-white text-lg font-black">Retest now</button>
               )}
             </div>
@@ -561,12 +561,12 @@ export function Chemicals({ state, updateState }: ChemicalsProps) {
         </button>
         <button
           type="button"
-          disabled={!currentEpisode && latestAssessment?.nextAction.kind !== 'dose'}
+          disabled={!actionableEpisode && latestAssessment?.nextAction.kind !== 'dose'}
           onClick={continueDosing}
           className="min-h-20 rounded-3xl bg-slate-900 disabled:bg-slate-200 disabled:text-slate-400 text-white text-lg sm:text-xl font-black flex flex-col items-center justify-center gap-1 shadow-sm"
         >
           <Droplets className="w-7 h-7" />
-          {currentStatus === 'mixing' ? 'Dosing in progress' : currentStatus === 'awaiting_retest' || currentStatus === 'uncertain' ? 'Continue dosing' : currentEpisode || latestAssessment?.nextAction.kind === 'dose' ? 'Continue dosing' : 'No dosing due'}
+          {currentStatus === 'mixing' ? 'Dosing in progress' : currentStatus === 'awaiting_retest' || currentStatus === 'uncertain' ? 'Continue dosing' : actionableEpisode || latestAssessment?.nextAction.kind === 'dose' ? 'Continue dosing' : 'No dosing due'}
         </button>
         <button type="button" onClick={() => setShowScanner('test_strip')} className="col-span-2 min-h-11 rounded-xl text-slate-500 font-bold flex items-center justify-center gap-2">
           <Camera className="w-5 h-5" /> Camera estimate
