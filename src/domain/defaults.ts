@@ -96,7 +96,11 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
     { id: 'cleverspa-heater', name: 'CleverSpa heater', kind: 'heater', runtimeSeconds: 0, metadata: { powerWatts: 1800 } },
     { id: 'cleverspa-controller', name: 'CleverSpa controller', kind: 'controller' }
   ],
-  waterTests: [], chemicalDoses: [], maintenanceEvents: []
+  waterTests: [],
+  chemicalDoses: [],
+  dosingEpisodes: [],
+  bathingEpisodes: [],
+  maintenanceEvents: []
 };
 
 export function createDefaultDomainState(): SpaDomainState {
