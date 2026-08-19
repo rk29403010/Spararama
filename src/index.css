@@ -6,6 +6,73 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+@keyframes spa-strip-quick-dip {
+  0%, 12% { transform: translateY(-72px); }
+  38%, 52% { transform: translateY(58px); }
+  78%, 100% { transform: translateY(-72px); }
+}
+
+@keyframes spa-strip-enter {
+  from { transform: translateY(-72px); }
+  to { transform: translateY(58px); }
+}
+
+@keyframes spa-strip-move {
+  0% { transform: translate(-12px, 58px) rotate(-5deg); }
+  25% { transform: translate(14px, 58px) rotate(5deg); }
+  50% { transform: translate(-14px, 58px) rotate(-4deg); }
+  75% { transform: translate(14px, 58px) rotate(4deg); }
+  100% { transform: translate(-8px, 58px) rotate(-3deg); }
+}
+
+@keyframes spa-strip-remove {
+  from { transform: translateY(58px); }
+  to { transform: translateY(-72px); }
+}
+
+@keyframes spa-water-wave {
+  0%, 100% { transform: translateX(-2%) scaleY(1); }
+  50% { transform: translateX(2%) scaleY(0.82); }
+}
+
+.spa-strip-quick-dip {
+  animation: spa-strip-quick-dip 2.2s ease-in-out both;
+}
+
+.spa-strip-enter {
+  animation: spa-strip-enter 650ms ease-in both;
+}
+
+.spa-strip-move {
+  animation: spa-strip-move 1.2s ease-in-out both;
+}
+
+.spa-strip-remove {
+  animation: spa-strip-remove 650ms ease-out both;
+}
+
+.spa-water-wave {
+  animation: spa-water-wave 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spa-strip-quick-dip,
+  .spa-strip-remove {
+    animation: none;
+    transform: translateY(-72px);
+  }
+
+  .spa-strip-enter,
+  .spa-strip-move {
+    animation: none;
+    transform: translateY(58px);
+  }
+
+  .spa-water-wave {
+    animation: none;
+  }
+}
+
 @layer utilities {
   .slider-thumb-transparent::-webkit-slider-thumb {
     appearance: none;
