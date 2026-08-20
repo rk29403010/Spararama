@@ -51,7 +51,7 @@ function actionText(assessment: ChemistryAssessment) {
   const action = assessment.nextAction;
   if (action.kind === 'dose') return `Add ${action.amount}${action.unit} ${action.productName}`;
   if (action.kind === 'retest') return 'Retest before dosing';
-  return 'No adjustment needed';
+  return 'Water ready';
 }
 
 function readingText(reading: MeasurementReading) {
@@ -96,21 +96,21 @@ function effectiveStatus(episode: DosingEpisode | undefined, now: number): Dosin
 }
 
 function StatusIcon({ status }: { status: DosingEpisodeStatus | null }) {
-  if (status === 'completed') return <CheckCircle2 className="w-5 h-5 text-emerald-600" />;
-  if (status === 'mixing' || status === 'awaiting_retest') return <Clock className="w-5 h-5 text-sky-600" />;
-  if (status === 'uncertain') return <CircleHelp className="w-5 h-5 text-amber-600" />;
-  if (status === 'awaiting_dose' || status === 'advice') return <Droplets className="w-5 h-5 text-indigo-600" />;
-  return <CircleHelp className="w-5 h-5 text-slate-400" />;
+  if (status === 'completed') return <CheckCircle2 className="w-6 h-6 text-emerald-700" aria-hidden="true" />;
+  if (status === 'mixing' || status === 'awaiting_retest') return <Clock className="w-6 h-6 text-sky-700" aria-hidden="true" />;
+  if (status === 'uncertain') return <CircleHelp className="w-6 h-6 text-amber-700" aria-hidden="true" />;
+  if (status === 'awaiting_dose' || status === 'advice') return <Droplets className="w-6 h-6 text-indigo-700" aria-hidden="true" />;
+  return <CircleHelp className="w-6 h-6 text-slate-500" aria-hidden="true" />;
 }
 
 function statusLabel(status: DosingEpisodeStatus | null, episode?: DosingEpisode) {
-  if (status === 'completed') return 'Water ready - episode complete';
-  if (status === 'mixing') return 'Dose added - mixing';
-  if (status === 'awaiting_retest') return 'Dose mixed - retest due';
-  if (status === 'uncertain') return 'Dose outcome uncertain - retest before adding more';
-  if (status === 'awaiting_dose') return episode?.doseResponse === 'not_added' ? 'Dose still due' : 'Dose recommended - not yet confirmed';
-  if (status === 'advice') return 'Dosing advice available';
-  return 'No dosing episode started';
+  if (status === 'completed') return 'Water ready';
+  if (status === 'mixing') return 'Mixing';
+  if (status === 'awaiting_retest') return 'Retest due';
+  if (status === 'uncertain') return 'Retest before adding more';
+  if (status === 'awaiting_dose') return episode?.doseResponse === 'not_added' ? 'Dose due' : 'Dose not confirmed';
+  if (status === 'advice') return 'Advice ready';
+  return 'No dosing in progress';
 }
 
 function relevantHeatingSession(state: AppState, timestamp: number) {
@@ -334,7 +334,7 @@ export function Chemicals({ state, updateState }: ChemicalsProps) {
       try {
         await spaApi.setFilter(true);
       } catch (err: any) {
-        setError(`${err?.message || 'Could not start filtration automatically.'} Dose recorded - start filtration manually.`);
+        setError(`${err?.message || 'Could not start filtration.'} Dose recorded - start filtration manually.`);
       }
     }
     const dose: ChemicalDoseEvent = {
@@ -391,7 +391,7 @@ export function Chemicals({ state, updateState }: ChemicalsProps) {
           };
           updateState({ ...state, inventory: [...state.inventory, newItem] });
         } else {
-          setError('Could not identify the chemical from the image.');
+          setError('Chemical not recognised.');
         }
       } else if (type === 'test_strip') {
         const readings: MeasurementReading[] = [];
@@ -401,7 +401,7 @@ export function Chemicals({ state, updateState }: ChemicalsProps) {
         if (typeof data.alkalinity === 'number') readings.push({ measurement: 'total_alkalinity', value: data.alkalinity, source: 'camera', confidence: 0.5 });
 
         if (!activeWaterBody || readings.length === 0) {
-          setError('The image did not produce usable readings.');
+          setError('No usable readings found.');
           return;
         }
 
@@ -413,14 +413,11 @@ export function Chemicals({ state, updateState }: ChemicalsProps) {
           testMethodId: 'camera-estimate',
           readings
         };
-        syncChemistryState({
-          ...state,
-          domain: { ...state.domain, waterTests: [record, ...state.domain.waterTests] }
-        });
+        syncChemistryState({ ...state, domain: { ...state.domain, waterTests: [record, ...state.domain.waterTests] } });
         void logEvent('water_test', { ...record, assessment });
       }
     } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Failed to analyze image');
+      setError(err.response?.data?.error || err.message || 'Image analysis failed.');
     } finally {
       setIsAnalyzing(false);
     }
@@ -446,57 +443,50 @@ export function Chemicals({ state, updateState }: ChemicalsProps) {
 
   return (
     <div className="p-4 max-w-4xl mx-auto space-y-6">
-      {showGuidedTest && (
-        <GuidedWaterTest state={state} updateState={syncChemistryState} onClose={() => setShowGuidedTest(false)} />
-      )}
+      {showGuidedTest && <GuidedWaterTest state={state} updateState={syncChemistryState} onClose={() => setShowGuidedTest(false)} />}
 
       {showScanner && (
-        <CameraCapture
-          title={showScanner === 'barcode' ? 'Scan Chemical' : 'Camera Estimate'}
-          onCancel={() => setShowScanner(null)}
-          onCapture={handleCapture}
-        />
+        <CameraCapture title={showScanner === 'barcode' ? 'Scan chemical' : 'Camera estimate'} onCancel={() => setShowScanner(null)} onCapture={handleCapture} />
       )}
 
       {isAnalyzing && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center">
-          <div className="bg-white p-6 rounded-2xl shadow-xl flex flex-col items-center">
-            <Loader2 className="w-10 h-10 text-indigo-600 animate-spin mb-4" />
-            <p className="text-slate-900 font-medium">Reading image…</p>
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center">
+          <div role="status" className="bg-white p-6 rounded-3xl flex flex-col items-center">
+            <Loader2 className="w-12 h-12 text-indigo-700 animate-spin mb-4" aria-hidden="true" />
+            <p className="text-lg text-slate-950 font-black">Reading image…</p>
           </div>
         </div>
       )}
 
       {error && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-xl flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" />
+        <div role="alert" className="bg-amber-50 border border-amber-200 text-amber-950 p-4 rounded-2xl flex items-start gap-3 font-bold">
+          <AlertCircle className="w-6 h-6 mt-0.5 shrink-0" aria-hidden="true" />
           <p>{error}</p>
         </div>
       )}
 
-      <section id="episode-actions" className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 space-y-5">
-        <div className="flex items-start justify-between gap-3">
+      <section id="episode-actions" className="bg-white rounded-3xl p-5 border border-slate-200 space-y-5">
+        <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-black uppercase tracking-widest text-indigo-500">Current water care</p>
-            <h2 className="text-3xl font-black text-slate-900 mt-1">{latestTest ? 'Latest test' : 'Test before dosing'}</h2>
-            {latestTest && <p className="text-sm font-bold text-slate-500 mt-1">{formatLogDateTime(latestTest.timestamp, state.config.timeFormat)}</p>}
+            <h2 className="text-3xl font-black text-slate-950">Water care</h2>
+            {latestTest && <p className="text-base font-bold text-slate-600 mt-1">{formatLogDateTime(latestTest.timestamp, state.config.timeFormat)}</p>}
           </div>
-          <StatusIcon status={currentStatus} />
+          <div className="flex items-center gap-2 text-base font-black text-slate-700"><StatusIcon status={currentStatus} /><span>{statusLabel(currentStatus, currentEpisode)}</span></div>
         </div>
 
         {upcomingHeating && (
-          <div className="rounded-2xl bg-orange-50 border border-orange-100 p-4 flex gap-3">
-            <Flame className="w-6 h-6 text-orange-600 shrink-0" />
+          <div className="rounded-2xl bg-orange-50 border border-orange-200 p-4 flex gap-3">
+            <Flame className="w-6 h-6 text-orange-700 shrink-0" aria-hidden="true" />
             <div>
-              <p className="font-black text-orange-950">{upcomingHeating.targetTemp.toFixed(0)}°C target for {formatLogTime(upcomingHeating.targetTime, state.config.timeFormat)}</p>
-              <p className="text-sm text-orange-800 mt-0.5">
+              <p className="text-lg font-black text-orange-950">{upcomingHeating.targetTemp.toFixed(0)}°C by {formatLogTime(upcomingHeating.targetTime, state.config.timeFormat)}</p>
+              <p className="text-base font-bold text-orange-900 mt-1">
                 {chemistryReady && testCoversHeatingTarget
-                  ? 'Chemistry is ready for this heating target.'
+                  ? 'Water ready'
                   : chemistryDueAt && now >= chemistryDueAt
-                    ? 'Chemistry check is due now so dosing can finish before bathing.'
+                    ? 'Test water now'
                     : chemistryDueAt
-                      ? `Aim to test by ${formatLogTime(chemistryDueAt, state.config.timeFormat)} so there is time to dose and retest.`
-                      : 'Coordinate testing and dosing with this heating target.'}
+                      ? `Test by ${formatLogTime(chemistryDueAt, state.config.timeFormat)}`
+                      : 'Water test due before bathing'}
               </p>
             </div>
           </div>
@@ -506,81 +496,75 @@ export function Chemicals({ state, updateState }: ChemicalsProps) {
           <>
             <div className="flex flex-wrap gap-2">
               {latestTest.readings.map(reading => (
-                <span key={reading.measurement} className="rounded-full border-2 border-slate-200 bg-slate-50 px-4 py-2 text-base font-black text-slate-900 tabular-nums">
+                <span key={reading.measurement} className="rounded-2xl border-2 border-slate-200 bg-slate-50 px-4 py-2 text-lg font-black text-slate-950 tabular-nums">
                   {LABELS[reading.measurement] || reading.measurement}: {readingText(reading)}
                 </span>
               ))}
             </div>
 
             {latestAssessment && (
-              <div className="border-t border-slate-100 pt-4">
-                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Advice</p>
-                <p className="text-xl font-black text-slate-900 mt-1">{actionText(latestAssessment)}</p>
-                <p className="text-sm text-slate-600 mt-1">{latestAssessment.nextAction.reason}</p>
+              <div className="border-t border-slate-200 pt-4">
+                <p className="text-2xl font-black text-slate-950">{actionText(latestAssessment)}</p>
+                {latestAssessment.nextAction.kind !== 'none' && <p className="text-base font-bold text-slate-600 mt-1">{latestAssessment.nextAction.reason}</p>}
               </div>
             )}
 
-            <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 space-y-3">
-              <div className="flex items-center gap-2 font-extrabold text-slate-800"><StatusIcon status={currentStatus} /><span>{statusLabel(currentStatus, currentEpisode)}</span></div>
+            {(!actionableEpisode && latestAssessment?.nextAction.kind === 'dose' && currentStatus !== 'completed') && (
+              <button type="button" onClick={startEpisodeFromLatest} className="w-full min-h-16 rounded-2xl bg-indigo-700 text-white text-xl font-black">Start dosing</button>
+            )}
 
-              {!actionableEpisode && latestAssessment?.nextAction.kind === 'dose' && currentStatus !== 'completed' && (
-                <button type="button" onClick={startEpisodeFromLatest} className="w-full min-h-14 rounded-2xl bg-indigo-600 text-white text-lg font-black">Start dosing</button>
-              )}
-
-              {actionableEpisode && currentStatus === 'awaiting_dose' && actionableEpisode.recommendation?.kind === 'dose' && (
-                <div className="space-y-3">
-                  <p className="text-sm text-slate-600">{actionableEpisode.doseResponse === 'not_added' ? 'The dose is still due. Add it when ready, then confirm below.' : 'After adding the recommended chemical, tell Spararama what happened.'}</p>
-                  <button type="button" onClick={() => void confirmPendingDose(actionableEpisode)} className="w-full min-h-14 rounded-2xl bg-slate-900 text-white text-lg font-black">I’ve added it</button>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => updateEpisode({ ...actionableEpisode, doseResponse: 'not_added', lastActivityAt: Date.now() })} className="min-h-12 rounded-xl bg-white border border-slate-200 text-slate-700 font-bold">Didn't add it</button>
-                    <button type="button" onClick={() => updateEpisode({ ...actionableEpisode, status: 'uncertain', doseResponse: 'uncertain', lastActivityAt: Date.now() })} className="min-h-12 rounded-xl bg-amber-100 text-amber-950 font-bold">Not sure</button>
-                  </div>
+            {actionableEpisode && currentStatus === 'awaiting_dose' && actionableEpisode.recommendation?.kind === 'dose' && (
+              <div className="space-y-3">
+                <button type="button" onClick={() => void confirmPendingDose(actionableEpisode)} className="w-full min-h-16 rounded-2xl bg-slate-950 text-white text-xl font-black">Dose added</button>
+                <div className="grid grid-cols-2 gap-3">
+                  <button type="button" onClick={() => updateEpisode({ ...actionableEpisode, doseResponse: 'not_added', lastActivityAt: Date.now() })} className="min-h-14 rounded-xl bg-slate-100 text-slate-900 font-black">Not added</button>
+                  <button type="button" onClick={() => updateEpisode({ ...actionableEpisode, status: 'uncertain', doseResponse: 'uncertain', lastActivityAt: Date.now() })} className="min-h-14 rounded-xl bg-amber-100 text-amber-950 font-black">Not sure</button>
                 </div>
-              )}
+              </div>
+            )}
 
-              {actionableEpisode && currentStatus === 'mixing' && (
-                <div className="rounded-2xl bg-sky-50 border border-sky-100 p-4 text-center">
-                  <p className="text-3xl font-black text-sky-800">{mixMinutesLeft} min</p>
-                  <p className="text-sm font-bold text-sky-700 mt-1">Keep circulating, then retest.</p>
-                </div>
-              )}
+            {actionableEpisode && currentStatus === 'mixing' && (
+              <div className="rounded-2xl bg-sky-50 border border-sky-200 p-5 text-center">
+                <p className="text-5xl font-black tabular-nums text-sky-900">{mixMinutesLeft} min</p>
+                <p className="text-lg font-black text-sky-800 mt-2">Keep circulation on</p>
+              </div>
+            )}
 
-              {actionableEpisode && (currentStatus === 'awaiting_retest' || currentStatus === 'uncertain') && (
-                <button type="button" onClick={() => setShowGuidedTest(true)} className="w-full min-h-14 rounded-2xl bg-indigo-600 text-white text-lg font-black">Retest now</button>
-              )}
-            </div>
+            {actionableEpisode && (currentStatus === 'awaiting_retest' || currentStatus === 'uncertain') && (
+              <button type="button" onClick={() => setShowGuidedTest(true)} className="w-full min-h-16 rounded-2xl bg-indigo-700 text-white text-xl font-black">Retest</button>
+            )}
           </>
         ) : (
-          <div className="rounded-2xl bg-slate-50 border border-slate-100 p-5 text-slate-600">No structured water test yet. Start with a test; dosing advice will follow from the result.</div>
+          <p className="text-lg font-black text-slate-700">No water test yet</p>
         )}
       </section>
 
       <section className="grid grid-cols-2 gap-3">
-        <button type="button" onClick={() => setShowGuidedTest(true)} className="min-h-20 rounded-3xl bg-indigo-600 text-white text-lg sm:text-xl font-black flex flex-col items-center justify-center gap-1 shadow-sm">
-          <Beaker className="w-7 h-7" /> Test water
+        <button type="button" onClick={() => setShowGuidedTest(true)} className="min-h-24 rounded-3xl bg-indigo-700 text-white text-xl font-black flex flex-col items-center justify-center gap-2">
+          <Beaker className="w-8 h-8" aria-hidden="true" />Test water
         </button>
         <button
           type="button"
           disabled={!actionableEpisode && latestAssessment?.nextAction.kind !== 'dose'}
           onClick={continueDosing}
-          className="min-h-20 rounded-3xl bg-slate-900 disabled:bg-slate-200 disabled:text-slate-400 text-white text-lg sm:text-xl font-black flex flex-col items-center justify-center gap-1 shadow-sm"
+          className="min-h-24 rounded-3xl bg-slate-950 disabled:bg-slate-200 disabled:text-slate-500 text-white text-xl font-black flex flex-col items-center justify-center gap-2"
         >
-          <Droplets className="w-7 h-7" />
-          {currentStatus === 'mixing' ? 'Dosing in progress' : currentStatus === 'awaiting_retest' || currentStatus === 'uncertain' ? 'Continue dosing' : actionableEpisode || latestAssessment?.nextAction.kind === 'dose' ? 'Continue dosing' : 'No dosing due'}
+          <Droplets className="w-8 h-8" aria-hidden="true" />
+          {currentStatus === 'mixing' ? 'Dosing' : currentStatus === 'awaiting_retest' || currentStatus === 'uncertain' ? 'Continue' : actionableEpisode || latestAssessment?.nextAction.kind === 'dose' ? 'Continue' : 'No dose due'}
         </button>
-        <button type="button" onClick={() => setShowScanner('test_strip')} className="col-span-2 min-h-11 rounded-xl text-slate-500 font-bold flex items-center justify-center gap-2">
-          <Camera className="w-5 h-5" /> Camera estimate
+        <button type="button" onClick={() => setShowScanner('test_strip')} className="col-span-2 min-h-12 rounded-xl text-slate-700 font-black flex items-center justify-center gap-2 hover:bg-slate-100">
+          <Camera className="w-5 h-5" aria-hidden="true" />Camera estimate
         </button>
       </section>
 
       <section className="space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-semibold text-slate-900">Recent Water Tests</h2>
-          <span className="text-xs font-bold text-slate-400">{state.domain.waterTests.length} stored</span>
+        <div className="flex items-center justify-between gap-3 px-1">
+          <h2 className="text-2xl font-black text-slate-950">Recent tests</h2>
+          <span className="text-base font-black text-slate-500">{state.domain.waterTests.length}</span>
         </div>
 
         {sortedTests.length === 0 ? (
-          <div className="text-center p-8 bg-slate-50 rounded-2xl border border-slate-100 text-slate-500">No structured water tests yet.</div>
+          <div className="text-center p-8 bg-white rounded-2xl border border-slate-200 text-base font-bold text-slate-600">No tests</div>
         ) : (
           <div className="space-y-3">
             {sortedTests.slice(0, 6).map(test => {
@@ -588,50 +572,43 @@ export function Chemicals({ state, updateState }: ChemicalsProps) {
               const episode = episodes.find(item => item.id === test.dosingEpisodeId || item.testIds.includes(test.id));
               const status = effectiveStatus(episode, now);
               return (
-                <div key={test.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-                  <div className="flex items-center justify-between gap-3 mb-3">
-                    <span className="text-sm font-bold text-slate-500">{formatLogDateTime(test.timestamp, state.config.timeFormat)}</span>
-                    {episode && <span className="flex items-center gap-1.5 text-xs font-black text-slate-600"><StatusIcon status={status} />{statusLabel(status, episode)}</span>}
+                <article key={test.id} className="bg-white p-4 rounded-2xl border border-slate-200">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <span className="text-base font-black text-slate-700">{formatLogDateTime(test.timestamp, state.config.timeFormat)}</span>
+                    {episode && <span className="flex items-center gap-2 text-base font-black text-slate-700"><StatusIcon status={status} />{statusLabel(status, episode)}</span>}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {test.readings.map(reading => (
-                      <span key={reading.measurement} className="rounded-full border-2 border-slate-200 bg-slate-50 px-3 py-2 text-sm font-black text-slate-900 tabular-nums">
+                      <span key={reading.measurement} className="rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2 text-base font-black text-slate-950 tabular-nums">
                         {LABELS[reading.measurement] || reading.measurement}: {readingText(reading)}
                       </span>
                     ))}
                   </div>
-                  {assessment && (
-                    <div className="mt-3 pt-3 border-t border-slate-100">
-                      <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">Advice after this test</p>
-                      <p className="text-sm font-extrabold text-slate-800 mt-1">{actionText(assessment)}</p>
-                    </div>
-                  )}
-                </div>
+                  {assessment && <p className="mt-3 pt-3 border-t border-slate-200 text-base font-black text-slate-800">{actionText(assessment)}</p>}
+                </article>
               );
             })}
           </div>
         )}
       </section>
 
-      <details className="bg-white rounded-2xl border border-slate-200 shadow-sm">
-        <summary className="cursor-pointer list-none p-4 flex items-center justify-between gap-3 font-extrabold text-slate-800">
-          <span>Products & stock <span className="text-slate-400">({state.inventory.length})</span></span>
-          <ScanBarcode className="w-5 h-5 text-slate-400" />
+      <details className="bg-white rounded-2xl border border-slate-200">
+        <summary className="min-h-14 cursor-pointer list-none px-4 flex items-center justify-between gap-3 text-lg font-black text-slate-900">
+          <span>Products & stock <span className="text-slate-500">({state.inventory.length})</span></span>
+          <ScanBarcode className="w-6 h-6 text-slate-600" aria-hidden="true" />
         </summary>
-        <div className="px-4 pb-4 space-y-4 border-t border-slate-100 pt-4">
-          <button type="button" onClick={() => setShowScanner('barcode')} className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg font-medium">
-            <ScanBarcode className="w-4 h-4" /> Scan chemical
+        <div className="px-4 pb-4 space-y-4 border-t border-slate-200 pt-4">
+          <button type="button" onClick={() => setShowScanner('barcode')} className="min-h-14 flex items-center gap-2 px-4 bg-indigo-50 text-indigo-900 rounded-xl font-black">
+            <ScanBarcode className="w-5 h-5" aria-hidden="true" />Scan chemical
           </button>
           {state.inventory.length === 0 ? (
-            <div className="text-center p-6 bg-slate-50 rounded-2xl border border-slate-100 text-slate-500">No chemicals in inventory yet.</div>
+            <div className="p-5 bg-slate-50 rounded-xl text-base font-bold text-slate-600">No products</div>
           ) : (
             <div className="grid gap-3 grid-cols-1 md:grid-cols-2">
               {state.inventory.map(item => (
-                <div key={item.id} className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex justify-between items-center">
-                  <div>
-                    <p className="font-semibold text-slate-900">{item.name}</p>
-                    <p className="text-sm text-slate-500">{item.ingredientType} · {item.quantity}</p>
-                  </div>
+                <div key={item.id} className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <p className="text-lg font-black text-slate-950">{item.name}</p>
+                  <p className="text-base font-bold text-slate-600 mt-1">{item.ingredientType} · {item.quantity}</p>
                 </div>
               ))}
             </div>
