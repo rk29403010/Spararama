@@ -4,7 +4,7 @@ import { telemetryApi, type TelemetryChartDto } from '../lib/telemetryApi';
 import { fetchSpaHistory, type SpaHistoryEventDto } from '../lib/historyApi';
 import type { AppState } from '../types';
 import { formatLogDateTime } from '../lib/dateTime';
-import { Beaker, Droplets, Flame, Thermometer, UserRound, Wrench } from 'lucide-react';
+import { Beaker, Droplets, Thermometer, UserRound, Wrench } from 'lucide-react';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -94,9 +94,7 @@ function measurementValue(raw: unknown): { value: number | null; label: string |
   if (!raw || typeof raw !== 'object') return { value: null, label: null };
   const value = raw as Record<string, unknown>;
   if (finiteNumber(value.value)) return { value: value.value, label: String(value.value) };
-  if (finiteNumber(value.min) && finiteNumber(value.max)) {
-    return { value: (value.min + value.max) / 2, label: `${value.min}-${value.max}` };
-  }
+  if (finiteNumber(value.min) && finiteNumber(value.max)) return { value: (value.min + value.max) / 2, label: `${value.min}-${value.max}` };
   if (typeof value.approx === 'string') {
     const numbers = value.approx.match(/\d+(?:\.\d+)?/g)?.map(Number).filter(Number.isFinite) || [];
     if (numbers.length >= 2) return { value: (numbers[0] + numbers[1]) / 2, label: `~${value.approx}` };
@@ -147,10 +145,10 @@ function ChemistryTooltip({ active, payload, label, timeFormat = '24h' }: any) {
   const point = payload[0]?.payload;
   if (!point) return null;
   return (
-    <div className="rounded-xl bg-white px-3 py-2 shadow-lg border border-slate-100 text-xs">
-      <p className="font-bold text-slate-700 mb-1">{formatLogDateTime(Number(label), timeFormat)}</p>
-      {point.chlorineLabel && <p className="text-indigo-700">Free chlorine {point.chlorineLabel} ppm</p>}
-      {point.phLabel && <p className="text-emerald-700">pH {point.phLabel}</p>}
+    <div className="rounded-xl bg-white px-3 py-3 border border-slate-200 text-sm font-bold">
+      <p className="font-black text-slate-900 mb-1">{formatLogDateTime(Number(label), timeFormat)}</p>
+      {point.chlorineLabel && <p className="text-indigo-800">Free chlorine {point.chlorineLabel} ppm</p>}
+      {point.phLabel && <p className="text-emerald-800">pH {point.phLabel}</p>}
     </div>
   );
 }
@@ -171,10 +169,7 @@ export function Logs({ state }: LogsProps) {
   useEffect(() => {
     const unsubscribe = subscribeToAuthChanges(userValue => {
       setUser(userValue);
-      if (!userValue) {
-        setLogs([]);
-        return;
-      }
+      if (!userValue) { setLogs([]); return; }
       void getLogs(500).then(setLogs).catch(() => setLogs([]));
     });
     return () => unsubscribe();
@@ -248,11 +243,7 @@ export function Logs({ state }: LogsProps) {
 
   const heatPeriods = useMemo(() => heaterPeriods(telemetry.samples), [telemetry.samples]);
   const hasWeather = heatData.some(point => finiteNumber(point.ambient));
-  const usualMarkers = useMemo(
-    () => usualTubMarkers(heatWindow.since, heatWindow.end, state.config.defaultReadyTime, heatRange === 'today' || heatRange === '48h'),
-    [heatWindow, state.config.defaultReadyTime, heatRange]
-  );
-
+  const usualMarkers = useMemo(() => usualTubMarkers(heatWindow.since, heatWindow.end, state.config.defaultReadyTime, heatRange === 'today' || heatRange === '48h'), [heatWindow, state.config.defaultReadyTime, heatRange]);
   const bathingMarkers = useMemo(() => logs
     .filter(log => log?.type === 'manual_log' && (log?.data?.action === 'entered_tub' || log?.data?.action === 'exited_tub'))
     .map(log => ({ timestamp: logTimestamp(log), action: log.data.action }))
@@ -307,133 +298,123 @@ export function Logs({ state }: LogsProps) {
   const chemistryEvents = useMemo(() => chemistry.events.filter(event => event.timestamp >= chemistryWindow.since && event.timestamp <= chemistryWindow.end), [chemistry, chemistryWindow]);
 
   const eventStyle = (type: string) => type === 'dose'
-    ? 'bg-indigo-500'
+    ? 'bg-indigo-600'
     : type === 'bath'
-      ? 'bg-emerald-500'
+      ? 'bg-emerald-600'
       : type === 'filter'
-        ? 'bg-sky-500'
-        : 'bg-amber-500';
+        ? 'bg-sky-600'
+        : 'bg-amber-600';
+
+  const rangeButton = (selected: boolean) => `min-h-12 min-w-fit flex-1 px-3 rounded-xl text-base font-black ${selected ? 'bg-white text-slate-950 border border-slate-200' : 'text-slate-700'}`;
 
   return (
     <div className="p-4 max-w-4xl mx-auto space-y-8 pb-10">
       <section className="space-y-4">
-        <div className="px-1">
-          <h2 className="text-2xl font-black text-slate-900">Heating & temperature</h2>
-          <p className="text-sm text-slate-500 mt-1">How the water warmed and cooled, and when the heater was doing the work.</p>
-        </div>
+        <h2 className="text-3xl font-black text-slate-950 px-1">Temperature</h2>
 
         <div className="flex gap-1 rounded-2xl bg-slate-100 p-1 overflow-x-auto">
           {HEAT_RANGES.map(option => (
-            <button key={option.key} type="button" onClick={() => setHeatRange(option.key)} className={`min-w-fit flex-1 px-3 py-2.5 rounded-xl text-sm font-extrabold ${heatRange === option.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>{option.label}</button>
+            <button key={option.key} type="button" aria-pressed={heatRange === option.key} onClick={() => setHeatRange(option.key)} className={rangeButton(heatRange === option.key)}>{option.label}</button>
           ))}
         </div>
 
-        <div className="bg-white p-4 sm:p-5 rounded-3xl shadow-sm border border-slate-100">
+        <div className="bg-white p-3 sm:p-5 rounded-3xl border border-slate-200">
           {telemetryLoading && heatData.length === 0 ? (
-            <div className="h-72 flex items-center justify-center text-slate-400">Loading temperature history…</div>
+            <div role="status" className="h-72 flex items-center justify-center text-base font-bold text-slate-600">Loading…</div>
           ) : telemetryError && heatData.length === 0 ? (
-            <div className="h-72 flex items-center justify-center text-center text-slate-500 px-6">Temperature history is temporarily unavailable.<br/><span className="text-xs">{telemetryError}</span></div>
+            <div role="alert" className="h-72 flex items-center justify-center text-center text-base font-bold text-slate-700 px-6">Temperature history unavailable.</div>
           ) : heatData.length === 0 ? (
-            <div className="h-72 flex items-center justify-center text-slate-400">No temperature readings in this period.</div>
+            <div className="h-72 flex items-center justify-center text-base font-bold text-slate-600">No readings</div>
           ) : (
             <>
               <div className="h-80 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={heatData} margin={{ top: 12, right: 8, left: -18, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis type="number" dataKey="timestamp" domain={[heatWindow.since, heatWindow.end]} scale="time" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} minTickGap={28} tickFormatter={value => tickLabel(Number(value), heatRange)} />
-                    <YAxis yAxisId="temp" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} domain={['dataMin - 1', 'dataMax + 1']} tickFormatter={value => `${value}°`} />
-                    <Tooltip labelFormatter={value => formatLogDateTime(Number(value), state.config.timeFormat)} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 10px rgb(15 23 42 / 0.12)' }} />
+                  <ComposedChart data={heatData} margin={{ top: 12, right: 8, left: -12, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                    <XAxis type="number" dataKey="timestamp" domain={[heatWindow.since, heatWindow.end]} scale="time" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700, fill: '#64748b' }} minTickGap={32} tickFormatter={value => tickLabel(Number(value), heatRange)} />
+                    <YAxis yAxisId="temp" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700, fill: '#64748b' }} domain={['dataMin - 1', 'dataMax + 1']} tickFormatter={value => `${value}°`} />
+                    <Tooltip labelFormatter={value => formatLogDateTime(Number(value), state.config.timeFormat)} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '14px', fontWeight: 700 }} />
                     {heatPeriods.map((period, index) => <ReferenceArea key={`${period.start}-${index}`} yAxisId="temp" x1={period.start} x2={period.end} fill="#f59e0b" fillOpacity={0.10} strokeOpacity={0} />)}
-                    {usualMarkers.map((timestamp, index) => <ReferenceLine key={`usual-${timestamp}`} yAxisId="temp" x={timestamp} stroke="#10b981" strokeOpacity={0.45} strokeDasharray="4 4" label={index === usualMarkers.length - 1 ? { value: 'usual tub time', position: 'insideTopRight', fill: '#059669', fontSize: 10 } : undefined} />)}
-                    {bathingMarkers.map(marker => <ReferenceLine key={`${marker.timestamp}-${marker.action}`} yAxisId="temp" x={marker.timestamp} stroke="#059669" strokeOpacity={0.8} strokeDasharray="2 3" />)}
-                    <Line yAxisId="temp" type="monotone" dataKey="water" name="Water °C" stroke="#4f46e5" strokeWidth={3} dot={false} connectNulls={false} isAnimationActive={false} />
-                    <Line yAxisId="temp" type="stepAfter" dataKey="target" name="Target °C" stroke="#f97316" strokeWidth={2} strokeDasharray="6 4" dot={false} connectNulls={false} isAnimationActive={false} />
-                    {hasWeather && <Line yAxisId="temp" type="monotone" dataKey="ambient" name="Outside °C" stroke="#64748b" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
-                    <Line yAxisId="temp" type="linear" dataKey="manualWater" name="Manual reading" stroke="transparent" strokeWidth={0} dot={{ r: 4, fill: '#a5b4fc', stroke: '#4338ca', strokeWidth: 2 }} activeDot={{ r: 6 }} connectNulls={false} legendType="none" isAnimationActive={false} />
+                    {usualMarkers.map((timestamp, index) => <ReferenceLine key={`usual-${timestamp}`} yAxisId="temp" x={timestamp} stroke="#059669" strokeOpacity={0.55} strokeDasharray="4 4" label={index === usualMarkers.length - 1 ? { value: 'usual time', position: 'insideTopRight', fill: '#047857', fontSize: 12, fontWeight: 700 } : undefined} />)}
+                    {bathingMarkers.map(marker => <ReferenceLine key={`${marker.timestamp}-${marker.action}`} yAxisId="temp" x={marker.timestamp} stroke="#047857" strokeOpacity={0.9} strokeDasharray="2 3" />)}
+                    <Line yAxisId="temp" type="monotone" dataKey="water" name="Water °C" stroke="#4338ca" strokeWidth={3} dot={false} connectNulls={false} isAnimationActive={false} />
+                    <Line yAxisId="temp" type="stepAfter" dataKey="target" name="Target °C" stroke="#ea580c" strokeWidth={2.5} strokeDasharray="6 4" dot={false} connectNulls={false} isAnimationActive={false} />
+                    {hasWeather && <Line yAxisId="temp" type="monotone" dataKey="ambient" name="Outside °C" stroke="#475569" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />}
+                    <Line yAxisId="temp" type="linear" dataKey="manualWater" name="Manual reading" stroke="transparent" strokeWidth={0} dot={{ r: 5, fill: '#c7d2fe', stroke: '#3730a3', strokeWidth: 2 }} activeDot={{ r: 7 }} connectNulls={false} legendType="none" isAnimationActive={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-2 pt-3 border-t border-slate-100 text-xs font-semibold text-slate-500">
-                <span className="flex items-center gap-1.5"><span className="w-5 h-1 rounded bg-indigo-600" />Water</span>
-                <span className="flex items-center gap-1.5"><span className="w-5 border-t-2 border-dashed border-orange-500" />Target</span>
-                <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-amber-100" />Heater on</span>
-                {user && <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-indigo-200 border-2 border-indigo-700" />Manual temp</span>}
-                {hasWeather && <span className="flex items-center gap-1.5"><span className="w-5 h-0.5 bg-slate-500" />Outside</span>}
+              <div className="flex flex-wrap gap-x-4 gap-y-2 pt-3 border-t border-slate-200 text-sm font-black text-slate-700">
+                <span className="flex items-center gap-2"><span className="w-6 h-1 rounded bg-indigo-700" aria-hidden="true" />Water</span>
+                <span className="flex items-center gap-2"><span className="w-6 border-t-2 border-dashed border-orange-600" aria-hidden="true" />Target</span>
+                <span className="flex items-center gap-2"><span className="w-5 h-3 rounded bg-amber-100" aria-hidden="true" />Heater</span>
+                {user && <span className="flex items-center gap-2"><span className="w-4 h-4 rounded-full bg-indigo-200 border-2 border-indigo-800" aria-hidden="true" />Manual</span>}
+                {hasWeather && <span className="flex items-center gap-2"><span className="w-6 h-0.5 bg-slate-600" aria-hidden="true" />Outside</span>}
               </div>
-              {telemetry.rolledUp && <p className="mt-3 text-xs text-slate-400">Simplified for this long view - {telemetry.rawTotal.toLocaleString()} readings remain in the full history.</p>}
-              {!user && <p className="mt-2 text-xs text-slate-400">Sign in to add any manual temperature readings to the graph.</p>}
-              {telemetryError && <p className="mt-2 text-xs text-amber-700">Live history refresh failed; showing the last graph loaded.</p>}
+              {(telemetry.rolledUp || telemetryError) && (
+                <details className="mt-3 text-sm font-bold text-slate-600">
+                  <summary className="min-h-11 cursor-pointer flex items-center">Data details</summary>
+                  <div className="pb-2 space-y-1">
+                    {telemetry.rolledUp && <p>{telemetry.rawTotal.toLocaleString()} readings condensed for this view.</p>}
+                    {telemetryError && <p>Refresh failed; showing the last loaded graph.</p>}
+                  </div>
+                </details>
+              )}
             </>
           )}
         </div>
       </section>
 
       <section className="space-y-4">
-        <div className="px-1">
-          <h2 className="text-2xl font-black text-slate-900">Water balance</h2>
-          <p className="text-sm text-slate-500 mt-1">Tests and treatments together, so you can see what changed after a dose, refill or use.</p>
-        </div>
+        <h2 className="text-3xl font-black text-slate-950 px-1">Water balance</h2>
 
         <div className="flex gap-1 rounded-2xl bg-slate-100 p-1">
           {CHEMISTRY_RANGES.map(option => (
-            <button key={option.key} type="button" onClick={() => setChemistryRange(option.key)} className={`flex-1 px-3 py-2.5 rounded-xl text-sm font-extrabold ${chemistryRange === option.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>{option.label}</button>
+            <button key={option.key} type="button" aria-pressed={chemistryRange === option.key} onClick={() => setChemistryRange(option.key)} className={rangeButton(chemistryRange === option.key)}>{option.label}</button>
           ))}
         </div>
 
-        <div className="bg-white p-4 sm:p-5 rounded-3xl shadow-sm border border-slate-100">
+        <div className="bg-white p-3 sm:p-5 rounded-3xl border border-slate-200">
           {chemistryPoints.length === 0 ? (
-            <div className="h-64 flex items-center justify-center text-center text-slate-400">No water-test readings in this period.</div>
+            <div className="h-64 flex items-center justify-center text-center text-base font-bold text-slate-600">No water tests</div>
           ) : (
             <div className="h-72 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chemistryPoints} margin={{ top: 10, right: 2, left: -16, bottom: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis type="number" dataKey="timestamp" domain={[chemistryWindow.since, chemistryWindow.end]} scale="time" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} minTickGap={28} tickFormatter={value => tickLabel(Number(value), chemistryRange)} />
-                  <YAxis yAxisId="chlorine" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6366f1' }} domain={[0, 'auto']} width={35} label={{ value: 'FC', angle: -90, position: 'insideLeft', fill: '#6366f1', fontSize: 10 }} />
-                  <YAxis yAxisId="ph" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#059669' }} domain={[6.5, 8]} width={34} label={{ value: 'pH', angle: 90, position: 'insideRight', fill: '#059669', fontSize: 10 }} />
+                <ComposedChart data={chemistryPoints} margin={{ top: 10, right: 4, left: -10, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis type="number" dataKey="timestamp" domain={[chemistryWindow.since, chemistryWindow.end]} scale="time" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700, fill: '#64748b' }} minTickGap={32} tickFormatter={value => tickLabel(Number(value), chemistryRange)} />
+                  <YAxis yAxisId="chlorine" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700, fill: '#4338ca' }} domain={[0, 'auto']} width={38} label={{ value: 'FC', angle: -90, position: 'insideLeft', fill: '#4338ca', fontSize: 12, fontWeight: 700 }} />
+                  <YAxis yAxisId="ph" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700, fill: '#047857' }} domain={[6.5, 8]} width={38} label={{ value: 'pH', angle: 90, position: 'insideRight', fill: '#047857', fontSize: 12, fontWeight: 700 }} />
                   <Tooltip content={<ChemistryTooltip timeFormat={state.config.timeFormat} />} />
-                  <ReferenceArea yAxisId="chlorine" x1={chemistryWindow.since} x2={chemistryWindow.end} y1={3} y2={5} fill="#6366f1" fillOpacity={0.06} strokeOpacity={0} />
-                  <ReferenceArea yAxisId="ph" x1={chemistryWindow.since} x2={chemistryWindow.end} y1={7.2} y2={7.6} fill="#10b981" fillOpacity={0.06} strokeOpacity={0} />
-                  <Line yAxisId="chlorine" type="monotone" dataKey="chlorine" name="Free chlorine" stroke="#4f46e5" strokeWidth={2.5} dot={{ r: 4, fill: '#fff', strokeWidth: 2 }} connectNulls isAnimationActive={false} />
-                  <Line yAxisId="ph" type="monotone" dataKey="ph" name="pH" stroke="#059669" strokeWidth={2.5} dot={{ r: 4, fill: '#fff', strokeWidth: 2 }} connectNulls isAnimationActive={false} />
+                  <Line yAxisId="chlorine" type="monotone" dataKey="chlorine" name="Free chlorine" stroke="#4338ca" strokeWidth={3} dot={{ r: 5, fill: '#fff', strokeWidth: 2 }} connectNulls isAnimationActive={false} />
+                  <Line yAxisId="ph" type="monotone" dataKey="ph" name="pH" stroke="#047857" strokeWidth={3} dot={{ r: 5, fill: '#fff', strokeWidth: 2 }} connectNulls isAnimationActive={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
           )}
 
           {chemistryEvents.length > 0 && (
-            <div className="mt-3 border-t border-slate-100 pt-3">
-              <div className="relative h-12 rounded-xl bg-slate-50 overflow-hidden">
+            <div className="mt-3 border-t border-slate-200 pt-3">
+              <div className="relative h-14 rounded-xl bg-slate-50 overflow-hidden">
                 {chemistryEvents.slice(-40).map((event, index) => {
                   const left = ((event.timestamp - chemistryWindow.since) / (chemistryWindow.end - chemistryWindow.since)) * 100;
-                  return <span key={`${event.id}-${index}`} title={`${formatLogDateTime(event.timestamp, state.config.timeFormat)} - ${event.label}`} className={`absolute w-3 h-3 rounded-full border-2 border-white shadow-sm ${eventStyle(event.type)}`} style={{ left: `calc(${Math.max(0, Math.min(100, left))}% - 6px)`, top: index % 2 === 0 ? 10 : 27 }} />;
+                  return <span key={`${event.id}-${index}`} title={`${formatLogDateTime(event.timestamp, state.config.timeFormat)} - ${event.label}`} className={`absolute w-4 h-4 rounded-full border-2 border-white ${eventStyle(event.type)}`} style={{ left: `calc(${Math.max(0, Math.min(100, left))}% - 8px)`, top: index % 2 === 0 ? 10 : 31 }} />;
                 })}
               </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-2 mt-2 text-xs font-semibold text-slate-500">
-                <span className="flex items-center gap-1.5"><Droplets className="w-3.5 h-3.5 text-indigo-500" />Treatment</span>
-                <span className="flex items-center gap-1.5"><UserRound className="w-3.5 h-3.5 text-emerald-500" />Bathing</span>
-                <span className="flex items-center gap-1.5"><Wrench className="w-3.5 h-3.5 text-amber-500" />Maintenance/refill</span>
+              <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 text-sm font-black text-slate-700">
+                <span className="flex items-center gap-2"><Droplets className="w-5 h-5 text-indigo-700" aria-hidden="true" />Treatment</span>
+                <span className="flex items-center gap-2"><UserRound className="w-5 h-5 text-emerald-700" aria-hidden="true" />Bathing</span>
+                <span className="flex items-center gap-2"><Wrench className="w-5 h-5 text-amber-700" aria-hidden="true" />Maintenance</span>
               </div>
             </div>
           )}
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3 text-xs font-semibold text-slate-500">
-            <span className="flex items-center gap-1.5"><Beaker className="w-3.5 h-3.5 text-indigo-600" />Free chlorine</span>
-            <span className="flex items-center gap-1.5"><Thermometer className="w-3.5 h-3.5 text-emerald-600" />pH</span>
-            <span className="text-slate-400">Faint bands show the preferred ranges.</span>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-4 text-sm font-black text-slate-700">
+            <span className="flex items-center gap-2"><Beaker className="w-5 h-5 text-indigo-700" aria-hidden="true" />Free chlorine</span>
+            <span className="flex items-center gap-2"><Thermometer className="w-5 h-5 text-emerald-700" aria-hidden="true" />pH</span>
           </div>
-          {historyError && <p className="mt-3 text-xs text-amber-700">Older spa history could not be loaded: {historyError}</p>}
-        </div>
-      </section>
 
-      <section className="rounded-3xl bg-slate-900 text-white p-5">
-        <div className="flex items-start gap-3">
-          <Flame className="w-6 h-6 text-amber-300 shrink-0 mt-0.5" />
-          <div>
-            <h3 className="font-extrabold text-lg">What these graphs should help answer</h3>
-            <p className="text-sm text-slate-300 mt-1">How quickly does this tub heat? How fast does it cool with the heater off? Did a cover or insulation change help? What happened to the water after a dose or a bathing session?</p>
-          </div>
+          {historyError && <p role="alert" className="mt-3 text-sm font-bold text-amber-900">Older history unavailable.</p>}
         </div>
       </section>
     </div>
