@@ -118,26 +118,24 @@ textarea:focus-visible,
 }
 
 .temperature-slider {
-  --temperature-thumb: hsl(215 78% 47%);
   writing-mode: vertical-lr;
   direction: rtl;
   appearance: none;
   -webkit-appearance: none;
-  width: 3.5rem;
+  width: 3.75rem;
   height: 16rem;
   margin: 0;
-  padding: 0.25rem;
+  padding: 0.3rem;
   border: 0;
   border-radius: 9999px;
   background: linear-gradient(
     to top,
-    #3b82f6 0%,
-    #22c55e 38%,
-    #eab308 64%,
-    #f97316 82%,
-    #ef4444 100%
+    #2563eb 0%,
+    #60a5fa 38%,
+    #fb923c 72%,
+    #dc2626 100%
   );
-  box-shadow: inset 0 0 0 1px rgb(15 23 42 / 0.08), inset 0 2px 8px rgb(15 23 42 / 0.12);
+  box-shadow: inset 0 0 0 1px rgb(15 23 42 / 0.10);
   cursor: grab;
   touch-action: none;
 }
@@ -160,12 +158,12 @@ textarea:focus-visible,
 .temperature-slider::-webkit-slider-thumb {
   appearance: none;
   -webkit-appearance: none;
-  width: 3rem;
-  height: 3rem;
+  width: 3.05rem;
+  height: 3.05rem;
   border: 4px solid white;
   border-radius: 9999px;
-  background: var(--temperature-thumb);
-  box-shadow: 0 3px 10px rgb(15 23 42 / 0.28);
+  background: #0f172a;
+  box-shadow: 0 2px 8px rgb(15 23 42 / 0.28);
 }
 
 .temperature-slider::-moz-range-track {
@@ -180,16 +178,24 @@ textarea:focus-visible,
 }
 
 .temperature-slider::-moz-range-thumb {
-  width: 3rem;
-  height: 3rem;
+  width: 3.05rem;
+  height: 3.05rem;
   border: 4px solid white;
   border-radius: 9999px;
-  background: var(--temperature-thumb);
-  box-shadow: 0 3px 10px rgb(15 23 42 / 0.28);
+  background: #0f172a;
+  box-shadow: 0 2px 8px rgb(15 23 42 / 0.28);
+}
+
+.temperature-slider:disabled::-webkit-slider-thumb {
+  background: #475569;
+}
+
+.temperature-slider:disabled::-moz-range-thumb {
+  background: #475569;
 }
 
 .temperature-slider:focus-visible {
-  outline: 3px solid rgb(79 70 229 / 0.45);
+  outline: 3px solid rgb(2 132 199 / 0.45);
   outline-offset: 4px;
 }
 
