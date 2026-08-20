@@ -213,17 +213,17 @@ function SwatchReadingRow({
   return (
     <section className="rounded-3xl border-2 border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3 mb-3">
-        <div>
-          <h5 className="font-black text-slate-900">{label}</h5>
-          <p className="text-xs text-slate-500 mt-0.5">Tap a colour, or tap between two colours.</p>
+        <div className="min-w-0">
+          <h5 className="font-black text-slate-950">{label}</h5>
+          <p className="text-xs text-slate-600 mt-0.5">Tap a colour, or the gap between two colours.</p>
         </div>
-        <span className={`shrink-0 rounded-full px-3 py-1 text-sm font-black ${selection?.kind === 'unknown' ? 'bg-amber-100 text-amber-900' : selection ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-100 text-slate-500'}`}>
+        <span className={`shrink-0 rounded-full px-3 py-1 text-sm font-black ${selection?.kind === 'unknown' ? 'bg-amber-100 text-amber-950' : selection ? 'bg-indigo-100 text-indigo-900' : 'bg-slate-100 text-slate-600'}`}>
           {selectedLabel}
         </span>
       </div>
 
-      <div className="overflow-x-auto pb-1">
-        <div className="min-w-max flex items-start justify-center">
+      <div className="overflow-x-auto overscroll-x-contain pb-2 -mx-1 px-1">
+        <div className="min-w-max flex items-start justify-start">
           {scale.map((item, index) => {
             const exactSelected = selection?.kind === 'swatch' && selection.index === index;
             const betweenSelected = selection?.kind === 'between' && selection.leftIndex === index;
@@ -234,13 +234,13 @@ function SwatchReadingRow({
                   aria-label={`${label} ${item.label}`}
                   aria-pressed={exactSelected}
                   onClick={() => onSelect({ kind: 'swatch', index })}
-                  className="group w-12 flex flex-col items-center gap-1.5"
+                  className="group w-14 min-h-[4.5rem] flex flex-col items-center justify-start gap-1.5 pt-1"
                 >
                   <span
-                    className={`block w-10 h-10 rounded-md border shadow-sm transition ${exactSelected ? 'ring-4 ring-indigo-500 ring-offset-2 border-white scale-105' : 'border-slate-300 group-active:scale-95'}`}
+                    className={`block w-11 h-11 rounded-lg border shadow-sm transition ${exactSelected ? 'ring-4 ring-indigo-500 ring-offset-2 border-white scale-105' : 'border-slate-300 group-active:scale-95'}`}
                     style={{ backgroundColor: item.color }}
                   />
-                  <span className={`text-[11px] leading-none font-black ${exactSelected ? 'text-indigo-700' : 'text-slate-600'}`}>{item.label}</span>
+                  <span className={`text-xs leading-none font-black ${exactSelected ? 'text-indigo-800' : 'text-slate-700'}`}>{item.label}</span>
                 </button>
 
                 {index < scale.length - 1 && (
@@ -249,9 +249,9 @@ function SwatchReadingRow({
                     aria-label={`${label} between ${item.label} and ${scale[index + 1].label}`}
                     aria-pressed={betweenSelected}
                     onClick={() => onSelect({ kind: 'between', leftIndex: index })}
-                    className="w-[18px] h-16 flex items-center justify-center -mx-0.5"
+                    className="w-10 min-h-[4.5rem] flex items-start justify-center pt-1"
                   >
-                    <span className={`block rounded-full transition-all ${betweenSelected ? 'w-3 h-9 bg-indigo-600 ring-2 ring-indigo-200' : 'w-1.5 h-7 bg-slate-200'}`} />
+                    <span className={`block mt-1 rounded-full ${betweenSelected ? 'w-4 h-10 bg-indigo-600 ring-2 ring-indigo-200' : 'w-2 h-9 bg-slate-200'}`} />
                   </button>
                 )}
               </React.Fragment>
@@ -264,7 +264,7 @@ function SwatchReadingRow({
         type="button"
         aria-pressed={selection?.kind === 'unknown'}
         onClick={() => onSelect({ kind: 'unknown' })}
-        className={`mt-3 w-full min-h-11 rounded-xl border-2 flex items-center justify-center gap-2 text-sm font-extrabold ${selection?.kind === 'unknown' ? 'border-amber-400 bg-amber-50 text-amber-900' : 'border-slate-200 bg-slate-50 text-slate-600'}`}
+        className={`mt-2 w-full min-h-12 rounded-xl border-2 flex items-center justify-center gap-2 text-sm font-extrabold ${selection?.kind === 'unknown' ? 'border-amber-400 bg-amber-50 text-amber-950' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
       >
         <HelpCircle className="w-4 h-4" />
         Don&apos;t know / no colour matches
@@ -296,13 +296,13 @@ function ElectronicSliderRow({
   };
 
   return (
-    <section className={`rounded-3xl border-2 p-4 transition ${active ? 'border-indigo-200 bg-indigo-50/40' : 'border-slate-200 bg-white'}`}>
+    <section className={`rounded-3xl border-2 p-4 transition-colors ${active ? 'border-indigo-200 bg-indigo-50/40' : 'border-slate-200 bg-white'}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h5 className="font-black text-slate-900">{label}</h5>
-          <p className="text-xs text-slate-500 mt-0.5">{definition.min}–{definition.max} {definition.unit}</p>
+          <h5 className="font-black text-slate-950">{label}</h5>
+          <p className="text-xs text-slate-600 mt-0.5">{definition.min}–{definition.max} {definition.unit}</p>
         </div>
-        <span className={`rounded-full px-3 py-1 text-sm font-black ${active ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+        <span className={`rounded-full px-3 py-1 text-sm font-black ${active ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
           {active ? `${formatNumber(value)} ${definition.unit}` : 'Not set'}
         </span>
       </div>
@@ -322,19 +322,19 @@ function ElectronicSliderRow({
       />
 
       <div className="mt-3 flex items-center gap-2">
-        <button type="button" onClick={() => nudge(-1)} className="w-12 h-11 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center" aria-label={`Decrease ${label}`}>
+        <button type="button" onClick={() => nudge(-1)} className="w-12 h-12 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center" aria-label={`Decrease ${label}`}>
           <Minus className="w-5 h-5" />
         </button>
-        <div className="flex-1 text-center text-2xl font-black tabular-nums text-slate-900">
+        <div className="flex-1 text-center text-2xl font-black tabular-nums text-slate-950">
           {active ? formatNumber(value) : 'Move slider'}
         </div>
-        <button type="button" onClick={() => nudge(1)} className="w-12 h-11 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center" aria-label={`Increase ${label}`}>
+        <button type="button" onClick={() => nudge(1)} className="w-12 h-12 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center" aria-label={`Increase ${label}`}>
           <Plus className="w-5 h-5" />
         </button>
       </div>
 
       {active && (
-        <button type="button" onClick={onClear} className="w-full mt-2 min-h-10 rounded-xl text-sm font-bold text-slate-500">
+        <button type="button" onClick={onClear} className="w-full mt-2 min-h-11 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100">
           Not measured - clear this reading
         </button>
       )}
@@ -394,8 +394,8 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
     return (
       <div className="space-y-4">
         <div>
-          <h4 className="text-xl font-black text-slate-900">Set the displayed readings</h4>
-          <p className="text-slate-500 mt-1">Move only the sliders for measurements your tester actually reports.</p>
+          <h4 className="text-xl font-black text-slate-950">Set the displayed readings</h4>
+          <p className="text-slate-600 mt-1">Move only the sliders for measurements your tester actually reports.</p>
         </div>
 
         <div className="space-y-3">
@@ -415,8 +415,8 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
           ))}
         </div>
 
-        {error && <div className="rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 p-4 font-bold">{error}</div>}
-        <button type="button" onClick={submit} className="w-full min-h-16 rounded-2xl bg-indigo-600 text-white text-xl font-extrabold">
+        {error && <div aria-live="polite" className="rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 p-4 font-bold">{error}</div>}
+        <button type="button" onClick={submit} className="w-full min-h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xl font-extrabold shadow-sm">
           Submit readings{selectedCount ? ` (${selectedCount})` : ''}
         </button>
       </div>
@@ -426,12 +426,12 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="text-xl font-black text-slate-900">Match each pad to the bottle</h4>
-        <p className="text-slate-500 mt-1">The colours below are only a visual guide. Compare the real strip with the real bottle.</p>
+        <h4 className="text-xl font-black text-slate-950">Match each pad to the bottle</h4>
+        <p className="text-slate-600 mt-1">The colours below are only a visual guide. Compare the real strip with the real bottle.</p>
       </div>
 
-      <div className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-600">
-        Tap a square for that reading. If your pad falls between two bottle colours, tap the narrow space between them.
+      <div className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-700">
+        Tap a square for that reading. If your pad falls between two bottle colours, tap the gap between them. Swipe sideways where a row is wider than the screen.
       </div>
 
       <div className="space-y-3">
@@ -451,8 +451,8 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
         })}
       </div>
 
-      {error && <div className="rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 p-4 font-bold">{error}</div>}
-      <button type="button" onClick={submit} className="w-full min-h-16 rounded-2xl bg-indigo-600 text-white text-xl font-extrabold">
+      {error && <div aria-live="polite" className="rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 p-4 font-bold">{error}</div>}
+      <button type="button" onClick={submit} className="w-full min-h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xl font-extrabold shadow-sm">
         Submit readings{selectedCount ? ` (${selectedCount})` : ''}
       </button>
     </div>
