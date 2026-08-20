@@ -31,22 +31,15 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     if (!this.state.error) return this.props.children;
 
     return (
-      <div className="m-4 max-w-xl mx-auto rounded-3xl border border-red-200 bg-red-50 p-6 text-red-950">
-        <h2 className="text-xl font-black">{this.props.title ?? 'This section hit a problem'}</h2>
-        <p className="mt-2 text-sm text-red-800">
-          The rest of Spararama is still available. You can switch tabs, or retry this section.
-        </p>
-        <details className="mt-3 text-xs text-red-700">
-          <summary className="cursor-pointer font-bold">Technical detail</summary>
+      <div role="alert" className="m-4 max-w-xl mx-auto rounded-3xl border border-red-200 bg-red-50 p-6 text-red-950">
+        <h2 className="text-2xl font-black">{this.props.title ?? 'This section failed'}</h2>
+        <button type="button" onClick={() => this.setState({ error: null })} className="mt-5 min-h-14 rounded-xl bg-red-900 px-5 text-base font-black text-white">
+          Try again
+        </button>
+        <details className="mt-4 text-sm text-red-800">
+          <summary className="min-h-11 cursor-pointer flex items-center font-bold">Technical details</summary>
           <pre className="mt-2 whitespace-pre-wrap break-words">{this.state.error.message}</pre>
         </details>
-        <button
-          type="button"
-          onClick={() => this.setState({ error: null })}
-          className="mt-4 min-h-11 rounded-xl bg-red-900 px-4 font-extrabold text-white"
-        >
-          Retry section
-        </button>
       </div>
     );
   }
