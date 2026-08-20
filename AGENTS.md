@@ -2,6 +2,8 @@
 
 Before architectural, Firebase, telemetry, spa-control, persistence, networking or authentication changes, read [`architecture.md`](./architecture.md).
 
+Before frontend UI/UX, React/TSX/CSS, interaction-flow, responsive, accessibility or visual-design changes, read [`.agents/skills/spararama-ui-ux/SKILL.md`](./.agents/skills/spararama-ui-ux/SKILL.md) and follow it as project-level design guidance.
+
 ## Repository workflow
 
 - Active development/integration branch: **`chatgpt-dev`**.
@@ -28,6 +30,13 @@ Before architectural, Firebase, telemetry, spa-control, persistence, networking 
 - Manual temperature/equipment observations must remain available in all states.
 - Never invent zeroes for unavailable sensor readings; preserve unknown/null/gaps and the observation source/timestamp.
 - A partial/unreachable hardware response must not crash a page or the application shell.
+
+## UI/UX verification
+
+- UI work is not complete merely because TypeScript compiles or tests pass.
+- For substantial visual or interaction changes, inspect the rendered application at representative phone and desktop widths when browser tooling is available.
+- Exercise the primary interaction and relevant non-ideal states such as unknown, stale, offline, loading, interrupted or error states.
+- If rendered verification cannot be performed, report that limitation explicitly rather than claiming visual success.
 
 ## Firebase/security constraints
 
