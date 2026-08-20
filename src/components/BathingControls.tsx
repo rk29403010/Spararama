@@ -40,10 +40,7 @@ export function BathingControls({ state, updateState }: BathingControlsProps) {
     };
     updateState({
       ...state,
-      domain: {
-        ...state.domain,
-        bathingEpisodes: [episode, ...state.domain.bathingEpisodes]
-      }
+      domain: { ...state.domain, bathingEpisodes: [episode, ...state.domain.bathingEpisodes] }
     });
     void logEvent('manual_log', {
       action: 'entered_tub',
@@ -77,27 +74,18 @@ export function BathingControls({ state, updateState }: BathingControlsProps) {
   };
 
   const active = Boolean(activeEpisode);
-  const panelClass = active
-    ? 'bg-emerald-950 border-emerald-900 text-white'
-    : 'bg-slate-900 border-slate-800 text-white';
 
   return (
     <div className="px-4 pb-5 max-w-xl mx-auto">
-      <section className={`rounded-3xl border p-5 shadow-sm ${panelClass}`} aria-live="polite">
-        <div className="flex items-start gap-4">
+      <section className={`rounded-3xl border p-5 ${active ? 'bg-emerald-950 border-emerald-900 text-white' : 'bg-slate-950 border-slate-900 text-white'}`} aria-live="polite">
+        <div className="flex items-center gap-4">
           <span className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${active ? 'bg-emerald-800 text-emerald-50' : 'bg-white/10 text-sky-200'}`}>
-            <Waves className="w-7 h-7" />
+            <Waves className="w-7 h-7" aria-hidden="true" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className={`text-xs font-black uppercase tracking-widest ${active ? 'text-emerald-200' : 'text-slate-300'}`}>Bathing</p>
-            <h2 className="mt-1 text-2xl font-black tracking-tight">
-              {activeEpisode ? 'You’re in the spa' : 'Not bathing now'}
-            </h2>
-            <p className={`mt-1 text-sm leading-relaxed ${active ? 'text-emerald-100' : 'text-slate-300'}`}>
-              {activeEpisode
-                ? `Started ${formatLogTime(activeEpisode.startedAt, state.config.timeFormat)}. Tap when you get out so the session is recorded accurately.`
-                : 'Tap as you get in. Spararama uses this marker to separate real bathing from heating, filtering and bubble tests.'}
-            </p>
+            <p className={`text-sm font-black uppercase tracking-widest ${active ? 'text-emerald-200' : 'text-slate-300'}`}>Bathing</p>
+            <h2 className="mt-1 text-2xl font-black tracking-tight">{activeEpisode ? 'In the spa' : 'Not bathing'}</h2>
+            {activeEpisode && <p className="mt-1 text-base font-bold text-emerald-100">Since {formatLogTime(activeEpisode.startedAt, state.config.timeFormat)}</p>}
           </div>
         </div>
 
@@ -105,9 +93,9 @@ export function BathingControls({ state, updateState }: BathingControlsProps) {
           type="button"
           disabled={busy}
           onClick={activeEpisode ? gettingOut : gettingIn}
-          className="mt-5 w-full min-h-16 rounded-2xl bg-white text-slate-950 disabled:opacity-60 text-lg font-black flex items-center justify-center gap-3 shadow-sm active:scale-[0.99] transition-transform"
+          className="mt-5 w-full min-h-16 rounded-2xl bg-white text-slate-950 disabled:opacity-60 text-xl font-black flex items-center justify-center gap-3 active:scale-[0.99] transition-transform"
         >
-          {activeEpisode ? <LogOut className="w-6 h-6" /> : <LogIn className="w-6 h-6" />}
+          {activeEpisode ? <LogOut className="w-6 h-6" aria-hidden="true" /> : <LogIn className="w-6 h-6" aria-hidden="true" />}
           {busy ? 'Recording…' : activeEpisode ? 'Getting out' : 'Getting in'}
         </button>
       </section>
