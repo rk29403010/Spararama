@@ -5,7 +5,7 @@ import { volumeAdjustedHeatingRate } from '../domain/heating';
 import { spaApi, type BestEffortTemperatureDto } from '../lib/spaApi';
 import { weatherApi, type WeatherForecastDto } from '../lib/weatherApi';
 import { heatingApi } from '../lib/heatingApi';
-import { Cloud, CloudFog, Save, Sun, Wind } from 'lucide-react';
+import { Cloud, Save, Sun, Wind } from 'lucide-react';
 import { TemperatureSlider } from './TemperatureSlider';
 
 interface HeatingProps {
@@ -18,17 +18,24 @@ function displayTemperature(celsius: number, scale: 'C' | 'F') {
 }
 
 function temperatureSourceLabel(estimate: BestEffortTemperatureDto | null) {
-  if (!estimate) return 'Finding current temperature…';
-  const labels: Record<BestEffortTemperatureDto['source'], string> = {
-    'live-spa': 'live spa',
-    'recent-telemetry': 'recent reading',
-    'last-known-water': 'last known water',
-    'ambient-sensor': 'ambient sensor estimate',
-    'weather': 'weather estimate',
-    'ambient-default': 'ambient fallback'
-  };
-  const prefix = estimate.estimated ? 'Estimated' : 'Measured';
-  return `${prefix} · ${estimate.confidence} confidence · ${labels[estimate.source]}`;
+  if (!estimate) return 'Reading temperature…';
+
+  switch (estimate.source) {
+    case 'live-spa':
+      return '';
+    case 'recent-telemetry':
+      return 'Recent reading';
+    case 'last-known-water':
+      return 'Last known reading';
+    case 'ambient-sensor':
+      return estimate.confidence === 'low' ? 'Low-confidence sensor estimate' : 'Sensor estimate';
+    case 'weather':
+      return estimate.confidence === 'low' ? 'Low-confidence weather estimate' : 'Weather estimate';
+    case 'ambient-default':
+      return 'Fallback estimate';
+    default:
+      return '';
+  }
 }
 
 function mean(values: Array<number | null | undefined>, fallback: number) {
@@ -73,7 +80,7 @@ export function Heating({ state, updateState }: HeatingProps) {
       })
       .catch((err: any) => {
         if (cancelled) return;
-        setTemperatureLookupError(err?.message || 'Could not determine the current temperature.');
+        setTemperatureLookupError(err?.message || 'Current temperature unavailable.');
       });
     return () => { cancelled = true; };
   }, [activeWaterBody?.id]);
@@ -163,7 +170,7 @@ export function Heating({ state, updateState }: HeatingProps) {
       const targetDate = new Date(baseDate.setHours(readyHour, 0, 0, 0));
       const targetTimestamp = targetDate.getTime();
       if (targetTimestamp <= Date.now()) {
-        setError('Target time is in the past.');
+        setError('Choose a future ready time.');
         setCalculation(null);
         return;
       }
@@ -212,7 +219,7 @@ export function Heating({ state, updateState }: HeatingProps) {
       const soakHours = (state.config.heatSoakMinutes || 0) / 60;
       const totalHours = hoursToHeat + soakHours;
       const startTimestamp = targetTimestamp - totalHours * 60 * 60 * 1000;
-      if (startTimestamp < Date.now()) setError("Start ASAP! Won't reach temp in time.");
+      if (startTimestamp < Date.now()) setError('Start now - the target may not be reached in time.');
 
       const activeHeatingKwh = (state.config.heaterPowerWatts / 1000) * hoursToHeat;
       const soakKwh = (state.config.heaterPowerWatts / 1000) * soakHours * 0.5;
@@ -239,15 +246,15 @@ export function Heating({ state, updateState }: HeatingProps) {
         costEstimate
       });
     } catch {
-      setError('Failed');
+      setError('Heating estimate failed.');
     }
   };
 
   const displayedCurrentTemp = currentTemp ?? minTemp;
-  const currentDetail = temperatureLookupError || temperatureSourceLabel(temperatureEstimate);
+  const currentDetail = temperatureLookupError || temperatureSourceLabel(temperatureEstimate) || undefined;
 
   return (
-    <div className="flex flex-col h-full max-w-md mx-auto p-4 space-y-8 pb-8">
+    <div className="flex flex-col h-full max-w-md mx-auto p-4 space-y-6 pb-8">
       <div className="grid grid-cols-2 gap-4 mt-2">
         <TemperatureSlider
           label="Current"
@@ -266,26 +273,104 @@ export function Heating({ state, updateState }: HeatingProps) {
           max={maxTemp}
           scale={scale}
           onChange={setTargetTemp}
-          detail="Drag to set the temperature you want."
         />
       </div>
 
-      <p className="-mt-5 text-center text-xs font-semibold text-slate-400">Blue is cooler; red is hotter. The number above each control stays visible while you drag.</p>
+      {weatherError && (
+        <div role="status" className="rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm font-bold text-amber-950">
+          {weatherError} Using neutral weather assumptions.
+        </div>
+      )}
 
-      {weatherError && <div className="rounded-xl bg-amber-50 border border-amber-100 px-4 py-3 text-xs font-semibold text-amber-900">{weatherError} Heating will use neutral weather assumptions until a location is configured or weather returns.</div>}
+      <section className="space-y-2">
+        <h2 className="text-sm font-black uppercase tracking-widest text-slate-500">Ready by</h2>
+        <div className="flex gap-3 items-center bg-white p-2 rounded-2xl border border-slate-200">
+          <div className="flex-1 flex bg-slate-100 p-1 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setReadyDay('today')}
+              className={`flex-1 min-h-12 px-2 text-base font-black rounded-lg transition-colors ${readyDay === 'today' ? 'bg-white shadow-sm text-indigo-800' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => setReadyDay('tomorrow')}
+              className={`flex-1 min-h-12 px-2 text-base font-black rounded-lg transition-colors ${readyDay === 'tomorrow' ? 'bg-white shadow-sm text-indigo-800' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              Tomorrow
+            </button>
+          </div>
+          <select
+            aria-label="Ready time"
+            value={readyHour}
+            onChange={event => {
+              const hour = Number(event.target.value);
+              setReadyHour(hour);
+              if (readyDay === 'today' && hour <= new Date().getHours()) setReadyDay('tomorrow');
+            }}
+            className="w-32 min-h-14 bg-slate-100 text-slate-950 font-black text-xl px-2 rounded-xl text-center appearance-none cursor-pointer"
+          >
+            {Array.from({ length: 24 }).map((_, hour) => (
+              <option key={hour} value={hour}>
+                {timeFormat === '12h'
+                  ? (hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`)
+                  : `${hour.toString().padStart(2, '0')}:00`}
+              </option>
+            ))}
+          </select>
+        </div>
+      </section>
 
-      <div className="flex gap-3 items-center bg-white p-2 rounded-3xl shadow-sm border border-slate-200 shrink-0">
-        <div className="flex-1 flex bg-slate-100 p-1 rounded-2xl"><button onClick={() => setReadyDay('today')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${readyDay === 'today' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`}>Today</button><button onClick={() => setReadyDay('tomorrow')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${readyDay === 'tomorrow' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`}>Tmrw</button></div>
-        <select value={readyHour} onChange={event => { const hour = Number(event.target.value); setReadyHour(hour); if (readyDay === 'today' && hour <= new Date().getHours()) setReadyDay('tomorrow'); }} className="w-28 bg-slate-100 text-slate-900 font-bold text-xl py-3 px-2 rounded-2xl outline-none text-center appearance-none cursor-pointer">{Array.from({ length: 24 }).map((_, hour) => <option key={hour} value={hour}>{timeFormat === '12h' ? (hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`) : `${hour.toString().padStart(2, '0')}:00`}</option>)}</select>
-      </div>
+      <section className="bg-slate-950 text-white p-5 rounded-3xl border border-slate-800 space-y-4">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <div className="text-sm font-black uppercase tracking-widest text-slate-400">Start heating</div>
+            <div className="mt-1 text-5xl font-black tracking-tight tabular-nums">
+              {calculation ? format(calculation.startTime, timeFormat === '12h' ? 'h:mm a' : 'HH:mm') : '—'}
+            </div>
+            {calculation && !error && <div className="mt-1 text-base font-bold text-slate-300">{format(calculation.startTime, 'MMM d')}</div>}
+          </div>
+          <div className="text-right">
+            <div className="text-sm font-bold text-slate-400">Est. cost</div>
+            <div className="mt-1 text-2xl font-black tabular-nums">{calculation ? `£${calculation.costEstimate.toFixed(2)}` : '—'}</div>
+          </div>
+        </div>
 
-      <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-lg flex flex-col relative overflow-hidden shrink-0 mb-2 gap-4">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/3 z-0" />
-        <div className="flex justify-between items-center z-10"><div><div className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Start Heating</div><div className="text-4xl font-extrabold tracking-tight">{calculation ? format(calculation.startTime, timeFormat === '12h' ? 'h:mm a' : 'HH:mm') : '--:--'}</div>{calculation && error && <div className="text-amber-400 text-xs font-bold mt-2">{error}</div>}{calculation && !error && <div className="text-slate-300 text-sm font-medium mt-1">{format(calculation.startTime, 'MMM d')}</div>}</div><div className="text-right"><div className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Est. Cost</div><div className="text-4xl font-extrabold tracking-tight text-emerald-400">{calculation ? `£${calculation.costEstimate.toFixed(2)}` : '£--'}</div></div></div>
-        {calculation && !error && <div className="grid grid-cols-2 gap-3 text-xs font-bold text-slate-400 border-t border-slate-700/50 pt-4 z-10"><div className="flex items-center gap-1.5"><Cloud className="w-4 h-4 text-slate-300" /><span>{Math.round(calculation.ambientTempAvg)}°C avg</span></div><div className="flex items-center gap-1.5"><Wind className="w-4 h-4 text-slate-300" /><span>{Math.round(calculation.avgWindSpeed || 0)} km/h</span></div><div className="flex items-center gap-1.5"><Sun className="w-4 h-4 text-slate-300" /><span>{Math.round(calculation.avgSolarRadiationWm2 || 0)} W/m²</span></div><div className="flex items-center justify-end gap-1 text-indigo-300"><CloudFog className="w-4 h-4" /><span>{calculation.weatherSourceCount ? `${calculation.weatherSourceCount} wx` : `${waterVolumeLiters.toLocaleString()} L`}</span></div></div>}
-        {calculation && !error && <p className="text-xs text-slate-300 z-10">{autoStartPreferred ? 'Spararama will try to start the heater automatically. If remote control fails after retries, you will be asked to switch it on manually.' : 'This spa is not remotely controllable, so you will be asked to switch the heater on manually.'}</p>}
-        {calculation && !error && <button onClick={handleScheduleHeating} disabled={isSaving || saveSuccess} className={`mt-2 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold transition-all z-10 w-full ${saveSuccess ? 'bg-emerald-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'}`}><Save className="w-5 h-5" />{saveSuccess ? 'Heating Scheduled' : isSaving ? 'Scheduling...' : 'Schedule Heating'}</button>}
-      </div>
+        {error && <div role="status" className="rounded-xl bg-amber-400/15 border border-amber-300/30 px-3 py-2 text-sm font-bold text-amber-100">{error}</div>}
+
+        {calculation && !error && (
+          <>
+            <div className="flex items-center justify-between gap-3 border-t border-slate-800 pt-3">
+              <span className="text-sm font-bold text-slate-300">{autoStartPreferred ? 'Auto-start enabled' : 'Manual start'}</span>
+              <span className="text-sm font-bold text-slate-400">{calculation.expectedDurationHours.toFixed(1)} h</span>
+            </div>
+
+            <details className="rounded-xl bg-white/5">
+              <summary className="min-h-12 cursor-pointer list-none px-3 flex items-center justify-between font-bold text-slate-300">
+                Estimate details
+                <span aria-hidden="true">+</span>
+              </summary>
+              <div className="grid grid-cols-2 gap-3 border-t border-white/10 px-3 py-3 text-sm font-bold text-slate-300">
+                <div className="flex items-center gap-2"><Cloud className="w-4 h-4" aria-hidden="true" /><span>{Math.round(calculation.ambientTempAvg)}°C avg</span></div>
+                <div className="flex items-center gap-2"><Wind className="w-4 h-4" aria-hidden="true" /><span>{Math.round(calculation.avgWindSpeed || 0)} km/h</span></div>
+                <div className="flex items-center gap-2"><Sun className="w-4 h-4" aria-hidden="true" /><span>{Math.round(calculation.avgSolarRadiationWm2 || 0)} W/m²</span></div>
+                <div className="text-right">{waterVolumeLiters.toLocaleString()} L</div>
+              </div>
+            </details>
+
+            <button
+              type="button"
+              onClick={handleScheduleHeating}
+              disabled={isSaving || saveSuccess}
+              className={`min-h-14 w-full rounded-2xl px-4 font-black flex items-center justify-center gap-2 transition-colors ${saveSuccess ? 'bg-emerald-600 text-white' : 'bg-white text-slate-950 hover:bg-slate-100 disabled:bg-slate-300 disabled:text-slate-600'}`}
+            >
+              <Save className="w-5 h-5" aria-hidden="true" />
+              {saveSuccess ? 'Heating scheduled' : isSaving ? 'Scheduling…' : 'Schedule heating'}
+            </button>
+          </>
+        )}
+      </section>
     </div>
   );
 }
