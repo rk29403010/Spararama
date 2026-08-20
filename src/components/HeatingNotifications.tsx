@@ -19,7 +19,7 @@ export function HeatingNotifications() {
         const result = await syncPushRegistration();
         if (!cancelled && result.status === 'enabled') pushSynced.current = true;
       } catch {
-        // Registration is best effort here. Polling continues as the fallback.
+        // Polling remains the fallback.
       }
     };
 
@@ -34,9 +34,6 @@ export function HeatingNotifications() {
         for (const item of notifications) {
           if (seen.current.has(item.id) || item.deliveredAt) continue;
           seen.current.add(item.id);
-          // If FCM already accepted this notification, do not create a second
-          // browser Notification while the app is open. The in-app notice/prompt
-          // still appears and deliveredAt remains distinct from pushSentAt.
           if (!item.pushSentAt && 'Notification' in window && Notification.permission === 'granted') {
             new Notification(item.title, { body: item.message, tag: `spararama-${item.id}` });
           }
@@ -44,7 +41,7 @@ export function HeatingNotifications() {
           if (!item.requiresConfirmation) setNotice(item);
         }
       } catch {
-        // Backend notification polling is best effort; the next poll retries.
+        // Next poll retries.
       }
     };
 
@@ -65,20 +62,25 @@ export function HeatingNotifications() {
   };
 
   return <>
-    {notice && <div className="fixed top-20 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-sm rounded-2xl bg-slate-900 text-white shadow-xl p-4 flex gap-3">
-      <Bell className="w-5 h-5 text-emerald-300 shrink-0 mt-0.5" />
-      <div className="flex-1"><div className="font-extrabold">{notice.title}</div><div className="text-sm text-slate-300 mt-1">{notice.message}</div></div>
-      <button type="button" onClick={() => setNotice(null)} className="text-slate-400"><X className="w-4 h-4" /></button>
-    </div>}
-
-    {manualPrompt && <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl">
-        <div className="w-12 h-12 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center mb-4"><Bell className="w-6 h-6" /></div>
-        <h2 className="text-xl font-black text-slate-900">{manualPrompt.title}</h2>
-        <p className="text-sm text-slate-600 mt-2">{manualPrompt.message}</p>
-        <p className="text-xs text-slate-500 mt-4">Confirm only after you have actually switched the heater on. Spararama records the confirmation time for the heating history.</p>
-        <button type="button" disabled={busy} onClick={() => void confirmManual()} className="mt-6 w-full min-h-12 rounded-xl bg-indigo-600 text-white font-extrabold flex items-center justify-center gap-2 disabled:opacity-50"><Check className="w-5 h-5" />{busy ? 'Recording…' : 'Heater is on'}</button>
+    {notice && (
+      <div role="status" className="fixed top-20 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-sm rounded-2xl bg-slate-950 text-white p-4 flex gap-3">
+        <Bell className="w-6 h-6 text-emerald-300 shrink-0" aria-hidden="true" />
+        <div className="flex-1 min-w-0"><div className="text-lg font-black">{notice.title}</div><div className="text-sm font-bold text-slate-300 mt-1">{notice.message}</div></div>
+        <button type="button" aria-label="Dismiss notification" onClick={() => setNotice(null)} className="w-11 h-11 -mt-1 -mr-1 rounded-full text-slate-300 hover:bg-white/10 flex items-center justify-center"><X className="w-5 h-5" aria-hidden="true" /></button>
       </div>
-    </div>}
+    )}
+
+    {manualPrompt && (
+      <div className="fixed inset-0 bg-slate-950/70 z-50 flex items-end sm:items-center justify-center sm:p-4 overscroll-contain">
+        <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-sm p-6">
+          <div className="w-12 h-12 bg-amber-100 text-amber-800 rounded-2xl flex items-center justify-center mb-4"><Bell className="w-6 h-6" aria-hidden="true" /></div>
+          <h2 className="text-3xl font-black text-slate-950">{manualPrompt.title}</h2>
+          <p className="text-base font-bold text-slate-600 mt-2">{manualPrompt.message}</p>
+          <button type="button" disabled={busy} onClick={() => void confirmManual()} className="mt-6 w-full min-h-16 rounded-2xl bg-indigo-700 text-white text-lg font-black flex items-center justify-center gap-2 disabled:opacity-50">
+            <Check className="w-6 h-6" aria-hidden="true" />{busy ? 'Recording…' : 'Heater is on'}
+          </button>
+        </div>
+      </div>
+    )}
   </>;
 }
