@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Database, Link2, RefreshCw, Wifi, WifiOff } from 'lucide-react';
+import { Link2, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import type { AppState } from '../types';
 import type { WaterBodyKind } from '../domain/models';
 import type { EquipmentCatalogModel } from '../domain/equipmentCatalog';
@@ -19,8 +19,7 @@ export function SpaConfiguration({ state, updateState }: Props) {
   const [connectionMessage, setConnectionMessage] = useState('');
   const [connecting, setConnecting] = useState(false);
 
-  const activeWaterBody = state.domain.waterBodies.find(item => item.id === state.domain.activeWaterBodyId)
-    || state.domain.waterBodies[0];
+  const activeWaterBody = state.domain.waterBodies.find(item => item.id === state.domain.activeWaterBodyId) || state.domain.waterBodies[0];
   const kind = state.config.waterBodyKind || activeWaterBody?.kind || 'spa';
 
   const loadCatalog = async () => {
@@ -99,9 +98,7 @@ export function SpaConfiguration({ state, updateState }: Props) {
     if (!model) return;
     const volume = model.capacityLiters || state.config.waterCapacityLiters;
     const nextBaseRate = model.nominalHeatingRateCPerHour || state.config.baseHeatingRatePerHour;
-    const nextReferenceVolume = model.nominalHeatingRateCPerHour && model.capacityLiters
-      ? model.capacityLiters
-      : state.config.heatingRateReferenceVolumeLiters;
+    const nextReferenceVolume = model.nominalHeatingRateCPerHour && model.capacityLiters ? model.capacityLiters : state.config.heatingRateReferenceVolumeLiters;
 
     setConnectionMessage('');
     updateState({
@@ -159,64 +156,92 @@ export function SpaConfiguration({ state, updateState }: Props) {
     setConnectionMessage('');
     try {
       const result = await spaApi.connect();
-      setConnectionMessage(result.connected ? 'Connected to the spa.' : 'Connector ran, but the spa was not found.');
+      setConnectionMessage(result.connected ? 'Connected' : 'Spa not found');
     } catch (err: any) {
-      setConnectionMessage(err?.message || 'Unable to connect to the spa.');
+      setConnectionMessage(err?.message || 'Unable to connect');
     } finally {
       setConnecting(false);
     }
   };
 
   return (
-    <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 space-y-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-extrabold text-slate-900">Spa / pool</h3>
-          <p className="text-xs text-slate-500 mt-1">Model data supplies capacity and connectivity where the manufacturer publishes it.</p>
-        </div>
-        <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500 flex items-center gap-1"><Database className="w-3.5 h-3.5" />{catalogSource}</span>
-      </div>
+    <section className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 space-y-5">
+      <h3 className="text-xl font-black text-slate-950">Spa / pool</h3>
 
       <div className="grid grid-cols-2 gap-2">
-        <button type="button" onClick={() => selectKind('spa')} className={`py-3 rounded-xl font-bold ${kind === 'spa' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>Hot tub / spa</button>
-        <button type="button" onClick={() => selectKind('pool')} className={`py-3 rounded-xl font-bold ${kind === 'pool' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>Pool</button>
+        <button type="button" aria-pressed={kind === 'spa'} onClick={() => selectKind('spa')} className={`min-h-14 rounded-xl text-base font-black ${kind === 'spa' ? 'bg-indigo-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>Hot tub / spa</button>
+        <button type="button" aria-pressed={kind === 'pool'} onClick={() => selectKind('pool')} className={`min-h-14 rounded-xl text-base font-black ${kind === 'pool' ? 'bg-indigo-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>Pool</button>
       </div>
 
-      {loading ? <p className="text-sm text-slate-500">Loading model catalogue…</p> : <>
-        <label className="block">
-          <span className="text-sm font-bold text-slate-700">Manufacturer</span>
-          <select value={state.config.manufacturerId || ''} onChange={e => selectManufacturer(e.target.value)} className="mt-1 w-full bg-slate-100 rounded-xl px-3 py-3 font-semibold">
-            <option value="">Choose manufacturer</option>
-            {manufacturers.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-          </select>
-        </label>
-        <label className="block">
-          <span className="text-sm font-bold text-slate-700">Model</span>
-          <select value={state.config.modelId || ''} onChange={e => selectModel(e.target.value)} disabled={!state.config.manufacturerId} className="mt-1 w-full bg-slate-100 rounded-xl px-3 py-3 font-semibold disabled:opacity-50">
-            <option value="">Choose model</option>
-            {manufacturerModels.map(model => <option key={model.id} value={model.id}>{model.model}</option>)}
-          </select>
-        </label>
-      </>}
+      {loading ? (
+        <p role="status" className="text-base font-bold text-slate-600">Loading models…</p>
+      ) : (
+        <>
+          <label className="block">
+            <span className="text-base font-black text-slate-800">Manufacturer</span>
+            <select value={state.config.manufacturerId || ''} onChange={event => selectManufacturer(event.target.value)} className="mt-1 w-full min-h-14 bg-slate-100 text-slate-950 rounded-xl px-3 font-bold">
+              <option value="">Choose manufacturer</option>
+              {manufacturers.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-base font-black text-slate-800">Model</span>
+            <select value={state.config.modelId || ''} onChange={event => selectModel(event.target.value)} disabled={!state.config.manufacturerId} className="mt-1 w-full min-h-14 bg-slate-100 text-slate-950 rounded-xl px-3 font-bold disabled:opacity-50">
+              <option value="">Choose model</option>
+              {manufacturerModels.map(model => <option key={model.id} value={model.id}>{model.model}</option>)}
+            </select>
+          </label>
+        </>
+      )}
 
-      {error && <div className="bg-amber-50 text-amber-900 rounded-xl p-3 text-sm flex items-center justify-between gap-2"><span>{error}</span><button onClick={() => void loadCatalog()} aria-label="Retry"><RefreshCw className="w-4 h-4" /></button></div>}
+      {error && (
+        <div role="alert" className="bg-amber-50 border border-amber-200 text-amber-950 rounded-xl p-3 font-bold flex items-center justify-between gap-3">
+          <span>{error}</span>
+          <button type="button" onClick={() => void loadCatalog()} aria-label="Retry model catalogue" className="w-12 h-12 shrink-0 rounded-xl bg-amber-100 flex items-center justify-center"><RefreshCw className="w-5 h-5" aria-hidden="true" /></button>
+        </div>
+      )}
 
       <label className="block">
-        <span className="text-sm font-bold text-slate-700">Water volume</span>
+        <span className="text-base font-black text-slate-800">Water volume</span>
         <div className="mt-1 flex items-center gap-2">
-          <input type="number" min="1" step="1" value={state.config.waterCapacityLiters} onChange={e => setVolume(Number(e.target.value))} className="w-full bg-slate-100 rounded-xl px-3 py-3 font-bold" />
-          <span className="font-bold text-slate-500">L</span>
+          <input type="number" inputMode="numeric" min="1" step="1" value={state.config.waterCapacityLiters} onChange={event => setVolume(Number(event.target.value))} className="w-full min-h-14 bg-slate-100 text-slate-950 rounded-xl px-3 font-black text-lg" />
+          <span className="font-black text-slate-600">L</span>
         </div>
-        {selectedModel?.capacityLiters && <div className="mt-2 flex items-center justify-between gap-2 text-xs text-slate-500"><span>Model capacity: {selectedModel.capacityLiters.toLocaleString()} L{state.config.capacityOverrideLiters ? ' - overridden' : ''}</span>{state.config.capacityOverrideLiters && <button type="button" onClick={resetVolume} className="font-bold text-indigo-600">Use model capacity</button>}</div>}
+        {selectedModel?.capacityLiters && (
+          <div className="mt-2 flex items-center justify-between gap-3 text-sm font-bold text-slate-600">
+            <span>{selectedModel.capacityLiters.toLocaleString()} L model capacity{state.config.capacityOverrideLiters ? ' - overridden' : ''}</span>
+            {state.config.capacityOverrideLiters && <button type="button" onClick={resetVolume} className="min-h-11 px-2 font-black text-indigo-800">Reset</button>}
+          </div>
+        )}
       </label>
 
-      {selectedModel && <div className="rounded-xl bg-slate-50 p-4 space-y-2">
-        <div className="flex items-center gap-2 text-sm font-bold">{selectedModel.wifi ? <Wifi className="w-4 h-4 text-emerald-600" /> : <WifiOff className="w-4 h-4 text-slate-400" />}{selectedModel.wifi ? 'Wi-Fi capable' : 'No Wi-Fi option recorded'}</div>
-        {selectedModel.wifi && selectedModel.connectorId === 'cleverspa' && <button type="button" disabled={connecting} onClick={() => void connect()} className="w-full py-3 rounded-xl bg-slate-900 text-white font-extrabold flex items-center justify-center gap-2 disabled:opacity-50"><Link2 className="w-4 h-4" />{connecting ? 'Connecting…' : 'Connect to spa'}</button>}
-        {selectedModel.wifi && !selectedModel.connectorId && <p className="text-xs text-slate-600">This model has manufacturer Wi-Fi support, but Spararama does not yet have a connector for it.</p>}
-        {connectionMessage && <p className="text-xs font-semibold text-slate-700">{connectionMessage}</p>}
-        <div className="pt-1 space-y-1">{selectedModel.sources.map(source => <a key={source.url} href={source.url} target="_blank" rel="noreferrer" className="block text-xs text-indigo-600 underline">{source.label}</a>)}</div>
-      </div>}
+      {selectedModel && (
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4 space-y-3">
+          <div className="flex items-center gap-2 text-base font-black text-slate-800">
+            {selectedModel.wifi ? <Wifi className="w-5 h-5 text-emerald-700" aria-hidden="true" /> : <WifiOff className="w-5 h-5 text-slate-500" aria-hidden="true" />}
+            {selectedModel.wifi ? 'Wi-Fi capable' : 'No Wi-Fi recorded'}
+          </div>
+
+          {selectedModel.wifi && selectedModel.connectorId === 'cleverspa' && (
+            <button type="button" disabled={connecting} onClick={() => void connect()} className="w-full min-h-14 rounded-xl bg-slate-950 text-white text-base font-black flex items-center justify-center gap-2 disabled:opacity-50">
+              <Link2 className="w-5 h-5" aria-hidden="true" />{connecting ? 'Connecting…' : 'Connect to spa'}
+            </button>
+          )}
+
+          {selectedModel.wifi && !selectedModel.connectorId && <p className="text-sm font-bold text-slate-600">Wi-Fi supported; Spararama connector not available yet.</p>}
+          {connectionMessage && <p role="status" className="text-sm font-black text-slate-800">{connectionMessage}</p>}
+
+          {selectedModel.sources.length > 0 && (
+            <details>
+              <summary className="min-h-11 cursor-pointer text-sm font-bold text-slate-600">Model data sources</summary>
+              <div className="space-y-2 pt-2">
+                {selectedModel.sources.map(source => <a key={source.url} href={source.url} target="_blank" rel="noreferrer" className="block min-h-11 py-2 text-sm font-bold text-indigo-800 underline">{source.label}</a>)}
+                <p className="text-xs text-slate-500">Catalogue: {catalogSource}</p>
+              </div>
+            </details>
+          )}
+        </div>
+      )}
     </section>
   );
 }
