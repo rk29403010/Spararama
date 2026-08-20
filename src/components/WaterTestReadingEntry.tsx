@@ -27,96 +27,50 @@ interface SliderDefinition {
   unit: string;
 }
 
-const swatch = (label: string, value: number, color: string): SwatchValue => ({
-  label,
-  min: value,
-  max: value,
-  color
-});
-
-const rangeSwatch = (label: string, min: number, max: number, color: string): SwatchValue => ({
-  label,
-  min,
-  max,
-  color
-});
+const swatch = (label: string, value: number, color: string): SwatchValue => ({ label, min: value, max: value, color });
+const rangeSwatch = (label: string, min: number, max: number, color: string): SwatchValue => ({ label, min, max, color });
 
 // Approximate screen colours transcribed from the user's bottle charts.
 // They are deliberately NOT calibration data: the bottle remains the colour reference.
 const STRIP_SCALES: Record<string, Partial<Record<MeasurementKey, SwatchValue[]>>> = {
   'current-3-way': {
     free_chlorine: [
-      swatch('0', 0, '#f4f1d2'),
-      swatch('1', 1, '#eeeeea'),
-      swatch('2', 2, '#deddea'),
-      swatch('3', 3, '#c8bfdd'),
-      swatch('5', 5, '#ab95ce'),
-      swatch('10', 10, '#8067af')
+      swatch('0', 0, '#f4f1d2'), swatch('1', 1, '#eeeeea'), swatch('2', 2, '#deddea'),
+      swatch('3', 3, '#c8bfdd'), swatch('5', 5, '#ab95ce'), swatch('10', 10, '#8067af')
     ],
     ph: [
-      swatch('6.4', 6.4, '#d6b45f'),
-      swatch('6.8', 6.8, '#dca44e'),
-      swatch('7.2', 7.2, '#d99558'),
-      swatch('7.6', 7.6, '#cf8069'),
-      swatch('7.8', 7.8, '#cd6f60'),
-      swatch('8.4', 8.4, '#c3526d')
+      swatch('6.4', 6.4, '#d6b45f'), swatch('6.8', 6.8, '#dca44e'), swatch('7.2', 7.2, '#d99558'),
+      swatch('7.6', 7.6, '#cf8069'), swatch('7.8', 7.8, '#cd6f60'), swatch('8.4', 8.4, '#c3526d')
     ],
     total_alkalinity: [
-      swatch('0', 0, '#b47e33'),
-      swatch('40', 40, '#697730'),
-      swatch('80', 80, '#465f25'),
-      swatch('120', 120, '#355126'),
-      swatch('180', 180, '#1d6971'),
-      swatch('240', 240, '#174c65')
+      swatch('0', 0, '#b47e33'), swatch('40', 40, '#697730'), swatch('80', 80, '#465f25'),
+      swatch('120', 120, '#355126'), swatch('180', 180, '#1d6971'), swatch('240', 240, '#174c65')
     ]
   },
   'current-7-way': {
     free_chlorine: [
-      swatch('0', 0, '#f4faf4'),
-      swatch('0.5', 0.5, '#e2efe7'),
-      swatch('1', 1, '#b9ddd3'),
-      swatch('3', 3, '#76c0be'),
-      swatch('5', 5, '#3b929d'),
-      swatch('10', 10, '#195463')
+      swatch('0', 0, '#f4faf4'), swatch('0.5', 0.5, '#e2efe7'), swatch('1', 1, '#b9ddd3'),
+      swatch('3', 3, '#76c0be'), swatch('5', 5, '#3b929d'), swatch('10', 10, '#195463')
     ],
     ph: [
-      swatch('6.2', 6.2, '#f1d488'),
-      swatch('6.8', 6.8, '#efa05a'),
-      swatch('7.2', 7.2, '#ef5d58'),
-      swatch('7.6', 7.6, '#eb315a'),
-      swatch('8.4', 8.4, '#be3158'),
-      swatch('9.0', 9, '#94194e')
+      swatch('6.2', 6.2, '#f1d488'), swatch('6.8', 6.8, '#efa05a'), swatch('7.2', 7.2, '#ef5d58'),
+      swatch('7.6', 7.6, '#eb315a'), swatch('8.4', 8.4, '#be3158'), swatch('9.0', 9, '#94194e')
     ],
     total_alkalinity: [
-      swatch('0', 0, '#efb367'),
-      swatch('40', 40, '#c69a61'),
-      swatch('80', 80, '#a49d70'),
-      swatch('120', 120, '#849148'),
-      swatch('180', 180, '#4e7c78'),
-      swatch('240', 240, '#33475b')
+      swatch('0', 0, '#efb367'), swatch('40', 40, '#c69a61'), swatch('80', 80, '#a49d70'),
+      swatch('120', 120, '#849148'), swatch('180', 180, '#4e7c78'), swatch('240', 240, '#33475b')
     ],
     total_chlorine: [
-      swatch('0', 0, '#efedef'),
-      swatch('0.5', 0.5, '#e99db4'),
-      swatch('1', 1, '#ed5d88'),
-      swatch('3', 3, '#dd316c'),
-      swatch('5', 5, '#d31f54'),
-      swatch('10', 10, '#4b1d31')
+      swatch('0', 0, '#efedef'), swatch('0.5', 0.5, '#e99db4'), swatch('1', 1, '#ed5d88'),
+      swatch('3', 3, '#dd316c'), swatch('5', 5, '#d31f54'), swatch('10', 10, '#4b1d31')
     ],
     calcium_hardness: [
-      swatch('0', 0, '#79c4d8'),
-      swatch('50', 50, '#70a8c5'),
-      swatch('100', 100, '#7666a5'),
-      swatch('250', 250, '#6a4087'),
-      swatch('500', 500, '#743471'),
-      swatch('1000', 1000, '#551d52')
+      swatch('0', 0, '#79c4d8'), swatch('50', 50, '#70a8c5'), swatch('100', 100, '#7666a5'),
+      swatch('250', 250, '#6a4087'), swatch('500', 500, '#743471'), swatch('1000', 1000, '#551d52')
     ],
     cyanuric_acid: [
-      swatch('0', 0, '#e6db70'),
-      rangeSwatch('30/50', 30, 50, '#f1b18d'),
-      swatch('100', 100, '#e97f80'),
-      swatch('150', 150, '#d84978'),
-      swatch('240', 240, '#9d2758')
+      swatch('0', 0, '#e6db70'), rangeSwatch('30/50', 30, 50, '#f1b18d'), swatch('100', 100, '#e97f80'),
+      swatch('150', 150, '#d84978'), swatch('240', 240, '#9d2758')
     ]
   }
 };
@@ -148,60 +102,33 @@ function stripSelectionLabel(scale: SwatchValue[], selection?: StripSelection) {
   return left && right ? formatBetween(left, right) : 'Not set';
 }
 
-function selectionToReading(
-  measurement: MeasurementKey,
-  scale: SwatchValue[],
-  selection: StripSelection
-): MeasurementReading | null {
+function selectionToReading(measurement: MeasurementKey, scale: SwatchValue[], selection: StripSelection): MeasurementReading | null {
   if (selection.kind === 'unknown') {
-    return {
-      measurement,
-      source: 'manual',
-      note: "User selected don't know / no matching colour swatch."
-    };
+    return { measurement, source: 'manual', note: "User selected don't know / no matching colour swatch." };
   }
 
   if (selection.kind === 'swatch') {
     const chosen = scale[selection.index];
     if (!chosen) return null;
     if (chosen.min === chosen.max) {
-      return {
-        measurement,
-        value: chosen.min,
-        source: 'manual',
-        note: `Selected bottle swatch ${chosen.label}.`
-      };
+      return { measurement, value: chosen.min, source: 'manual', note: `Selected bottle swatch ${chosen.label}.` };
     }
-    return {
-      measurement,
-      min: chosen.min,
-      max: chosen.max,
-      source: 'manual',
-      note: `Selected bottle swatch ${chosen.label}.`
-    };
+    return { measurement, min: chosen.min, max: chosen.max, source: 'manual', note: `Selected bottle swatch ${chosen.label}.` };
   }
 
   const left = scale[selection.leftIndex];
   const right = scale[selection.leftIndex + 1];
   if (!left || !right) return null;
-  const min = left.max;
-  const max = right.min;
   return {
     measurement,
-    min: Math.min(min, max),
-    max: Math.max(min, max),
+    min: Math.min(left.max, right.min),
+    max: Math.max(left.max, right.min),
     source: 'manual',
     note: `Colour judged between bottle swatches ${left.label} and ${right.label}.`
   };
 }
 
-function SwatchReadingRow({
-  label,
-  measurement,
-  scale,
-  selection,
-  onSelect
-}: {
+function SwatchReadingRow({ label, measurement, scale, selection, onSelect }: {
   label: string;
   measurement: MeasurementKey;
   scale: SwatchValue[];
@@ -211,13 +138,10 @@ function SwatchReadingRow({
   const selectedLabel = stripSelectionLabel(scale, selection);
 
   return (
-    <section className="rounded-3xl border-2 border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="min-w-0">
-          <h5 className="font-black text-slate-950">{label}</h5>
-          <p className="text-xs text-slate-600 mt-0.5">Tap a colour, or the gap between two colours.</p>
-        </div>
-        <span className={`shrink-0 rounded-full px-3 py-1 text-sm font-black ${selection?.kind === 'unknown' ? 'bg-amber-100 text-amber-950' : selection ? 'bg-indigo-100 text-indigo-900' : 'bg-slate-100 text-slate-600'}`}>
+    <section className="rounded-2xl border-2 border-slate-200 bg-white p-4">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <h5 className="min-w-0 font-black text-lg text-slate-950">{label}</h5>
+        <span className={`shrink-0 rounded-xl px-3 py-1.5 text-base font-black tabular-nums ${selection?.kind === 'unknown' ? 'bg-amber-100 text-amber-950' : selection ? 'bg-indigo-100 text-indigo-950' : 'bg-slate-100 text-slate-600'}`}>
           {selectedLabel}
         </span>
       </div>
@@ -234,13 +158,13 @@ function SwatchReadingRow({
                   aria-label={`${label} ${item.label}`}
                   aria-pressed={exactSelected}
                   onClick={() => onSelect({ kind: 'swatch', index })}
-                  className="group w-14 min-h-[4.5rem] flex flex-col items-center justify-start gap-1.5 pt-1"
+                  className="group w-14 min-h-[4.75rem] flex flex-col items-center justify-start gap-1.5 pt-1"
                 >
                   <span
-                    className={`block w-11 h-11 rounded-lg border shadow-sm transition ${exactSelected ? 'ring-4 ring-indigo-500 ring-offset-2 border-white scale-105' : 'border-slate-300 group-active:scale-95'}`}
+                    className={`block w-11 h-11 rounded-lg border shadow-sm transition-transform ${exactSelected ? 'ring-4 ring-indigo-600 ring-offset-2 border-white scale-105' : 'border-slate-300 group-active:scale-95'}`}
                     style={{ backgroundColor: item.color }}
                   />
-                  <span className={`text-xs leading-none font-black ${exactSelected ? 'text-indigo-800' : 'text-slate-700'}`}>{item.label}</span>
+                  <span className={`text-sm leading-none font-black ${exactSelected ? 'text-indigo-900' : 'text-slate-800'}`}>{item.label}</span>
                 </button>
 
                 {index < scale.length - 1 && (
@@ -249,9 +173,9 @@ function SwatchReadingRow({
                     aria-label={`${label} between ${item.label} and ${scale[index + 1].label}`}
                     aria-pressed={betweenSelected}
                     onClick={() => onSelect({ kind: 'between', leftIndex: index })}
-                    className="w-10 min-h-[4.5rem] flex items-start justify-center pt-1"
+                    className="w-10 min-h-[4.75rem] flex items-start justify-center pt-1"
                   >
-                    <span className={`block mt-1 rounded-full ${betweenSelected ? 'w-4 h-10 bg-indigo-600 ring-2 ring-indigo-200' : 'w-2 h-9 bg-slate-200'}`} />
+                    <span className={`block mt-1 rounded-full ${betweenSelected ? 'w-4 h-10 bg-indigo-700 ring-2 ring-indigo-200' : 'w-2 h-9 bg-slate-200'}`} />
                   </button>
                 )}
               </React.Fragment>
@@ -266,20 +190,14 @@ function SwatchReadingRow({
         onClick={() => onSelect({ kind: 'unknown' })}
         className={`mt-2 w-full min-h-12 rounded-xl border-2 flex items-center justify-center gap-2 text-sm font-extrabold ${selection?.kind === 'unknown' ? 'border-amber-400 bg-amber-50 text-amber-950' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
       >
-        <HelpCircle className="w-4 h-4" />
+        <HelpCircle className="w-5 h-5" aria-hidden="true" />
         Don&apos;t know / no colour matches
       </button>
     </section>
   );
 }
 
-function ElectronicSliderRow({
-  label,
-  measurement,
-  value,
-  onChange,
-  onClear
-}: {
+function ElectronicSliderRow({ label, measurement, value, onChange, onClear }: {
   label: string;
   measurement: MeasurementKey;
   value?: number;
@@ -296,13 +214,13 @@ function ElectronicSliderRow({
   };
 
   return (
-    <section className={`rounded-3xl border-2 p-4 transition-colors ${active ? 'border-indigo-200 bg-indigo-50/40' : 'border-slate-200 bg-white'}`}>
-      <div className="flex items-start justify-between gap-3">
+    <section className={`rounded-2xl border-2 p-4 transition-colors ${active ? 'border-indigo-300 bg-indigo-50/40' : 'border-slate-200 bg-white'}`}>
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h5 className="font-black text-slate-950">{label}</h5>
-          <p className="text-xs text-slate-600 mt-0.5">{definition.min}–{definition.max} {definition.unit}</p>
+          <h5 className="font-black text-lg text-slate-950">{label}</h5>
+          <p className="text-sm font-bold text-slate-500">{definition.min}–{definition.max} {definition.unit}</p>
         </div>
-        <span className={`rounded-full px-3 py-1 text-sm font-black ${active ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+        <span className={`rounded-xl px-3 py-1.5 text-base font-black tabular-nums ${active ? 'bg-indigo-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
           {active ? `${formatNumber(value)} ${definition.unit}` : 'Not set'}
         </span>
       </div>
@@ -314,28 +232,26 @@ function ElectronicSliderRow({
         step={definition.step}
         value={sliderValue}
         aria-label={label}
-        onPointerDown={() => {
-          if (!active) onChange(sliderValue);
-        }}
+        onPointerDown={() => { if (!active) onChange(sliderValue); }}
         onChange={event => onChange(Number(event.target.value))}
-        className={`w-full mt-5 accent-indigo-600 ${active ? '' : 'opacity-45'}`}
+        className={`w-full mt-5 accent-indigo-700 ${active ? '' : 'opacity-45'}`}
       />
 
       <div className="mt-3 flex items-center gap-2">
-        <button type="button" onClick={() => nudge(-1)} className="w-12 h-12 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center" aria-label={`Decrease ${label}`}>
-          <Minus className="w-5 h-5" />
+        <button type="button" onClick={() => nudge(-1)} className="w-14 h-14 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-900 flex items-center justify-center" aria-label={`Decrease ${label}`}>
+          <Minus className="w-6 h-6" aria-hidden="true" />
         </button>
-        <div className="flex-1 text-center text-2xl font-black tabular-nums text-slate-950">
-          {active ? formatNumber(value) : 'Move slider'}
+        <div className="flex-1 text-center text-3xl font-black tabular-nums text-slate-950">
+          {active ? formatNumber(value) : '—'}
         </div>
-        <button type="button" onClick={() => nudge(1)} className="w-12 h-12 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center" aria-label={`Increase ${label}`}>
-          <Plus className="w-5 h-5" />
+        <button type="button" onClick={() => nudge(1)} className="w-14 h-14 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-900 flex items-center justify-center" aria-label={`Increase ${label}`}>
+          <Plus className="w-6 h-6" aria-hidden="true" />
         </button>
       </div>
 
       {active && (
         <button type="button" onClick={onClear} className="w-full mt-2 min-h-11 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100">
-          Not measured - clear this reading
+          Clear reading
         </button>
       )}
     </section>
@@ -362,12 +278,7 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
         .map(parameter => {
           const value = electronicValues[parameter.measurement];
           if (typeof value !== 'number') return null;
-          return {
-            measurement: parameter.measurement,
-            value,
-            source: 'manual' as const,
-            note: 'Manually entered from electronic tester.'
-          };
+          return { measurement: parameter.measurement, value, source: 'manual' as const, note: 'Manually entered from electronic tester.' };
         })
         .filter((reading): reading is MeasurementReading => Boolean(reading));
     } else {
@@ -382,7 +293,7 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
     }
 
     if (readings.length === 0) {
-      setError(electronic ? 'Set at least one slider.' : 'Choose at least one result, even if it is Don\'t know.');
+      setError(electronic ? 'Set at least one reading.' : 'Choose at least one result, even if it is Don\'t know.');
       return;
     }
 
@@ -393,11 +304,7 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
   if (electronic) {
     return (
       <div className="space-y-4">
-        <div>
-          <h4 className="text-xl font-black text-slate-950">Set the displayed readings</h4>
-          <p className="text-slate-600 mt-1">Move only the sliders for measurements your tester actually reports.</p>
-        </div>
-
+        <h4 className="text-xl font-black text-slate-950">Tester readings</h4>
         <div className="space-y-3">
           {method.parameters.map(parameter => (
             <ElectronicSliderRow
@@ -414,10 +321,9 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
             />
           ))}
         </div>
-
         {error && <div aria-live="polite" className="rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 p-4 font-bold">{error}</div>}
-        <button type="button" onClick={submit} className="w-full min-h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xl font-extrabold shadow-sm">
-          Submit readings{selectedCount ? ` (${selectedCount})` : ''}
+        <button type="button" onClick={submit} className="w-full min-h-16 rounded-2xl bg-indigo-700 hover:bg-indigo-800 active:bg-indigo-900 text-white text-xl font-black">
+          Save readings{selectedCount ? ` (${selectedCount})` : ''}
         </button>
       </div>
     );
@@ -426,12 +332,8 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="text-xl font-black text-slate-950">Match each pad to the bottle</h4>
-        <p className="text-slate-600 mt-1">The colours below are only a visual guide. Compare the real strip with the real bottle.</p>
-      </div>
-
-      <div className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-700">
-        Tap a square for that reading. If your pad falls between two bottle colours, tap the gap between them. Swipe sideways where a row is wider than the screen.
+        <h4 className="text-xl font-black text-slate-950">Match the strip</h4>
+        <p className="mt-1 text-sm font-bold text-slate-600">Compare with the bottle - screen colours are approximate. Tap a colour or the gap between two.</p>
       </div>
 
       <div className="space-y-3">
@@ -452,8 +354,8 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
       </div>
 
       {error && <div aria-live="polite" className="rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 p-4 font-bold">{error}</div>}
-      <button type="button" onClick={submit} className="w-full min-h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xl font-extrabold shadow-sm">
-        Submit readings{selectedCount ? ` (${selectedCount})` : ''}
+      <button type="button" onClick={submit} className="w-full min-h-16 rounded-2xl bg-indigo-700 hover:bg-indigo-800 active:bg-indigo-900 text-white text-xl font-black">
+        Save readings{selectedCount ? ` (${selectedCount})` : ''}
       </button>
     </div>
   );
