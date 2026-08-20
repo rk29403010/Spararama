@@ -2,7 +2,7 @@
 
 Before architectural, Firebase, telemetry, spa-control, persistence, networking or authentication changes, read [`architecture.md`](./architecture.md).
 
-Before frontend UI/UX, React/TSX/CSS, interaction-flow, responsive, accessibility or visual-design changes, read [`.agents/skills/spararama-ui-ux/SKILL.md`](./.agents/skills/spararama-ui-ux/SKILL.md) and follow it as project-level design guidance.
+Before frontend UI/UX, React/TSX/CSS, interaction-flow, responsive, accessibility or visual-design changes, read [`.agents/skills/spararama-ui-ux/SKILL.md`](./.agents/skills/spararama-ui-ux/SKILL.md) **and** [`docs/ui-design-principles.md`](./docs/ui-design-principles.md). The latter records direct user design feedback and should be treated as project-specific design direction, not optional inspiration.
 
 ## Repository workflow
 
