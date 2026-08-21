@@ -166,6 +166,10 @@ textarea:focus-visible,
   box-shadow: 0 2px 8px rgb(15 23 42 / 0.28);
 }
 
+.temperature-slider-live::-webkit-slider-thumb {
+  border-color: #22c55e;
+}
+
 .temperature-slider::-moz-range-track {
   width: 100%;
   height: 100%;
@@ -184,6 +188,10 @@ textarea:focus-visible,
   border-radius: 9999px;
   background: #0f172a;
   box-shadow: 0 2px 8px rgb(15 23 42 / 0.28);
+}
+
+.temperature-slider-live::-moz-range-thumb {
+  border-color: #22c55e;
 }
 
 .temperature-slider:disabled::-webkit-slider-thumb {
