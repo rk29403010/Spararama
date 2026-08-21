@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { HelpCircle, Minus, Plus } from 'lucide-react';
+import { Minus, Plus } from 'lucide-react';
 import type { MeasurementKey, MeasurementReading, TestMethodProfile } from '../domain/models';
 
 interface WaterTestReadingEntryProps {
@@ -125,21 +125,19 @@ function SwatchReadingRow({ label, measurement, scale, selection, onSelect }: {
   onSelect: (selection: StripSelection) => void;
 }) {
   return (
-    <section className="py-2 first:pt-1 last:pb-1">
-      <div className="mb-1 flex min-h-10 items-center justify-between gap-2">
-        <h5 className="min-w-0 text-base font-black leading-tight text-slate-950">{label}</h5>
-        <button
-          type="button"
-          aria-pressed={selection?.kind === 'unknown'}
-          onClick={() => onSelect({ kind: 'unknown' })}
-          className={`shrink-0 rounded-lg px-2.5 text-sm font-black ${selection?.kind === 'unknown' ? 'bg-amber-100 text-amber-950 ring-2 ring-amber-400' : 'bg-white text-slate-600'}`}
-        >
-          <HelpCircle className="mr-1 inline h-4 w-4" aria-hidden="true" />
-          No match
-        </button>
-      </div>
+    <section className="flex min-h-14 items-center gap-1.5 py-1.5">
+      <button
+        type="button"
+        aria-label={`${label}: no matching colour`}
+        aria-pressed={selection?.kind === 'unknown'}
+        onClick={() => onSelect({ kind: 'unknown' })}
+        className={`w-[5.25rem] shrink-0 rounded-lg px-1.5 py-1 text-left leading-tight ${selection?.kind === 'unknown' ? 'bg-amber-100 text-amber-950 ring-2 ring-amber-400' : 'bg-white text-slate-950'}`}
+      >
+        <span className="block text-sm font-black">{label}</span>
+        <span className={`block text-[10px] font-bold ${selection?.kind === 'unknown' ? 'text-amber-800' : 'text-slate-500'}`}>No match</span>
+      </button>
 
-      <div className="flex w-full items-start" role="group" aria-label={label}>
+      <div className="flex min-w-0 flex-1 items-start" role="group" aria-label={`${label} colour choices`}>
         {scale.map((item, index) => {
           const exactSelected = selection?.kind === 'swatch' && selection.index === index;
           const betweenSelected = selection?.kind === 'between' && selection.leftIndex === index;
@@ -150,13 +148,13 @@ function SwatchReadingRow({ label, measurement, scale, selection, onSelect }: {
                 aria-label={`${label} ${item.label}`}
                 aria-pressed={exactSelected}
                 onClick={() => onSelect({ kind: 'swatch', index })}
-                className="group min-w-0 flex-1 px-0.5 text-center"
+                className="group min-w-0 flex-1 px-px text-center"
               >
                 <span
-                  className={`mx-auto block aspect-square w-full max-w-9 rounded-md border shadow-sm ${exactSelected ? 'border-white ring-3 ring-indigo-700 ring-offset-1' : 'border-slate-300 group-active:ring-2 group-active:ring-slate-400'}`}
+                  className={`mx-auto block aspect-square w-full max-w-8 rounded-md border shadow-sm ${exactSelected ? 'border-white ring-3 ring-indigo-700 ring-offset-1' : 'border-slate-300 group-active:ring-2 group-active:ring-slate-400'}`}
                   style={{ backgroundColor: item.color }}
                 />
-                <span className={`mt-1 block whitespace-nowrap text-[11px] font-black leading-none tabular-nums ${exactSelected ? 'text-indigo-900' : 'text-slate-800'}`}>{item.label}</span>
+                <span className={`mt-0.5 block whitespace-nowrap text-[10px] font-black leading-none tabular-nums ${exactSelected ? 'text-indigo-900' : 'text-slate-800'}`}>{item.label}</span>
               </button>
 
               {index < scale.length - 1 && (
@@ -165,9 +163,10 @@ function SwatchReadingRow({ label, measurement, scale, selection, onSelect }: {
                   aria-label={`${label} between ${item.label} and ${scale[index + 1].label}`}
                   aria-pressed={betweenSelected}
                   onClick={() => onSelect({ kind: 'between', leftIndex: index })}
-                  className="relative min-h-12 w-4 shrink-0 bg-white"
+                  className="relative min-h-11 w-3 shrink-0 bg-white"
                 >
-                  {betweenSelected && <span className="absolute inset-x-1 bottom-3 h-1 rounded-full bg-indigo-700" aria-hidden="true" />}
+                  <span className="absolute inset-y-0 -left-1 -right-1" aria-hidden="true" />
+                  {betweenSelected && <span className="absolute inset-x-0 bottom-2 h-1 rounded-full bg-indigo-700" aria-hidden="true" />}
                 </button>
               )}
             </React.Fragment>
@@ -311,7 +310,7 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <div className="divide-y divide-slate-200 rounded-2xl border border-slate-200 bg-white px-3">
+      <div className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white px-2">
         {method.parameters.map(parameter => {
           const scale = scales[parameter.measurement];
           if (!scale) return null;
