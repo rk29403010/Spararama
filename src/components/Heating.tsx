@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AppState, HeatingSession } from '../types';
 import { addDays, format } from 'date-fns';
 import { volumeAdjustedHeatingRate } from '../domain/heating';
-import { spaApi, type BestEffortTemperatureDto } from '../lib/spaApi';
+import { spaApi } from '../lib/spaApi';
 import { weatherApi, type WeatherForecastDto } from '../lib/weatherApi';
 import { heatingApi } from '../lib/heatingApi';
 import { Cloud, Save, Sun, Wind } from 'lucide-react';
@@ -17,27 +17,6 @@ function displayTemperature(celsius: number, scale: 'C' | 'F') {
   return scale === 'F' ? Math.round((celsius * 9 / 5) + 32) : Math.round(celsius);
 }
 
-function temperatureSourceLabel(estimate: BestEffortTemperatureDto | null) {
-  if (!estimate) return 'Reading temperature…';
-
-  switch (estimate.source) {
-    case 'live-spa':
-      return '';
-    case 'recent-telemetry':
-      return 'Recent reading';
-    case 'last-known-water':
-      return 'Last known reading';
-    case 'ambient-sensor':
-      return estimate.confidence === 'low' ? 'Low-confidence sensor estimate' : 'Sensor estimate';
-    case 'weather':
-      return estimate.confidence === 'low' ? 'Low-confidence weather estimate' : 'Weather estimate';
-    case 'ambient-default':
-      return 'Fallback estimate';
-    default:
-      return '';
-  }
-}
-
 function mean(values: Array<number | null | undefined>, fallback: number) {
   const usable = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
   return usable.length ? usable.reduce((sum, value) => sum + value, 0) / usable.length : fallback;
@@ -45,7 +24,7 @@ function mean(values: Array<number | null | undefined>, fallback: number) {
 
 export function Heating({ state, updateState }: HeatingProps) {
   const [currentTemp, setCurrentTemp] = useState<number | null>(null);
-  const [temperatureEstimate, setTemperatureEstimate] = useState<BestEffortTemperatureDto | null>(null);
+  const [currentReadingLive, setCurrentReadingLive] = useState(false);
   const [temperatureLookupError, setTemperatureLookupError] = useState('');
   const [targetTemp, setTargetTemp] = useState(state.config.defaultHeatingTarget || 40);
   const [readyDay, setReadyDay] = useState<'today' | 'tomorrow'>('today');
@@ -70,16 +49,17 @@ export function Heating({ state, updateState }: HeatingProps) {
   useEffect(() => {
     let cancelled = false;
     setCurrentTemp(null);
-    setTemperatureEstimate(null);
+    setCurrentReadingLive(false);
     setTemperatureLookupError('');
     spaApi.currentTemperature()
       .then(estimate => {
         if (cancelled) return;
-        setTemperatureEstimate(estimate);
+        setCurrentReadingLive(estimate.source === 'live-spa');
         setCurrentTemp(displayTemperature(estimate.valueC, state.config.temperatureScale));
       })
       .catch((err: any) => {
         if (cancelled) return;
+        setCurrentReadingLive(false);
         setTemperatureLookupError(err?.message || 'Current temperature unavailable.');
       });
     return () => { cancelled = true; };
@@ -251,7 +231,7 @@ export function Heating({ state, updateState }: HeatingProps) {
   };
 
   const displayedCurrentTemp = currentTemp ?? minTemp;
-  const currentDetail = temperatureLookupError || temperatureSourceLabel(temperatureEstimate) || undefined;
+  const currentDetail = temperatureLookupError || undefined;
 
   return (
     <div className="flex flex-col h-full max-w-md mx-auto p-4 space-y-6 pb-8">
@@ -263,7 +243,11 @@ export function Heating({ state, updateState }: HeatingProps) {
           max={maxTemp}
           scale={scale}
           disabled={currentTemp === null}
-          onChange={setCurrentTemp}
+          liveReading={currentReadingLive}
+          onChange={value => {
+            setCurrentReadingLive(false);
+            setCurrentTemp(value);
+          }}
           detail={currentDetail}
         />
         <TemperatureSlider
