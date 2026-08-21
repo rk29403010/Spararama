@@ -9,6 +9,7 @@ interface TemperatureSliderProps {
   onChange: (value: number) => void;
   disabled?: boolean;
   detail?: string;
+  liveReading?: boolean;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -37,7 +38,7 @@ function scaleMarks(scale: 'C' | 'F', min: number, max: number) {
   return marks;
 }
 
-export function TemperatureSlider({ label, value, min, max, scale, onChange, disabled = false, detail }: TemperatureSliderProps) {
+export function TemperatureSlider({ label, value, min, max, scale, onChange, disabled = false, detail, liveReading = false }: TemperatureSliderProps) {
   const accent = temperatureAccent(value, min, max);
   const unitName = scale === 'C' ? 'Celsius' : 'Fahrenheit';
   const marks = scaleMarks(scale, min, max);
@@ -45,7 +46,7 @@ export function TemperatureSlider({ label, value, min, max, scale, onChange, dis
   return (
     <div className={`rounded-3xl border border-slate-200 bg-white p-4 shadow-sm ${disabled ? 'opacity-70' : ''}`}>
       <div className="text-center">
-        <div className="text-sm font-black uppercase tracking-widest text-slate-500">{label}</div>
+        <div className="text-lg font-black uppercase tracking-wider text-slate-600">{label}</div>
         <div
           className="mt-2 inline-flex min-w-28 items-center justify-center rounded-2xl border-[3px] bg-slate-950 px-4 py-2 text-white shadow-sm"
           style={{ borderColor: accent }}
@@ -82,7 +83,7 @@ export function TemperatureSlider({ label, value, min, max, scale, onChange, dis
           aria-label={`${label} temperature`}
           aria-orientation="vertical"
           aria-valuetext={`${value} degrees ${unitName}`}
-          className="temperature-slider absolute inset-y-0 right-0"
+          className={`temperature-slider absolute inset-y-0 right-0 ${liveReading ? 'temperature-slider-live' : ''}`}
         />
       </div>
     </div>
