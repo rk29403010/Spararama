@@ -30,8 +30,9 @@ interface SliderDefinition {
 const swatch = (label: string, value: number, color: string): SwatchValue => ({ label, min: value, max: value, color });
 const rangeSwatch = (label: string, min: number, max: number, color: string): SwatchValue => ({ label, min, max, color });
 
-// Approximate screen colours transcribed from the user's bottle charts.
-// They are deliberately NOT calibration data: the bottle remains the colour reference.
+// Approximate screen colours only. The bottle remains the colour reference.
+// The 7-way values below are transcribed from the user's reference chart; that
+// chart is not the exact strip model, so these are deliberately provisional.
 const STRIP_SCALES: Record<string, Partial<Record<MeasurementKey, SwatchValue[]>>> = {
   'current-3-way': {
     free_chlorine: [
@@ -48,29 +49,30 @@ const STRIP_SCALES: Record<string, Partial<Record<MeasurementKey, SwatchValue[]>
     ]
   },
   'current-7-way': {
+    total_chlorine: [
+      swatch('0', 0, '#f5f4f5'), swatch('0.25', 0.25, '#e7b6df'), swatch('0.5', 0.5, '#cf96c3'),
+      swatch('1', 1, '#a86e9f'), swatch('2.5', 2.5, '#7d4778'), swatch('5', 5, '#53234d')
+    ],
     free_chlorine: [
-      swatch('0', 0, '#f4faf4'), swatch('0.5', 0.5, '#e2efe7'), swatch('1', 1, '#b9ddd3'),
-      swatch('3', 3, '#76c0be'), swatch('5', 5, '#3b929d'), swatch('10', 10, '#195463')
+      swatch('0', 0, '#f6f6f1'), swatch('0.5/1', 0.5, '#dcebf0'), swatch('1/2', 1, '#b8dde7'),
+      swatch('3/6', 3, '#70c0d7'), swatch('5/11', 5, '#3196b7'), swatch('10/22', 10, '#17667d')
     ],
     ph: [
-      swatch('6.2', 6.2, '#f1d488'), swatch('6.8', 6.8, '#efa05a'), swatch('7.2', 7.2, '#ef5d58'),
-      swatch('7.6', 7.6, '#eb315a'), swatch('8.4', 8.4, '#be3158'), swatch('9.0', 9, '#94194e')
+      swatch('6.2', 6.2, '#f0c463'), swatch('6.8', 6.8, '#f3a16a'), swatch('7.2', 7.2, '#ef836f'),
+      swatch('7.6', 7.6, '#eb6576'), swatch('7.8', 7.8, '#e6507c'), swatch('8.4', 8.4, '#d43f83')
     ],
     total_alkalinity: [
-      swatch('0', 0, '#efb367'), swatch('40', 40, '#c69a61'), swatch('80', 80, '#a49d70'),
-      swatch('120', 120, '#849148'), swatch('180', 180, '#4e7c78'), swatch('240', 240, '#33475b')
-    ],
-    total_chlorine: [
-      swatch('0', 0, '#efedef'), swatch('0.5', 0.5, '#e99db4'), swatch('1', 1, '#ed5d88'),
-      swatch('3', 3, '#dd316c'), swatch('5', 5, '#d31f54'), swatch('10', 10, '#4b1d31')
+      swatch('0', 0, '#efc74e'), swatch('40', 40, '#d6c66f'), swatch('80', 80, '#a5b37c'),
+      swatch('120', 120, '#7ea397'), swatch('180', 180, '#57869d'), swatch('240', 240, '#376fa8'),
+      swatch('400', 400, '#2476b8')
     ],
     calcium_hardness: [
-      swatch('0', 0, '#79c4d8'), swatch('50', 50, '#70a8c5'), swatch('100', 100, '#7666a5'),
-      swatch('250', 250, '#6a4087'), swatch('500', 500, '#743471'), swatch('1000', 1000, '#551d52')
+      swatch('0', 0, '#65b9dc'), swatch('100', 100, '#78add4'), swatch('250', 250, '#9291d8'),
+      swatch('500', 500, '#8076c7'), swatch('1000', 1000, '#6658ad')
     ],
     cyanuric_acid: [
-      swatch('0', 0, '#e6db70'), rangeSwatch('30/50', 30, 50, '#f1b18d'), swatch('100', 100, '#e97f80'),
-      swatch('150', 150, '#d84978'), swatch('240', 240, '#9d2758')
+      swatch('0', 0, '#bf2758'), rangeSwatch('30–50', 30, 50, '#ca4459'), swatch('100', 100, '#d47b5d'),
+      swatch('150', 150, '#d49b52'), swatch('240', 240, '#c7a347')
     ]
   }
 };
@@ -87,19 +89,6 @@ const ELECTRONIC_SLIDERS: Record<MeasurementKey, SliderDefinition> = {
 
 function formatNumber(value: number) {
   return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
-}
-
-function formatBetween(left: SwatchValue, right: SwatchValue) {
-  return `${formatNumber(left.max)}–${formatNumber(right.min)}`;
-}
-
-function stripSelectionLabel(scale: SwatchValue[], selection?: StripSelection) {
-  if (!selection) return 'Not set';
-  if (selection.kind === 'unknown') return "Don't know";
-  if (selection.kind === 'swatch') return scale[selection.index]?.label ?? 'Not set';
-  const left = scale[selection.leftIndex];
-  const right = scale[selection.leftIndex + 1];
-  return left && right ? formatBetween(left, right) : 'Not set';
 }
 
 function selectionToReading(measurement: MeasurementKey, scale: SwatchValue[], selection: StripSelection): MeasurementReading | null {
@@ -135,64 +124,56 @@ function SwatchReadingRow({ label, measurement, scale, selection, onSelect }: {
   selection?: StripSelection;
   onSelect: (selection: StripSelection) => void;
 }) {
-  const selectedLabel = stripSelectionLabel(scale, selection);
-
   return (
-    <section className="rounded-2xl border-2 border-slate-200 bg-white p-4">
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <h5 className="min-w-0 font-black text-lg text-slate-950">{label}</h5>
-        <span className={`shrink-0 rounded-xl px-3 py-1.5 text-base font-black tabular-nums ${selection?.kind === 'unknown' ? 'bg-amber-100 text-amber-950' : selection ? 'bg-indigo-100 text-indigo-950' : 'bg-slate-100 text-slate-600'}`}>
-          {selectedLabel}
-        </span>
+    <section className="py-2 first:pt-1 last:pb-1">
+      <div className="mb-1 flex min-h-10 items-center justify-between gap-2">
+        <h5 className="min-w-0 text-base font-black leading-tight text-slate-950">{label}</h5>
+        <button
+          type="button"
+          aria-pressed={selection?.kind === 'unknown'}
+          onClick={() => onSelect({ kind: 'unknown' })}
+          className={`shrink-0 rounded-lg px-2.5 text-sm font-black ${selection?.kind === 'unknown' ? 'bg-amber-100 text-amber-950 ring-2 ring-amber-400' : 'bg-white text-slate-600'}`}
+        >
+          <HelpCircle className="mr-1 inline h-4 w-4" aria-hidden="true" />
+          No match
+        </button>
       </div>
 
-      <div className="overflow-x-auto overscroll-x-contain pb-2 -mx-1 px-1">
-        <div className="min-w-max flex items-start justify-start">
-          {scale.map((item, index) => {
-            const exactSelected = selection?.kind === 'swatch' && selection.index === index;
-            const betweenSelected = selection?.kind === 'between' && selection.leftIndex === index;
-            return (
-              <React.Fragment key={`${measurement}-${item.label}`}>
+      <div className="flex w-full items-start" role="group" aria-label={label}>
+        {scale.map((item, index) => {
+          const exactSelected = selection?.kind === 'swatch' && selection.index === index;
+          const betweenSelected = selection?.kind === 'between' && selection.leftIndex === index;
+          return (
+            <React.Fragment key={`${measurement}-${item.label}`}>
+              <button
+                type="button"
+                aria-label={`${label} ${item.label}`}
+                aria-pressed={exactSelected}
+                onClick={() => onSelect({ kind: 'swatch', index })}
+                className="group min-w-0 flex-1 px-0.5 text-center"
+              >
+                <span
+                  className={`mx-auto block aspect-square w-full max-w-9 rounded-md border shadow-sm ${exactSelected ? 'border-white ring-3 ring-indigo-700 ring-offset-1' : 'border-slate-300 group-active:ring-2 group-active:ring-slate-400'}`}
+                  style={{ backgroundColor: item.color }}
+                />
+                <span className={`mt-1 block whitespace-nowrap text-[11px] font-black leading-none tabular-nums ${exactSelected ? 'text-indigo-900' : 'text-slate-800'}`}>{item.label}</span>
+              </button>
+
+              {index < scale.length - 1 && (
                 <button
                   type="button"
-                  aria-label={`${label} ${item.label}`}
-                  aria-pressed={exactSelected}
-                  onClick={() => onSelect({ kind: 'swatch', index })}
-                  className="group w-14 min-h-[4.75rem] flex flex-col items-center justify-start gap-1.5 pt-1"
+                  aria-label={`${label} between ${item.label} and ${scale[index + 1].label}`}
+                  aria-pressed={betweenSelected}
+                  onClick={() => onSelect({ kind: 'between', leftIndex: index })}
+                  className="relative min-h-12 w-4 shrink-0 bg-white"
                 >
-                  <span
-                    className={`block w-11 h-11 rounded-lg border shadow-sm transition-transform ${exactSelected ? 'ring-4 ring-indigo-600 ring-offset-2 border-white scale-105' : 'border-slate-300 group-active:scale-95'}`}
-                    style={{ backgroundColor: item.color }}
-                  />
-                  <span className={`text-sm leading-none font-black ${exactSelected ? 'text-indigo-900' : 'text-slate-800'}`}>{item.label}</span>
+                  {betweenSelected && <span className="absolute inset-x-1 bottom-3 h-1 rounded-full bg-indigo-700" aria-hidden="true" />}
                 </button>
-
-                {index < scale.length - 1 && (
-                  <button
-                    type="button"
-                    aria-label={`${label} between ${item.label} and ${scale[index + 1].label}`}
-                    aria-pressed={betweenSelected}
-                    onClick={() => onSelect({ kind: 'between', leftIndex: index })}
-                    className="w-10 min-h-[4.75rem] flex items-start justify-center pt-1"
-                  >
-                    <span className={`block mt-1 rounded-full ${betweenSelected ? 'w-4 h-10 bg-indigo-700 ring-2 ring-indigo-200' : 'w-2 h-9 bg-slate-200'}`} />
-                  </button>
-                )}
-              </React.Fragment>
-            );
-          })}
-        </div>
+              )}
+            </React.Fragment>
+          );
+        })}
       </div>
-
-      <button
-        type="button"
-        aria-pressed={selection?.kind === 'unknown'}
-        onClick={() => onSelect({ kind: 'unknown' })}
-        className={`mt-2 w-full min-h-12 rounded-xl border-2 flex items-center justify-center gap-2 text-sm font-extrabold ${selection?.kind === 'unknown' ? 'border-amber-400 bg-amber-50 text-amber-950' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
-      >
-        <HelpCircle className="w-5 h-5" aria-hidden="true" />
-        Don&apos;t know / no colour matches
-      </button>
     </section>
   );
 }
@@ -293,7 +274,7 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
     }
 
     if (readings.length === 0) {
-      setError(electronic ? 'Set at least one reading.' : 'Choose at least one result, even if it is Don\'t know.');
+      setError(electronic ? 'Set at least one reading.' : 'Choose at least one result or No match.');
       return;
     }
 
@@ -304,7 +285,6 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
   if (electronic) {
     return (
       <div className="space-y-4">
-        <h4 className="text-xl font-black text-slate-950">Tester readings</h4>
         <div className="space-y-3">
           {method.parameters.map(parameter => (
             <ElectronicSliderRow
@@ -321,8 +301,8 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
             />
           ))}
         </div>
-        {error && <div aria-live="polite" className="rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 p-4 font-bold">{error}</div>}
-        <button type="button" onClick={submit} className="w-full min-h-16 rounded-2xl bg-indigo-700 hover:bg-indigo-800 active:bg-indigo-900 text-white text-xl font-black">
+        {error && <div aria-live="polite" className="rounded-xl bg-amber-50 border border-amber-200 text-amber-950 px-3 py-2 font-bold">{error}</div>}
+        <button type="button" onClick={submit} className="w-full min-h-14 rounded-2xl bg-indigo-700 hover:bg-indigo-800 active:bg-indigo-900 text-white text-lg font-black">
           Save readings{selectedCount ? ` (${selectedCount})` : ''}
         </button>
       </div>
@@ -330,13 +310,8 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
   }
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h4 className="text-xl font-black text-slate-950">Match the strip</h4>
-        <p className="mt-1 text-sm font-bold text-slate-600">Compare with the bottle - screen colours are approximate. Tap a colour or the gap between two.</p>
-      </div>
-
-      <div className="space-y-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <div className="divide-y divide-slate-200 rounded-2xl border border-slate-200 bg-white px-3">
         {method.parameters.map(parameter => {
           const scale = scales[parameter.measurement];
           if (!scale) return null;
@@ -353,8 +328,8 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
         })}
       </div>
 
-      {error && <div aria-live="polite" className="rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 p-4 font-bold">{error}</div>}
-      <button type="button" onClick={submit} className="w-full min-h-16 rounded-2xl bg-indigo-700 hover:bg-indigo-800 active:bg-indigo-900 text-white text-xl font-black">
+      {error && <div aria-live="polite" className="rounded-xl bg-amber-50 border border-amber-200 text-amber-950 px-3 py-2 text-sm font-bold">{error}</div>}
+      <button type="button" onClick={submit} className="w-full min-h-12 shrink-0 rounded-xl bg-indigo-700 hover:bg-indigo-800 active:bg-indigo-900 text-white text-lg font-black">
         Save readings{selectedCount ? ` (${selectedCount})` : ''}
       </button>
     </div>
