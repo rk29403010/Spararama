@@ -12,6 +12,21 @@ Spararama should assume the user already understands ordinary phone-app conventi
 - If the UI needs prose to explain what its colours, shapes, or movement mean, first ask whether the visual design itself is wrong.
 - Do not make the user read before they can understand the primary state or action.
 
+## Prefer a complete phone screen over scrolling
+
+Operational screens should fit into one standard phone viewport wherever practical. Scrolling makes poolside use slower and makes it harder to understand the whole state at a glance.
+
+- Treat vertical scrolling as a last resort, not the default way to accommodate a loose layout.
+- First reduce padding, repeated headings, explanatory copy, decorative cards and duplicated state.
+- Use compact repeated rows for dense tasks such as test-strip entry rather than stacking large cards.
+- If more space is genuinely required, prefer horizontal paging or horizontal scrolling over a long vertical page when the information naturally divides that way.
+- On mobile, visually hide scrollbars. Leave enough quiet/white space that a finger can drag the surface without needing to grab a narrow scrollbar.
+- Horizontal scrolling must not hide the primary action or make a frequently used value difficult to reach.
+- Do not make an individual row horizontally scroll just because its contents were given fixed widths; make the row adapt to the available phone width first.
+- A screen that technically fits only after the user scrolls past help text has not met this principle.
+
+The target is a complete, glanceable phone workspace. Exceptions are long history/detail views and genuinely large datasets where scrolling is the content, rather than a consequence of inefficient layout.
+
 ## Use familiar conventions, not invented visual languages
 
 Use conventions people already know unless there is a strong domain reason not to.
@@ -88,6 +103,8 @@ If the answer to 1 and 2 is no, prefer redesign/removal over another sentence.
 Before calling a UI change complete, explicitly check:
 
 - Can the primary state and action be understood without reading helper paragraphs?
+- Does the operational screen fit within a standard phone viewport without vertical scrolling where practical?
+- If horizontal overflow is needed on mobile, is the scrollbar hidden and the drag area forgiving?
 - Have familiar mobile/domain conventions been used where possible?
 - Is any one fact encoded redundantly in colour + icon + animation + text without need?
 - Would the important content still be obvious to someone glancing without reading glasses?
