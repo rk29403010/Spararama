@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { loadState, saveState } from './lib/storage';
 import { AppState } from './types';
 import { Home } from './components/Home';
@@ -18,12 +18,47 @@ import { ClipboardPlus, Droplets, Flame, Settings, List, LogOut, User as UserIco
 import { subscribeToAuthChanges, signOutUser } from './lib/firebase';
 import type { User } from 'firebase/auth';
 
+type AppTab = 'home' | 'heating' | 'chemicals' | 'logs' | 'settings';
+
+const TAB_ORDER: AppTab[] = ['home', 'heating', 'chemicals', 'logs', 'settings'];
+const ACTIVE_TAB_STORAGE_KEY = 'spararama.activeTab';
+
+function initialTab(): AppTab {
+  if (typeof window === 'undefined') return 'home';
+  try {
+    const stored = window.localStorage.getItem(ACTIVE_TAB_STORAGE_KEY) as AppTab | null;
+    return stored && TAB_ORDER.includes(stored) ? stored : 'home';
+  } catch {
+    return 'home';
+  }
+}
+
+function blocksTabSwipe(target: EventTarget | null) {
+  const element = target instanceof Element ? target : null;
+  if (!element) return false;
+
+  if (element.closest('button, a, input, select, textarea, summary, [role="button"], [role="slider"], [data-no-tab-swipe]')) {
+    return true;
+  }
+
+  let node: HTMLElement | null = element instanceof HTMLElement ? element : element.parentElement;
+  while (node) {
+    const style = window.getComputedStyle(node);
+    const scrollsHorizontally = (style.overflowX === 'auto' || style.overflowX === 'scroll') && node.scrollWidth > node.clientWidth;
+    if (scrollsHorizontally) return true;
+    node = node.parentElement;
+  }
+
+  return false;
+}
+
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
-  const [activeTab, setActiveTab] = useState<'home' | 'chemicals' | 'heating' | 'settings' | 'logs'>('home');
+  const [activeTab, setActiveTab] = useState<AppTab>(initialTab);
   const [showManualLog, setShowManualLog] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [authInitialized, setAuthInitialized] = useState(false);
+  const swipeStart = useRef<{ x: number; y: number; blocked: boolean } | null>(null);
 
   useEffect(() => {
     loadState().then(s => setState(s));
@@ -31,7 +66,44 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
+    } catch {
+      // Remembering the current tab is best effort if storage is unavailable.
+    }
+  }, [activeTab]);
+
   const updateState = (newState: AppState) => { setState(newState); saveState(newState); };
+
+  const handleSwipeStart = (event: React.TouchEvent<HTMLElement>) => {
+    const touch = event.touches[0];
+    if (!touch) return;
+    swipeStart.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      blocked: blocksTabSwipe(event.target)
+    };
+  };
+
+  const handleSwipeEnd = (event: React.TouchEvent<HTMLElement>) => {
+    const start = swipeStart.current;
+    swipeStart.current = null;
+    if (!start || start.blocked) return;
+
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+    const horizontalDistance = Math.abs(deltaX);
+
+    if (horizontalDistance < 70 || horizontalDistance < Math.abs(deltaY) * 1.25) return;
+
+    const currentIndex = TAB_ORDER.indexOf(activeTab);
+    const nextIndex = deltaX < 0 ? currentIndex + 1 : currentIndex - 1;
+    const nextTab = TAB_ORDER[nextIndex];
+    if (nextTab) setActiveTab(nextTab);
+  };
 
   if (!state || !authInitialized) {
     return (
@@ -81,7 +153,7 @@ export default function App() {
         {!user && <div className="bg-amber-100 border-t border-amber-200 px-4 py-2 text-center text-amber-950 text-sm font-black">Not signed in - history will not be saved.</div>}
       </header>
 
-      <main className="flex-1 pb-24 overflow-y-auto">
+      <main className="flex-1 pb-24 overflow-y-auto" onTouchStart={handleSwipeStart} onTouchEnd={handleSwipeEnd}>
         <ErrorBoundary resetKey={activeTab} title={`${activeTab[0].toUpperCase()}${activeTab.slice(1)} page failed`}>
           {activeTab === 'home' && <><Home state={state} /><BathingControls state={state} updateState={updateState} /></>}
           {activeTab === 'heating' && <Heating state={state} updateState={updateState} />}
