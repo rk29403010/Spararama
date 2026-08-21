@@ -376,19 +376,18 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
     setPhase('prepare');
   };
 
+  const stripReadingsPhase = phase === 'readings' && !isElectronic(method.id);
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/70 flex items-end sm:items-center justify-center overscroll-contain">
-      <div className="bg-white w-full sm:max-w-lg sm:rounded-3xl rounded-t-3xl max-h-[96vh] overflow-y-auto">
-        <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-5 py-3 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-sm font-black text-indigo-800">Water test</p>
-            <h2 className="text-xl font-black text-slate-950 truncate">{waterBody.name}</h2>
-          </div>
+      <div className={`bg-white w-full sm:max-w-lg sm:rounded-3xl rounded-t-3xl ${stripReadingsPhase ? 'h-[100dvh] sm:h-auto sm:max-h-[96vh] overflow-hidden flex flex-col' : 'max-h-[96vh] overflow-y-auto'}`}>
+        <header className="sticky top-0 z-30 shrink-0 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center justify-between gap-3">
+          <h2 className="text-lg font-black text-indigo-900">Water test</h2>
           <div className="flex items-center gap-2 shrink-0">
-            <button type="button" aria-label={speechEnabled ? 'Turn spoken cues off' : 'Turn spoken cues on'} aria-pressed={speechEnabled} onClick={() => setSpeechEnabled(enabled => !enabled)} className={`w-12 h-12 rounded-full flex items-center justify-center ${speechEnabled ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-100 text-slate-700'}`}>
+            <button type="button" aria-label={speechEnabled ? 'Turn spoken cues off' : 'Turn spoken cues on'} aria-pressed={speechEnabled} onClick={() => setSpeechEnabled(enabled => !enabled)} className={`w-11 h-11 rounded-full flex items-center justify-center ${speechEnabled ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-100 text-slate-700'}`}>
               {speechEnabled ? <Volume2 className="w-6 h-6" aria-hidden="true" /> : <VolumeX className="w-6 h-6" aria-hidden="true" />}
             </button>
-            <button type="button" aria-label="Close water test" onClick={onClose} className="w-12 h-12 rounded-full bg-slate-100 text-slate-800 flex items-center justify-center"><X className="w-6 h-6" aria-hidden="true" /></button>
+            <button type="button" aria-label="Close water test" onClick={onClose} className="w-11 h-11 rounded-full bg-slate-100 text-slate-800 flex items-center justify-center"><X className="w-6 h-6" aria-hidden="true" /></button>
           </div>
         </header>
 
@@ -440,27 +439,27 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
           </div>
         )}
 
-        {phase === 'readings' && (
-          <div className="p-5 space-y-5">
-            {!isElectronic(method.id) && (
-              <div>
-                <h3 className="text-4xl font-black text-slate-950">READ NOW</h3>
-                {readRemainingSeconds !== null && readRemainingSeconds > 0 && (
-                  <div className="mt-3 rounded-2xl bg-sky-50 border border-sky-200 px-4 py-3 flex items-center justify-between gap-3">
-                    <span className="text-base font-black text-sky-950">Reading window</span>
-                    <span className="text-3xl font-black tabular-nums text-sky-800">{readRemainingSeconds}s</span>
-                  </div>
-                )}
-                {readRemainingSeconds === 0 && (
-                  <div role="alert" className="mt-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 p-4 flex gap-3">
-                    <AlertTriangle className="w-6 h-6 shrink-0" aria-hidden="true" />
-                    <div><strong className="block text-lg">Reading window ended</strong><span className="text-sm font-bold">Use what you saw, or retest.</span></div>
-                  </div>
-                )}
-              </div>
-            )}
+        {phase === 'readings' && !isElectronic(method.id) && (
+          <div className="flex min-h-0 flex-1 flex-col p-3">
+            <div className="mb-2 flex min-h-12 shrink-0 items-center justify-between gap-3">
+              <h3 className="text-3xl font-black tracking-tight text-slate-950">READ NOW</h3>
+              {readRemainingSeconds !== null && readRemainingSeconds > 0 && (
+                <span className="rounded-xl bg-sky-50 px-3 py-1 text-2xl font-black tabular-nums text-sky-800 ring-1 ring-sky-200">{readRemainingSeconds}s</span>
+              )}
+              {readRemainingSeconds === 0 && (
+                <span role="alert" className="flex items-center gap-1.5 rounded-xl bg-amber-50 px-2.5 py-1.5 text-sm font-black text-amber-950 ring-1 ring-amber-200">
+                  <AlertTriangle className="h-4 w-4" aria-hidden="true" /> Time up
+                </span>
+              )}
+            </div>
+            <WaterTestReadingEntry method={method} onSubmit={submitReadings} />
+            {entryError && <div role="alert" className="mt-2 shrink-0 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 px-3 py-2 text-sm font-black">{entryError}</div>}
+          </div>
+        )}
 
-            {isElectronic(method.id) && <h3 className="text-3xl font-black text-slate-950">Tester readings</h3>}
+        {phase === 'readings' && isElectronic(method.id) && (
+          <div className="p-5 space-y-5">
+            <h3 className="text-3xl font-black text-slate-950">Tester readings</h3>
             <WaterTestReadingEntry method={method} onSubmit={submitReadings} />
             {entryError && <div role="alert" className="rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 p-4 font-black">{entryError}</div>}
           </div>
