@@ -68,6 +68,19 @@ textarea:focus-visible,
   }
 }
 
+@media (max-width: 639px) {
+  .overflow-x-auto,
+  .overflow-x-scroll {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .overflow-x-auto::-webkit-scrollbar,
+  .overflow-x-scroll::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 @keyframes spa-strip-quick-dip {
   0%, 12% { transform: translateY(-72px); }
   38%, 52% { transform: translateY(58px); }
