@@ -48,29 +48,15 @@ export function TemperatureSlider({ label, value, min, max, scale, onChange, dis
       <div className="text-center">
         <div className="text-lg font-black uppercase tracking-wider text-slate-600">{label}</div>
         <div
-          className="mt-2 inline-flex min-w-28 items-center justify-center rounded-2xl border-[3px] bg-slate-950 px-4 py-2 text-white shadow-sm"
+          className="mt-2 inline-flex min-w-32 items-center justify-center rounded-2xl border-[3px] bg-slate-950 px-4 py-2.5 text-white shadow-sm"
           style={{ borderColor: accent }}
         >
-          <span className="text-3xl font-black tabular-nums">{value}°{scale}</span>
+          <span className="text-4xl font-black leading-none tabular-nums tracking-tight">{value}°{scale}</span>
         </div>
         {detail && <div className="mt-2 text-sm font-bold leading-tight text-slate-600">{detail}</div>}
       </div>
 
-      <div className="relative mt-4 h-64">
-        <div className="absolute inset-y-0 right-[4.25rem] left-0" aria-hidden="true">
-          {marks.map(mark => {
-            const position = max === min ? 0 : ((mark - min) / (max - min)) * 100;
-            return (
-              <span
-                key={mark}
-                className="absolute right-0 -translate-y-1/2 text-sm font-black tabular-nums text-slate-400"
-                style={{ bottom: `calc(${position}% - 0.5rem)` }}
-              >
-                {mark}
-              </span>
-            );
-          })}
-        </div>
+      <div className="relative mt-5 h-64" aria-hidden={false}>
         <input
           type="range"
           min={min}
@@ -83,8 +69,23 @@ export function TemperatureSlider({ label, value, min, max, scale, onChange, dis
           aria-label={`${label} temperature`}
           aria-orientation="vertical"
           aria-valuetext={`${value} degrees ${unitName}`}
-          className={`temperature-slider absolute inset-y-0 right-0 ${liveReading ? 'temperature-slider-live' : ''}`}
+          className={`temperature-slider absolute left-1/2 top-0 -translate-x-1/2 ${liveReading ? 'temperature-slider-live' : ''}`}
         />
+
+        <div className="pointer-events-none absolute inset-y-2 left-[calc(50%+2.55rem)] w-11" aria-hidden="true">
+          {marks.map(mark => {
+            const position = max === min ? 0 : ((mark - min) / (max - min)) * 100;
+            return (
+              <span
+                key={mark}
+                className="absolute left-0 -translate-y-1/2 text-xl font-black leading-none tabular-nums text-slate-500"
+                style={{ top: `${100 - position}%` }}
+              >
+                {mark}
+              </span>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
