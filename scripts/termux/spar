@@ -1,0 +1,215 @@
+#!/data/data/com.termux/files/usr/bin/bash
+set -u
+
+CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/spararama/phone.conf"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/spararama-phone"
+PID_FILE="$STATE_DIR/server.pid"
+LOG_FILE="$STATE_DIR/server.log"
+
+# Defaults are deliberately safe for a phone used away from the spa.
+SPAR_REPO="${SPAR_REPO:-$HOME/Spararama}"
+SPAR_BRANCH="${SPAR_BRANCH:-chatgpt-dev}"
+SPAR_ADAPTER="${SPAR_ADAPTER:-mock}"
+SPAR_PORT="${SPAR_PORT:-3000}"
+
+if [ -f "$CONFIG_FILE" ]; then
+  # shellcheck disable=SC1090
+  source "$CONFIG_FILE"
+fi
+
+URL="http://127.0.0.1:${SPAR_PORT}"
+HEALTH_URL="$URL/api/health"
+mkdir -p "$STATE_DIR"
+
+say() {
+  printf '\n%s\n' "$1"
+}
+
+fail() {
+  printf '\nSpararama: %s\n' "$1" >&2
+  exit 1
+}
+
+require_repo() {
+  [ -d "$SPAR_REPO/.git" ] || fail "repo not found at $SPAR_REPO"
+}
+
+server_healthy() {
+  curl -fsS --max-time 2 "$HEALTH_URL" >/dev/null 2>&1
+}
+
+stop_server() {
+  local pid=""
+
+  if [ -f "$PID_FILE" ]; then
+    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+  fi
+
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.2
+    done
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+
+  rm -f "$PID_FILE"
+
+  # Also catch a development server that was previously started by hand.
+  # On the phone this pattern is intentionally narrow so unrelated Node apps stay alone.
+  pkill -TERM -f 'tsx server\.ts' 2>/dev/null || true
+  sleep 0.3
+}
+
+update_repo() {
+  require_repo
+  cd "$SPAR_REPO" || exit 1
+
+  if [ -n "$(git status --porcelain)" ]; then
+    fail "repo has local changes; refusing to overwrite them. Run 'git status' in $SPAR_REPO."
+  fi
+
+  say "Updating Spararama..."
+  git fetch origin "$SPAR_BRANCH" || fail "could not reach GitHub. Existing server has not been stopped."
+
+  local current_branch
+  current_branch="$(git branch --show-current)"
+  if [ "$current_branch" != "$SPAR_BRANCH" ]; then
+    git switch "$SPAR_BRANCH" || fail "could not switch to $SPAR_BRANCH"
+  fi
+
+  git pull --ff-only origin "$SPAR_BRANCH" || fail "could not fast-forward $SPAR_BRANCH. Existing server has not been stopped."
+}
+
+dependencies_need_install() {
+  local marker="$SPAR_REPO/node_modules/.modules.yaml"
+  [ -f "$marker" ] || return 0
+  [ "$SPAR_REPO/package.json" -nt "$marker" ] && return 0
+  [ "$SPAR_REPO/pnpm-lock.yaml" -nt "$marker" ] && return 0
+  [ "$SPAR_REPO/pnpm-workspace.yaml" -nt "$marker" ] && return 0
+  return 1
+}
+
+ensure_dependencies() {
+  cd "$SPAR_REPO" || exit 1
+  if dependencies_need_install; then
+    say "Installing changed dependencies..."
+    pnpm install --frozen-lockfile --prefer-offline || fail "pnpm install failed. Existing server has not been stopped."
+  else
+    printf 'Dependencies are current.\n'
+  fi
+}
+
+start_server() {
+  require_repo
+  cd "$SPAR_REPO" || exit 1
+
+  say "Starting Spararama..."
+  nohup env SPA_ADAPTER="$SPAR_ADAPTER" PORT="$SPAR_PORT" pnpm dev >"$LOG_FILE" 2>&1 &
+  local pid=$!
+  printf '%s\n' "$pid" > "$PID_FILE"
+
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    if server_healthy; then
+      printf 'Running at %s\n' "$URL"
+      return 0
+    fi
+    if ! kill -0 "$pid" 2>/dev/null; then
+      break
+    fi
+    sleep 0.35
+  done
+
+  printf '\nSpararama did not start successfully. Last log lines:\n' >&2
+  tail -n 40 "$LOG_FILE" >&2 2>/dev/null || true
+  rm -f "$PID_FILE"
+  return 1
+}
+
+open_app() {
+  if command -v termux-open-url >/dev/null 2>&1; then
+    termux-open-url "$URL" >/dev/null 2>&1 || true
+  fi
+}
+
+status() {
+  if server_healthy; then
+    printf 'Spararama is running: %s\n' "$URL"
+    if [ -f "$PID_FILE" ]; then
+      printf 'PID: %s\n' "$(cat "$PID_FILE" 2>/dev/null || printf '?')"
+    fi
+  else
+    printf 'Spararama is not running.\n'
+    return 1
+  fi
+}
+
+show_help() {
+  cat <<'EOF'
+Spararama phone runner
+
+  spar          pull latest chatgpt-dev, update deps if needed, restart, open app
+  spar start    start the existing checkout without pulling
+  spar restart  restart the existing checkout without pulling
+  spar stop     stop the phone server
+  spar status   show whether it is running
+  spar log      follow the server log (Ctrl+C to leave)
+  spar open     open the app in the browser
+
+Phone configuration: ~/.config/spararama/phone.conf
+EOF
+}
+
+command="${1:-update}"
+case "$command" in
+  update|run)
+    # Pull/install before stopping the old process. A failed network update therefore
+    # leaves the already-running version available.
+    update_repo
+    ensure_dependencies
+    say "Restarting Spararama..."
+    stop_server
+    start_server || exit 1
+    open_app
+    ;;
+  start)
+    require_repo
+    ensure_dependencies
+    if server_healthy; then
+      printf 'Spararama is already running: %s\n' "$URL"
+    else
+      stop_server
+      start_server || exit 1
+    fi
+    open_app
+    ;;
+  restart)
+    require_repo
+    ensure_dependencies
+    stop_server
+    start_server || exit 1
+    open_app
+    ;;
+  stop)
+    stop_server
+    printf 'Spararama stopped.\n'
+    ;;
+  status)
+    status
+    ;;
+  log|logs)
+    touch "$LOG_FILE"
+    tail -f "$LOG_FILE"
+    ;;
+  open)
+    open_app
+    ;;
+  help|-h|--help)
+    show_help
+    ;;
+  *)
+    show_help
+    fail "unknown command: $command"
+    ;;
+esac
