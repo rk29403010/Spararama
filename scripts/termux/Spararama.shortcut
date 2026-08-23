@@ -1,0 +1,4 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# Installed by scripts/termux/install.sh as ~/.shortcuts/Spararama.
+# Running this is deliberately identical to typing `spar`.
+exec "$PREFIX/bin/spar"
