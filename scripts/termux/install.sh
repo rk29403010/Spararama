@@ -18,7 +18,7 @@ printf 'Repo: %s\n\n' "$REPO"
 
 # Keep first-time setup self-contained. pkg skips packages that are already current.
 echo "Checking Termux tools..."
-pkg install -y git nodejs curl procps >/dev/null
+pkg install -y git nodejs curl procps util-linux >/dev/null
 
 PINNED_PNPM="11.21.0"
 CURRENT_PNPM="$(pnpm --version 2>/dev/null || true)"
