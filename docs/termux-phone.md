@@ -24,6 +24,9 @@ spar
 wrapper always uses the runner stored in the repo, so future runner improvements
 arrive with the normal `git pull` performed by `spar`.
 
+If the installer itself changes to require an additional Termux package, rerun it
+once after pulling. It is safe to rerun at any time.
+
 ## Fresh phone setup
 
 Install Termux, then run:
@@ -37,8 +40,8 @@ bash scripts/termux/install.sh
 spar
 ```
 
-The installer takes care of Node.js, curl, process tools and the repo's pinned
-pnpm version.
+The installer takes care of Node.js, curl, process tools, `setsid`, and the repo's
+pinned pnpm version.
 
 ## What `spar` does
 
@@ -48,12 +51,15 @@ Running `spar` with no arguments:
 2. fetches and fast-forwards `chatgpt-dev`;
 3. runs `pnpm install` only when dependencies have changed or are missing;
 4. stops the previous phone development server;
-5. starts `pnpm dev` with the mock spa adapter;
-6. waits for `/api/health` to respond;
+5. starts `pnpm dev` with the mock spa adapter in a detached session;
+6. waits for `/api/health` to respond, then verifies it remains alive briefly;
 7. opens `http://127.0.0.1:3000` on the phone.
 
 The update happens **before** the old server is stopped. If GitHub is unavailable
 or the current Wi-Fi blocks it, the already-running version is left alone.
+
+The server is launched with `setsid` and `nohup` so moving from Termux to the
+browser does not normally terminate the Node process tree.
 
 ## Other commands
 
@@ -107,6 +113,21 @@ First try:
 spar status
 spar log
 ```
+
+If the browser says the site cannot be reached immediately after `spar`, rerun the
+installer once so the detached-session support is present, then restart:
+
+```bash
+cd ~/Spararama
+git pull --ff-only
+bash scripts/termux/install.sh
+spar restart
+```
+
+If the server runs initially but Android later kills it while Termux is in the
+background, allow Termux unrestricted/background battery use in Android settings.
+That is an Android process-management issue rather than a Spararama networking
+problem.
 
 If `spar` refuses to update because there are local changes, inspect them rather
 than discarding them automatically:
