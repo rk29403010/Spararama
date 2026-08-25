@@ -7,9 +7,14 @@ const RETRY_DELAY_MS = 20_000;
 const MAX_ATTEMPTS = 3;
 const PUSH_RETRY_BASE_MS = 30_000;
 const PUSH_RETRY_MAX_MS = 15 * 60_000;
+const TARGET_HOLD_TOLERANCE_C = 0.5;
 
 function finiteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function scheduleHeatSoakMinutes(schedule: HeatingSchedule) {
+  return finiteNumber(schedule.heatSoakMinutes) ? Math.max(0, schedule.heatSoakMinutes) : 0;
 }
 
 function readyTimeText(timestamp: number) {
@@ -49,6 +54,9 @@ export class HeatingScheduler {
     startTemperatureC: number;
     targetTemperatureC: number;
     autoStartPreferred: boolean;
+    heatSoakMinutes?: number;
+    alertOnTargetReached?: boolean;
+    alertOnHeatSoakComplete?: boolean;
     sessionData?: Record<string, unknown>;
   }) {
     if (![input.startTime, input.targetTime, input.startTemperatureC, input.targetTemperatureC].every(finiteNumber)) {
@@ -65,6 +73,9 @@ export class HeatingScheduler {
       startTemperatureC: input.startTemperatureC,
       targetTemperatureC: input.targetTemperatureC,
       autoStartPreferred: Boolean(input.autoStartPreferred),
+      heatSoakMinutes: Math.max(0, finiteNumber(input.heatSoakMinutes) ? input.heatSoakMinutes : 0),
+      alertOnTargetReached: input.alertOnTargetReached !== false,
+      alertOnHeatSoakComplete: input.alertOnHeatSoakComplete !== false,
       status: 'scheduled',
       attempts: 0,
       sessionData: input.sessionData
@@ -73,7 +84,21 @@ export class HeatingScheduler {
     state.schedules = state.schedules.filter(item => item.id !== schedule.id);
     state.schedules.push(schedule);
     await this.store.save(state);
-    await this.store.appendEvent({ id: crypto.randomUUID(), scheduleId: schedule.id, timestamp: now, type: 'scheduled', details: { autoStartPreferred: schedule.autoStartPreferred, startTime: schedule.startTime, targetTime: schedule.targetTime, targetTemperatureC: schedule.targetTemperatureC } });
+    await this.store.appendEvent({
+      id: crypto.randomUUID(),
+      scheduleId: schedule.id,
+      timestamp: now,
+      type: 'scheduled',
+      details: {
+        autoStartPreferred: schedule.autoStartPreferred,
+        startTime: schedule.startTime,
+        targetTime: schedule.targetTime,
+        targetTemperatureC: schedule.targetTemperatureC,
+        heatSoakMinutes: schedule.heatSoakMinutes,
+        alertOnTargetReached: schedule.alertOnTargetReached,
+        alertOnHeatSoakComplete: schedule.alertOnHeatSoakComplete
+      }
+    });
     void this.processDue();
     return schedule;
   }
@@ -124,13 +149,14 @@ export class HeatingScheduler {
   private async processDueInternal(now: number) {
     const state = await this.store.load();
     let changed = false;
+
     for (const schedule of state.schedules) {
       if (!['scheduled', 'retrying'].includes(schedule.status)) continue;
       if (now < schedule.startTime) continue;
       if (schedule.nextAttemptAt && now < schedule.nextAttemptAt) continue;
 
       if (!schedule.autoStartPreferred) {
-        this.queueManualNotification(state.notifications, schedule, now, 'This heating event is set for manual start.');
+        changed = this.queueManualNotification(state.notifications, schedule, now, 'This heating event is set for manual start.') || changed;
         schedule.status = 'awaiting-manual-confirmation';
         schedule.updatedAt = now;
         changed = true;
@@ -154,14 +180,14 @@ export class HeatingScheduler {
         schedule.remoteStartedAt = now;
         schedule.nextAttemptAt = undefined;
         schedule.lastError = undefined;
-        this.queueNotification(state.notifications, {
+        changed = this.queueNotification(state.notifications, {
           scheduleId: schedule.id,
           kind: 'heater_started',
           createdAt: now,
           title: 'Spa heating started',
           message: `Heater is on remotely. Target ${schedule.targetTemperatureC.toFixed(0)}°C by ${readyTimeText(schedule.targetTime)}.`,
           requiresConfirmation: false
-        });
+        }) || changed;
         await this.store.appendEvent({ id: crypto.randomUUID(), scheduleId: schedule.id, timestamp: now, type: 'remote_started', details: { attempt: schedule.attempts, targetTemperatureC: schedule.targetTemperatureC, targetTime: schedule.targetTime } });
       } catch (error: any) {
         schedule.lastError = error?.message || String(error);
@@ -172,9 +198,113 @@ export class HeatingScheduler {
         } else {
           schedule.status = 'awaiting-manual-confirmation';
           schedule.nextAttemptAt = undefined;
-          this.queueManualNotification(state.notifications, schedule, now, `Remote start failed after ${MAX_ATTEMPTS} attempts.`);
+          changed = this.queueManualNotification(state.notifications, schedule, now, `Remote start failed after ${MAX_ATTEMPTS} attempts.`) || changed;
           await this.store.appendEvent({ id: crypto.randomUUID(), scheduleId: schedule.id, timestamp: now, type: 'manual_start_requested', details: { reason: 'remote_start_failed', attempts: schedule.attempts, error: schedule.lastError } });
         }
+      }
+    }
+
+    for (const schedule of state.schedules) {
+      if (!['running-remote', 'running-manual'].includes(schedule.status) || schedule.heatSoakCompletedAt) continue;
+
+      try {
+        const status = await this.spa.getStatus();
+        if (!status.connected || status.transport === 'manual' || !finiteNumber(status.waterTemperatureC)) continue;
+
+        schedule.lastObservedTemperatureC = status.waterTemperatureC;
+        const heatSoakMinutes = scheduleHeatSoakMinutes(schedule);
+        const atTarget = status.waterTemperatureC >= schedule.targetTemperatureC;
+        const holdingTarget = status.waterTemperatureC >= schedule.targetTemperatureC - TARGET_HOLD_TOLERANCE_C;
+
+        if (!schedule.targetReachedAt && atTarget) {
+          schedule.targetReachedAt = now;
+          schedule.soakStartedAt = now;
+          schedule.updatedAt = now;
+          changed = true;
+          await this.store.appendEvent({
+            id: crypto.randomUUID(),
+            scheduleId: schedule.id,
+            timestamp: now,
+            type: 'target_reached',
+            details: { temperatureC: status.waterTemperatureC, targetTemperatureC: schedule.targetTemperatureC }
+          });
+          if (schedule.alertOnTargetReached !== false) {
+            changed = this.queueNotification(state.notifications, {
+              scheduleId: schedule.id,
+              kind: 'target_reached',
+              createdAt: now,
+              title: 'Spa reached target temperature',
+              message: heatSoakMinutes > 0
+                ? `${status.waterTemperatureC.toFixed(1)}°C reached at ${readyTimeText(now)}. ${heatSoakMinutes} minute heat soak started.`
+                : `${status.waterTemperatureC.toFixed(1)}°C reached at ${readyTimeText(now)}.`,
+              requiresConfirmation: false
+            }) || changed;
+          }
+        }
+
+        if (!schedule.targetReachedAt) continue;
+
+        if (!holdingTarget) {
+          if (schedule.soakStartedAt !== undefined) {
+            schedule.soakStartedAt = undefined;
+            schedule.updatedAt = now;
+            changed = true;
+            await this.store.appendEvent({
+              id: crypto.randomUUID(),
+              scheduleId: schedule.id,
+              timestamp: now,
+              type: 'soak_reset',
+              details: { temperatureC: status.waterTemperatureC, targetTemperatureC: schedule.targetTemperatureC }
+            });
+          }
+          continue;
+        }
+
+        if (schedule.soakStartedAt === undefined) {
+          schedule.soakStartedAt = now;
+          schedule.updatedAt = now;
+          changed = true;
+          await this.store.appendEvent({
+            id: crypto.randomUUID(),
+            scheduleId: schedule.id,
+            timestamp: now,
+            type: 'soak_restarted',
+            details: { temperatureC: status.waterTemperatureC, targetTemperatureC: schedule.targetTemperatureC }
+          });
+        }
+
+        const soakDurationMs = heatSoakMinutes * 60_000;
+        if (now - schedule.soakStartedAt >= soakDurationMs) {
+          schedule.heatSoakCompletedAt = now;
+          schedule.status = 'ready';
+          schedule.updatedAt = now;
+          changed = true;
+          await this.store.appendEvent({
+            id: crypto.randomUUID(),
+            scheduleId: schedule.id,
+            timestamp: now,
+            type: 'heat_soak_complete',
+            details: {
+              temperatureC: status.waterTemperatureC,
+              targetTemperatureC: schedule.targetTemperatureC,
+              heatSoakMinutes
+            }
+          });
+          if (schedule.alertOnHeatSoakComplete !== false) {
+            changed = this.queueNotification(state.notifications, {
+              scheduleId: schedule.id,
+              kind: 'heat_soak_complete',
+              createdAt: now,
+              title: 'Spa heat soak complete',
+              message: heatSoakMinutes > 0
+                ? `The spa has held target temperature for ${heatSoakMinutes} minutes and is ready.`
+                : 'The spa is at target temperature and is ready.',
+              requiresConfirmation: false
+            }) || changed;
+          }
+        }
+      } catch {
+        // A live temperature is optional. Keep the heating event running and retry on the next cycle.
       }
     }
 
@@ -212,7 +342,7 @@ export class HeatingScheduler {
   }
 
   private queueManualNotification(notifications: HeatingNotification[], schedule: HeatingSchedule, now: number, reason: string) {
-    this.queueNotification(notifications, {
+    return this.queueNotification(notifications, {
       scheduleId: schedule.id,
       kind: 'manual_start_required',
       createdAt: now,
@@ -223,7 +353,8 @@ export class HeatingScheduler {
   }
 
   private queueNotification(notifications: HeatingNotification[], input: Omit<HeatingNotification, 'id'>) {
-    if (notifications.some(item => item.scheduleId === input.scheduleId && item.kind === input.kind && !item.resolvedAt)) return;
+    if (notifications.some(item => item.scheduleId === input.scheduleId && item.kind === input.kind)) return false;
     notifications.push({ id: crypto.randomUUID(), ...input });
+    return true;
   }
 }

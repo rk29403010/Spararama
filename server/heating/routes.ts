@@ -28,6 +28,9 @@ export function registerHeatingRoutes(app: Express, scheduler: HeatingScheduler)
         startTemperatureC: Number(req.body?.startTemperatureC),
         targetTemperatureC: Number(req.body?.targetTemperatureC),
         autoStartPreferred: Boolean(req.body?.autoStartPreferred),
+        heatSoakMinutes: Number(req.body?.heatSoakMinutes ?? 0),
+        alertOnTargetReached: req.body?.alertOnTargetReached !== false,
+        alertOnHeatSoakComplete: req.body?.alertOnHeatSoakComplete !== false,
         sessionData: req.body?.sessionData && typeof req.body.sessionData === 'object' ? req.body.sessionData : undefined
       });
       res.status(201).json(schedule);

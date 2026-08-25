@@ -40,13 +40,16 @@ export interface SpaConfig {
   timeFormat: '12h' | '24h';
   defaultHeatingTarget: number;
   heatSoakMinutes: number;
+  alertOnTargetReached: boolean;
+  alertOnHeatSoakComplete: boolean;
 }
 
 export const DEFAULT_SPA_CONFIG: SpaConfig = {
   model: 'Current 800 L Wi-Fi profile', waterBodyKind: 'spa', manufacturerId: 'cleverspa', modelId: 'cleverspa-current-800',
   waterCapacityLiters: 800, wifiSupported: true, connectorId: 'cleverspa', maxTemp: 40, heaterPowerWatts: 1800, pumpPowerWatts: 600,
   electricityRatePerKwh: 0.2086, baseHeatingRatePerHour: 1.5, heatingRateReferenceVolumeLiters: 800, heatLossRatePerHour: 0.5,
-  temperatureScale: 'C', defaultReadyTime: '17:00', timeFormat: '12h', defaultHeatingTarget: 40, heatSoakMinutes: 30
+  temperatureScale: 'C', defaultReadyTime: '17:00', timeFormat: '12h', defaultHeatingTarget: 40, heatSoakMinutes: 30,
+  alertOnTargetReached: true, alertOnHeatSoakComplete: true
 };
 
 export interface ActiveReminder { id: string; type: 'start_heating' | 'tub_ready'; scheduledTime: number; sessionData?: any; }

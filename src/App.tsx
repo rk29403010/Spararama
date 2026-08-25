@@ -202,6 +202,16 @@ export default function App() {
                   <div className="flex items-center gap-2"><input name="heat-soak-minutes" autoComplete="off" inputMode="numeric" type="number" step="5" min="0" value={state.config.heatSoakMinutes ?? 30} onChange={event => updateState({...state, config: {...state.config, heatSoakMinutes: parseInt(event.target.value) || 0}})} className="min-h-12 bg-slate-100 text-slate-950 font-black px-3 py-2 rounded-xl w-24 text-center" /><span className="font-black">min</span></div>
                 </label>
 
+                <label className="min-h-12 flex items-center justify-between gap-4 cursor-pointer">
+                  <span className="font-black text-slate-800 text-base sm:text-lg">Alert at target</span>
+                  <input type="checkbox" checked={state.config.alertOnTargetReached !== false} onChange={event => updateState({...state, config: {...state.config, alertOnTargetReached: event.target.checked}})} className="w-6 h-6 accent-indigo-700" />
+                </label>
+
+                <label className="min-h-12 flex items-center justify-between gap-4 cursor-pointer">
+                  <span className="font-black text-slate-800 text-base sm:text-lg">Alert after heat soak</span>
+                  <input type="checkbox" checked={state.config.alertOnHeatSoakComplete !== false} onChange={event => updateState({...state, config: {...state.config, alertOnHeatSoakComplete: event.target.checked}})} className="w-6 h-6 accent-indigo-700" />
+                </label>
+
                 <label className="flex items-center justify-between gap-4">
                   <span className="font-black text-slate-800 text-base sm:text-lg">Electricity rate</span>
                   <div className="flex items-center gap-2"><span className="font-black">£</span><input name="electricity-rate" autoComplete="off" inputMode="decimal" type="number" step="0.0001" min="0" value={state.config.electricityRatePerKwh} onChange={event => updateState({...state, config: {...state.config, electricityRatePerKwh: parseFloat(event.target.value) || 0}})} className="min-h-12 bg-slate-100 text-slate-950 font-black px-3 py-2 rounded-xl w-28 text-center" /><span className="font-black text-sm">/kWh</span></div>

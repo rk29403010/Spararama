@@ -13,6 +13,8 @@ interface HeatingProps {
   updateState: (newState: AppState) => void;
 }
 
+type ReadyMode = 'asap' | 'by-time';
+
 function displayTemperature(celsius: number, scale: 'C' | 'F') {
   return scale === 'F' ? Math.round((celsius * 9 / 5) + 32) : Math.round(celsius);
 }
@@ -27,8 +29,10 @@ export function Heating({ state, updateState }: HeatingProps) {
   const [currentReadingLive, setCurrentReadingLive] = useState(false);
   const [temperatureLookupError, setTemperatureLookupError] = useState('');
   const [targetTemp, setTargetTemp] = useState(state.config.defaultHeatingTarget || 40);
+  const [readyMode, setReadyMode] = useState<ReadyMode>('by-time');
   const [readyDay, setReadyDay] = useState<'today' | 'tomorrow'>('today');
   const [readyHour, setReadyHour] = useState(17);
+  const [asapClock, setAsapClock] = useState(0);
   const [calculation, setCalculation] = useState<HeatingSession | null>(null);
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -95,13 +99,20 @@ export function Heating({ state, updateState }: HeatingProps) {
   }, [state.config.defaultReadyTime]);
 
   useEffect(() => {
+    if (readyMode !== 'asap') return;
+    setAsapClock(Date.now());
+    const timer = window.setInterval(() => setAsapClock(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [readyMode]);
+
+  useEffect(() => {
     if (currentTemp === null) {
       setCalculation(null);
       return;
     }
     const timer = setTimeout(() => { calculateHeating(); setSaveSuccess(false); }, 300);
     return () => clearTimeout(timer);
-  }, [currentTemp, targetTemp, readyDay, readyHour, scale, weatherData, waterVolumeLiters, state.config.heatingRateReferenceVolumeLiters]);
+  }, [currentTemp, targetTemp, readyMode, readyDay, readyHour, asapClock, scale, weatherData, waterVolumeLiters, state.config.heatingRateReferenceVolumeLiters, state.config.heatSoakMinutes]);
 
   const handleScheduleHeating = async () => {
     if (!calculation) return;
@@ -111,12 +122,19 @@ export function Heating({ state, updateState }: HeatingProps) {
       if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
         await Notification.requestPermission();
       }
-      await heatingApi.schedule(calculation, autoStartPreferred);
+      await heatingApi.schedule(calculation, autoStartPreferred, {
+        heatSoakMinutes: state.config.heatSoakMinutes || 0,
+        alertOnTargetReached: state.config.alertOnTargetReached !== false,
+        alertOnHeatSoakComplete: state.config.alertOnHeatSoakComplete !== false
+      });
       const readyReminder = { id: `${calculation.id}_ready`, type: 'tub_ready' as const, scheduledTime: calculation.targetTime, sessionData: calculation };
+      const reminders = autoStartPreferred
+        ? (state.reminders || []).filter(item => item.id !== readyReminder.id)
+        : [...(state.reminders || []).filter(item => item.id !== readyReminder.id), readyReminder];
       updateState({
         ...state,
         heatingSessions: [...(state.heatingSessions || []).filter(item => item.id !== calculation.id), calculation],
-        reminders: [...(state.reminders || []).filter(item => item.id !== readyReminder.id), readyReminder]
+        reminders
       });
       setSaveSuccess(true);
     } catch (err: any) {
@@ -140,19 +158,28 @@ export function Heating({ state, updateState }: HeatingProps) {
         cTemp = (currentTemp - 32) * 5 / 9;
         tTemp = (targetTemp - 32) * 5 / 9;
       }
-      const tempDiff = tTemp - cTemp;
-      if (tempDiff <= 0) {
-        setCalculation(null);
-        return;
-      }
+      const tempDiff = Math.max(0, tTemp - cTemp);
+      const now = Date.now();
+      const soakHours = Math.max(0, state.config.heatSoakMinutes || 0) / 60;
+      const baseHeatingRate = volumeAdjustedHeatingRate(
+        state.config.baseHeatingRatePerHour,
+        waterVolumeLiters,
+        state.config.heatingRateReferenceVolumeLiters || 800
+      );
 
-      const baseDate = readyDay === 'today' ? new Date() : addDays(new Date(), 1);
-      const targetDate = new Date(baseDate.setHours(readyHour, 0, 0, 0));
-      const targetTimestamp = targetDate.getTime();
-      if (targetTimestamp <= Date.now()) {
-        setError('Choose a future ready time.');
-        setCalculation(null);
-        return;
+      let targetTimestamp: number;
+      if (readyMode === 'asap') {
+        const provisionalHours = (tempDiff / Math.max(0.5, baseHeatingRate)) + soakHours;
+        targetTimestamp = now + Math.max(60_000, provisionalHours * 60 * 60 * 1000);
+      } else {
+        const baseDate = readyDay === 'today' ? new Date() : addDays(new Date(), 1);
+        const targetDate = new Date(baseDate.setHours(readyHour, 0, 0, 0));
+        targetTimestamp = targetDate.getTime();
+        if (targetTimestamp <= now) {
+          setError('Choose a future ready time.');
+          setCalculation(null);
+          return;
+        }
       }
 
       let avgAmbientTemp = 15;
@@ -165,7 +192,6 @@ export function Heating({ state, updateState }: HeatingProps) {
       let precipitationInfluence = 0;
 
       if (weatherData) {
-        const now = Date.now();
         const selectedIndexes = weatherData.derived.time
           .map((time, index) => ({ time, index }))
           .filter(item => item.time >= now && item.time <= targetTimestamp)
@@ -183,12 +209,7 @@ export function Heating({ state, updateState }: HeatingProps) {
         precipitationInfluence = weatherData.influence.precipitation;
       }
 
-      let effectiveHeatingRate = volumeAdjustedHeatingRate(
-        state.config.baseHeatingRatePerHour,
-        waterVolumeLiters,
-        state.config.heatingRateReferenceVolumeLiters || 800
-      );
-
+      let effectiveHeatingRate = baseHeatingRate;
       if (avgAmbientTemp < 15) effectiveHeatingRate -= (15 - avgAmbientTemp) * 0.05 * temperatureInfluence;
       if (avgWindSpeed > 10) effectiveHeatingRate -= ((avgWindSpeed - 10) / 5) * 0.05 * windInfluence;
       if (avgSolarRadiationWm2 > 0) effectiveHeatingRate += Math.min(0.12, (avgSolarRadiationWm2 / 800) * 0.12) * solarInfluence;
@@ -196,10 +217,16 @@ export function Heating({ state, updateState }: HeatingProps) {
       effectiveHeatingRate = Math.max(0.5, effectiveHeatingRate);
 
       const hoursToHeat = tempDiff / effectiveHeatingRate;
-      const soakHours = (state.config.heatSoakMinutes || 0) / 60;
       const totalHours = hoursToHeat + soakHours;
-      const startTimestamp = targetTimestamp - totalHours * 60 * 60 * 1000;
-      if (startTimestamp < Date.now()) setError('Start now - the target may not be reached in time.');
+      const startTimestamp = readyMode === 'asap'
+        ? now
+        : targetTimestamp - totalHours * 60 * 60 * 1000;
+
+      if (readyMode === 'asap') {
+        targetTimestamp = now + Math.max(60_000, totalHours * 60 * 60 * 1000);
+      } else if (startTimestamp < now) {
+        setError('Choose ASAP - this ready time is too soon.');
+      }
 
       const activeHeatingKwh = (state.config.heaterPowerWatts / 1000) * hoursToHeat;
       const soakKwh = (state.config.heaterPowerWatts / 1000) * soakHours * 0.5;
@@ -232,6 +259,8 @@ export function Heating({ state, updateState }: HeatingProps) {
 
   const displayedCurrentTemp = currentTemp ?? minTemp;
   const currentDetail = temperatureLookupError || undefined;
+  const resultTimestamp = calculation ? (readyMode === 'asap' ? calculation.targetTime : calculation.startTime) : null;
+  const resultLabel = readyMode === 'asap' ? 'Ready around' : 'Start heating';
 
   return (
     <div className="flex flex-col h-full max-w-md mx-auto p-4 space-y-6 pb-8">
@@ -267,53 +296,74 @@ export function Heating({ state, updateState }: HeatingProps) {
       )}
 
       <section className="space-y-2">
-        <h2 className="text-sm font-black uppercase tracking-widest text-slate-500">Ready by</h2>
-        <div className="flex gap-3 items-center bg-white p-2 rounded-2xl border border-slate-200">
-          <div className="flex-1 flex bg-slate-100 p-1 rounded-xl">
-            <button
-              type="button"
-              onClick={() => setReadyDay('today')}
-              className={`flex-1 min-h-12 px-2 text-base font-black rounded-lg transition-colors ${readyDay === 'today' ? 'bg-white shadow-sm text-indigo-800' : 'text-slate-600 hover:text-slate-900'}`}
-            >
-              Today
-            </button>
-            <button
-              type="button"
-              onClick={() => setReadyDay('tomorrow')}
-              className={`flex-1 min-h-12 px-2 text-base font-black rounded-lg transition-colors ${readyDay === 'tomorrow' ? 'bg-white shadow-sm text-indigo-800' : 'text-slate-600 hover:text-slate-900'}`}
-            >
-              Tomorrow
-            </button>
-          </div>
-          <select
-            aria-label="Ready time"
-            value={readyHour}
-            onChange={event => {
-              const hour = Number(event.target.value);
-              setReadyHour(hour);
-              if (readyDay === 'today' && hour <= new Date().getHours()) setReadyDay('tomorrow');
-            }}
-            className="w-32 min-h-14 bg-slate-100 text-slate-950 font-black text-xl px-2 rounded-xl text-center appearance-none cursor-pointer"
+        <h2 className="text-sm font-black uppercase tracking-widest text-slate-500">When</h2>
+        <div className="grid grid-cols-2 gap-1 bg-slate-200 p-1 rounded-2xl">
+          <button
+            type="button"
+            aria-pressed={readyMode === 'asap'}
+            onClick={() => setReadyMode('asap')}
+            className={`min-h-14 rounded-xl text-base font-black transition-colors ${readyMode === 'asap' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-700'}`}
           >
-            {Array.from({ length: 24 }).map((_, hour) => (
-              <option key={hour} value={hour}>
-                {timeFormat === '12h'
-                  ? (hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`)
-                  : `${hour.toString().padStart(2, '0')}:00`}
-              </option>
-            ))}
-          </select>
+            ASAP
+          </button>
+          <button
+            type="button"
+            aria-pressed={readyMode === 'by-time'}
+            onClick={() => setReadyMode('by-time')}
+            className={`min-h-14 rounded-xl text-base font-black transition-colors ${readyMode === 'by-time' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-700'}`}
+          >
+            Ready by
+          </button>
         </div>
+
+        {readyMode === 'by-time' && (
+          <div className="flex gap-3 items-center bg-white p-2 rounded-2xl border border-slate-200">
+            <div className="flex-1 flex bg-slate-100 p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setReadyDay('today')}
+                className={`flex-1 min-h-12 px-2 text-base font-black rounded-lg transition-colors ${readyDay === 'today' ? 'bg-white shadow-sm text-indigo-800' : 'text-slate-600 hover:text-slate-900'}`}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                onClick={() => setReadyDay('tomorrow')}
+                className={`flex-1 min-h-12 px-2 text-base font-black rounded-lg transition-colors ${readyDay === 'tomorrow' ? 'bg-white shadow-sm text-indigo-800' : 'text-slate-600 hover:text-slate-900'}`}
+              >
+                Tomorrow
+              </button>
+            </div>
+            <select
+              aria-label="Ready time"
+              value={readyHour}
+              onChange={event => {
+                const hour = Number(event.target.value);
+                setReadyHour(hour);
+                if (readyDay === 'today' && hour <= new Date().getHours()) setReadyDay('tomorrow');
+              }}
+              className="w-32 min-h-14 bg-slate-100 text-slate-950 font-black text-xl px-2 rounded-xl text-center appearance-none cursor-pointer"
+            >
+              {Array.from({ length: 24 }).map((_, hour) => (
+                <option key={hour} value={hour}>
+                  {timeFormat === '12h'
+                    ? (hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`)
+                    : `${hour.toString().padStart(2, '0')}:00`}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </section>
 
       <section className="bg-slate-950 text-white p-5 rounded-3xl border border-slate-800 space-y-4">
         <div className="flex items-end justify-between gap-4">
           <div>
-            <div className="text-sm font-black uppercase tracking-widest text-slate-400">Start heating</div>
+            <div className="text-sm font-black uppercase tracking-widest text-slate-400">{resultLabel}</div>
             <div className="mt-1 text-5xl font-black tracking-tight tabular-nums">
-              {calculation ? format(calculation.startTime, timeFormat === '12h' ? 'h:mm a' : 'HH:mm') : '—'}
+              {resultTimestamp ? format(resultTimestamp, timeFormat === '12h' ? 'h:mm a' : 'HH:mm') : '—'}
             </div>
-            {calculation && !error && <div className="mt-1 text-base font-bold text-slate-300">{format(calculation.startTime, 'MMM d')}</div>}
+            {resultTimestamp && !error && <div className="mt-1 text-base font-bold text-slate-300">{format(resultTimestamp, 'MMM d')}</div>}
           </div>
           <div className="text-right">
             <div className="text-sm font-bold text-slate-400">Est. cost</div>
@@ -326,7 +376,7 @@ export function Heating({ state, updateState }: HeatingProps) {
         {calculation && !error && (
           <>
             <div className="flex items-center justify-between gap-3 border-t border-slate-800 pt-3">
-              <span className="text-sm font-bold text-slate-300">{autoStartPreferred ? 'Auto-start enabled' : 'Manual start'}</span>
+              <span className="text-sm font-bold text-slate-300">{readyMode === 'asap' ? 'Start now' : autoStartPreferred ? 'Auto-start enabled' : 'Manual start'}</span>
               <span className="text-sm font-bold text-slate-400">{calculation.expectedDurationHours.toFixed(1)} h</span>
             </div>
 
@@ -350,7 +400,7 @@ export function Heating({ state, updateState }: HeatingProps) {
               className={`min-h-14 w-full rounded-2xl px-4 font-black flex items-center justify-center gap-2 transition-colors ${saveSuccess ? 'bg-emerald-600 text-white' : 'bg-white text-slate-950 hover:bg-slate-100 disabled:bg-slate-300 disabled:text-slate-600'}`}
             >
               <Save className="w-5 h-5" aria-hidden="true" />
-              {saveSuccess ? 'Heating scheduled' : isSaving ? 'Scheduling…' : 'Schedule heating'}
+              {saveSuccess ? (readyMode === 'asap' ? 'Heating requested' : 'Heating scheduled') : isSaving ? 'Scheduling…' : readyMode === 'asap' ? 'Start heating now' : 'Schedule heating'}
             </button>
           </>
         )}
