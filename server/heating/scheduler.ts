@@ -185,7 +185,7 @@ export class HeatingScheduler {
           kind: 'heater_started',
           createdAt: now,
           title: 'Spa heating started',
-          message: `Heater is on remotely. Target ${schedule.targetTemperatureC.toFixed(0)}°C by ${readyTimeText(schedule.targetTime)}.`,
+          message: `Heater is on remotely. ${schedule.targetTemperatureC.toFixed(0)}°C target; estimated ready by ${readyTimeText(schedule.targetTime)}.`,
           requiresConfirmation: false
         }) || changed;
         await this.store.appendEvent({ id: crypto.randomUUID(), scheduleId: schedule.id, timestamp: now, type: 'remote_started', details: { attempt: schedule.attempts, targetTemperatureC: schedule.targetTemperatureC, targetTime: schedule.targetTime } });
@@ -347,13 +347,13 @@ export class HeatingScheduler {
       kind: 'manual_start_required',
       createdAt: now,
       title: 'Turn the spa heater on',
-      message: `${reason} Please switch the heater on manually, then confirm in Spararama. Target ${schedule.targetTemperatureC.toFixed(0)}°C by ${readyTimeText(schedule.targetTime)}.`,
+      message: `${reason} Please switch the heater on manually, then confirm in Spararama. ${schedule.targetTemperatureC.toFixed(0)}°C target; estimated ready by ${readyTimeText(schedule.targetTime)}.`,
       requiresConfirmation: true
     });
   }
 
   private queueNotification(notifications: HeatingNotification[], input: Omit<HeatingNotification, 'id'>) {
-    if (notifications.some(item => item.scheduleId === input.scheduleId && item.kind === input.kind)) return false;
+    if (notifications.some(item => item.scheduleId === input.scheduleId && item.kind === input.kind && !item.resolvedAt)) return false;
     notifications.push({ id: crypto.randomUUID(), ...input });
     return true;
   }
