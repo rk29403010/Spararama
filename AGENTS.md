@@ -2,6 +2,8 @@
 
 Before architectural, Firebase, telemetry, spa-control, persistence, networking or authentication changes, read [`architecture.md`](./architecture.md).
 
+Before Android/Termux phone-runner, `spar`, phone launcher or phone-local hosting changes, also read [`docs/termux-phone.md`](./docs/termux-phone.md).
+
 Before frontend UI/UX, React/TSX/CSS, interaction-flow, responsive, accessibility or visual-design changes, read [`.agents/skills/spararama-ui-ux/SKILL.md`](./.agents/skills/spararama-ui-ux/SKILL.md) **and** [`docs/ui-design-principles.md`](./docs/ui-design-principles.md). The latter records direct user design feedback and should be treated as project-specific design direction, not optional inspiration.
 
 ## Repository workflow
@@ -9,11 +11,42 @@ Before frontend UI/UX, React/TSX/CSS, interaction-flow, responsive, accessibilit
 - Active development/integration branch: **`chatgpt-dev`**.
 - `main` is intentionally retained for the AI Studio snapshot/integration workflow. Do not use it as the normal local-development base unless explicitly asked.
 - Fetch and fast-forward `chatgpt-dev` before local work. Use `node scripts/local.mjs sync`; it refuses to overwrite uncommitted work.
-- Routine local lifecycle commands are handled by the cross-platform `scripts/local.mjs` runner (`update`, `sync`, `start`, `stop`, `restart`, `status`). Do not add shell-specific wrappers unless there is a genuine OS-specific requirement.
+- Routine laptop/headless local lifecycle commands are handled by the cross-platform `scripts/local.mjs` runner (`update`, `sync`, `start`, `stop`, `restart`, `status`). Do not add shell-specific wrappers unless there is a genuine OS-specific requirement.
+- **Android/Termux is an intentional OS-specific exception.** `scripts/termux/` contains the supported phone-local development runner/installer; do not fold it into `scripts/local.mjs` merely to remove shell scripts.
+- On a phone where the Termux setup is already installed, prefer the `spar` command instead of asking the user to manually repeat `git pull`, `pnpm install` and `pnpm dev`.
 - Codex worktrees/feature branches should normally be based on current `chatgpt-dev` and returned there.
 - Do not merge `chatgpt-dev` into `main` or change the GitHub default branch incidentally.
 - **pnpm** is the repository package manager; respect the pinned version and `pnpm-lock.yaml`.
 - Persistent spa history/reference files belong in this repository under `history/` (`spa-events.jsonl`, `spa-reference.md`). Do not append new project history to the old recovery repository.
+
+## Android / Termux phone development
+
+Spararama can run entirely on an Android phone under Termux as a lightweight development/test instance:
+
+```text
+Termux checkout (chatgpt-dev)
+  -> scripts/termux/spar
+  -> SPA_ADAPTER=mock pnpm dev
+  -> Express/Vite on 127.0.0.1:3000
+  -> Chrome on the same phone
+```
+
+Key rules:
+
+- The phone runner defaults to `SPA_ADAPTER=mock`. Keep that safe default unless real home-network reachability is deliberately configured.
+- Phone hosting is local to the phone; it does not by itself provide remote access to the physical spa. Real control still needs a route to the home-side adapter/tub (home LAN, VPN or another intentionally configured secure path).
+- Normal `spar` behaviour is update -> dependency check -> stop old server -> start detached dev server -> health check -> open browser.
+- **Update/install happens before stopping the existing server.** Preserve this ordering so a blocked/offline GitHub connection does not unnecessarily take down a working phone instance.
+- The detached phone server should survive Termux handing focus to Chrome. Keep the separate session/process-group launch plus post-start health verification unless there is a tested replacement.
+- `$PREFIX/bin/spar` is a tiny installed wrapper. The real runner remains `scripts/termux/spar` in the repo and is executed via a temporary copy, allowing `spar` to pull a newer version of itself safely.
+- Phone-specific mutable state belongs outside the repo:
+  - config: `~/.config/spararama/phone.conf`
+  - PID/log state: `~/.local/state/spararama-phone/`
+  - launcher: `~/.shortcuts/Spararama`
+- The Android home-screen shortcut invokes `spar`; future support should keep the command-line and launcher paths using the same runner rather than maintaining two implementations.
+- `scripts/local.mjs` and `scripts/termux/spar` have different purposes. The former is the general production-style laptop/headless lifecycle path and may start/build the real CleverSpa service; the latter is the phone-local dev/test path.
+
+For setup, recovery commands and launcher details, see [`docs/termux-phone.md`](./docs/termux-phone.md).
 
 ## Component boundaries
 
