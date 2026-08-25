@@ -32,14 +32,29 @@ fi
 mkdir -p "$CONFIG_DIR" "$SHORTCUT_DIR"
 chmod 700 "$SHORTCUT_DIR"
 
-# Remember the actual checkout path rather than assuming ~/Spararama.
+# Preserve the selected phone mode and any phone-local spa settings when the
+# installer is rerun. The checkout path is refreshed in case the repo moved.
+SPAR_BRANCH="chatgpt-dev"
+SPAR_ADAPTER="mock"
+SPAR_PORT="3000"
+CLEVERSPA_IP=""
+CLEVERSPA_PASSCODE=""
+CLEVERSPA_SERVICE_PORT="8787"
+if [ -f "$CONFIG_FILE" ]; then
+  # shellcheck disable=SC1090
+  source "$CONFIG_FILE"
+fi
+
 {
   printf '# Spararama Termux phone settings.\n'
-  printf '# The phone runner defaults to mock mode so it is safe away from the real spa.\n'
+  printf '# Live-spa secrets/settings live here, outside the Git repository.\n'
   printf 'SPAR_REPO=%q\n' "$REPO"
-  printf 'SPAR_BRANCH=%q\n' 'chatgpt-dev'
-  printf 'SPAR_ADAPTER=%q\n' 'mock'
-  printf 'SPAR_PORT=%q\n' '3000'
+  printf 'SPAR_BRANCH=%q\n' "$SPAR_BRANCH"
+  printf 'SPAR_ADAPTER=%q\n' "$SPAR_ADAPTER"
+  printf 'SPAR_PORT=%q\n' "$SPAR_PORT"
+  printf 'CLEVERSPA_IP=%q\n' "$CLEVERSPA_IP"
+  printf 'CLEVERSPA_PASSCODE=%q\n' "$CLEVERSPA_PASSCODE"
+  printf 'CLEVERSPA_SERVICE_PORT=%q\n' "$CLEVERSPA_SERVICE_PORT"
 } > "$CONFIG_FILE"
 chmod 600 "$CONFIG_FILE"
 
@@ -72,17 +87,24 @@ cat <<EOF
 
 Installed.
 
-From now on, type:
+Normal use:
 
   spar
 
-That pulls the latest chatgpt-dev code, updates dependencies only when needed,
-restarts the phone server, and opens Spararama in the browser.
+Switch connector mode:
+
+  spar live    # real CleverSpa; phone must be able to reach the spa/home LAN
+  spar mock    # simulated spa; safe for development away from home
+
+Optional live setup for a known IP/passcode:
+
+  spar live-setup
 
 Useful extras:
   spar status
   spar stop
   spar log
+  spar adapter-log
 
 A Termux home-screen shortcut named "Spararama" has also been installed.
 Add a Termux shortcut/widget to the Android home screen and select Spararama.
