@@ -98,6 +98,7 @@ Browser -> Spararama API -> SpaAdapter -> CleverSpa service -> Gizwits LAN -> tu
 The CleverSpa service remains a separate process by design. It can later run:
 
 - on the same laptop/headless box as Spararama;
+- on the same Android/Termux phone as Spararama;
 - on another machine on the user's home LAN;
 - as a small local agent while the main Spararama service is hosted elsewhere.
 
@@ -116,50 +117,87 @@ one machine
   optional Firebase sync
 ```
 
-### Android phone / Termux development instance
+### Android phone / Termux instance
 
-A modern Android phone can run the normal Spararama Node/Vite development stack locally under Termux. This is a supported lightweight development/test deployment, particularly useful for phone UI work when a laptop is inconvenient.
+A modern Android phone can run the normal Spararama Node/Vite stack locally under Termux. This is a supported lightweight deployment for phone UI development and, when the phone is on the spa's home LAN, can also host the live CleverSpa adapter.
+
+Mock mode:
 
 ```text
 Android phone
   Termux
     ~/Spararama checkout (chatgpt-dev)
-    pnpm dev / server.ts :3000
-    SPA_ADAPTER=mock by default
+    Spararama pnpm dev / server.ts :3000
+    SPA_ADAPTER=mock
     scripts/termux/spar lifecycle runner
-           |
-           +--> ~/.config/spararama/phone.conf
-           +--> ~/.local/state/spararama-phone/server.pid
-           +--> ~/.local/state/spararama-phone/server.log
 
   Chrome
     http://127.0.0.1:3000
-
-  Android home-screen shortcut
-    ~/.shortcuts/Spararama -> spar
 ```
 
-This mode hosts both the React/Vite UI and Spararama Express API **on the phone itself**. Chrome connects over loopback; no laptop or LAN web server is required.
+Live mode:
 
-The installed command `$PREFIX/bin/spar` is intentionally a small stable wrapper. It loads the phone config and executes the current `scripts/termux/spar` from the checkout via a temporary copy. Consequently, improvements to the repo-owned runner arrive with the next normal Git pull without repeatedly reinstalling the command.
+```text
+Android phone on spa home LAN
+  Chrome
+    http://127.0.0.1:3000
+      |
+      v
+  Spararama backend :3000
+    SPA_ADAPTER=bridge
+      |
+      v
+  CleverSpa adapter :8787
+    loopback-only on phone
+      |
+      v
+  Gizwits LAN -> real spa
+```
 
-Normal `spar` behaviour is:
+The phone therefore can host both the application backend and the hardware bridge itself; no laptop is required for this deployment. The live CleverSpa path still requires LAN reachability to the physical tub. `spar live` does not create a remote-access tunnel and will not make a spa reachable over arbitrary mobile data.
 
-1. verify the checkout is clean;
-2. fetch and fast-forward `chatgpt-dev`;
-3. install dependencies only when the lock/package metadata changed or `node_modules` is missing;
-4. **only after the update succeeds**, stop the previous phone server;
-5. start `SPA_ADAPTER=mock pnpm dev` in a detached process session/group;
-6. wait for `/api/health`, then re-check after a settling delay;
-7. open `http://127.0.0.1:3000` in the Android browser.
+The installed command `$PREFIX/bin/spar` is intentionally a small stable wrapper. It loads the phone config and executes the current `scripts/termux/spar` from the checkout via a temporary copy. Consequently, improvements to the repo-owned runner arrive with the next Git pull without repeatedly reinstalling the command.
+
+Phone-local state/configuration lives outside the repository:
+
+```text
+~/.config/spararama/phone.conf
+  selected adapter mode
+  optional CleverSpa IP/passcode
+
+~/.local/state/spararama-phone/
+  server.pid / server.log
+  cleverspa.pid / cleverspa.log
+
+~/.shortcuts/Spararama
+  Android/Termux home-screen launcher
+```
+
+Normal `spar` behaviour keeps the currently selected mode and:
+
+1. verifies the checkout is clean;
+2. fetches and fast-forwards `chatgpt-dev`;
+3. installs dependencies only when needed;
+4. **only after the update succeeds**, stops the previous phone processes;
+5. in `bridge` mode, starts `services/cleverspa` on loopback port 8787 and asks it to discover/connect;
+6. starts the main backend on port 3000 with the selected `SPA_ADAPTER`;
+7. waits for `/api/health`, then re-checks after a settling delay;
+8. opens `http://127.0.0.1:3000` in the Android browser.
 
 The pull-before-stop ordering is deliberate: if GitHub is unavailable or the current network blocks it, the already-running version remains available.
 
-The phone runner is separate from `scripts/local.mjs` on purpose. `scripts/local.mjs` is the general laptop/headless production-style lifecycle runner and may start the real CleverSpa service/build. `scripts/termux/spar` is the Android-specific development runner and defaults to `mock` for safety and portability.
+Connector switching is persistent and explicit:
 
-Phone hosting does **not** magically provide remote access to the physical spa. Real spa control still requires the phone/backend to have network reachability to the home-side adapter/tub (for example by being on the home LAN or through a deliberately configured VPN/secure route). Away from home, the default phone setup should remain `SPA_ADAPTER=mock` unless that network path is intentionally configured.
+```text
+spar live   -> SPAR_ADAPTER=bridge; manage both :8787 adapter + :3000 app
+spar mock   -> SPAR_ADAPTER=mock; stop the phone adapter and run simulation only
+```
 
-Detailed installation, launcher and troubleshooting notes are in [`docs/termux-phone.md`](./docs/termux-phone.md).
+`live-setup` may store a known CleverSpa IP/passcode in `phone.conf`; those values must never be committed to the repository. The installer preserves the selected mode and phone-local live settings when rerun.
+
+The phone runner is separate from `scripts/local.mjs` on purpose. `scripts/local.mjs` is the general laptop/headless production-style lifecycle runner. `scripts/termux/spar` is the Android-specific runner, with mock/live switching and Android process/session handling.
+
+Detailed installation, connector switching, launcher and troubleshooting notes are in [`docs/termux-phone.md`](./docs/termux-phone.md).
 
 ### Split home installation
 
@@ -271,4 +309,3 @@ Do not make Firestore-specific structures the core domain model.
 - The unattended backend does not depend on human browser authentication.
 - Local telemetry survives cloud/network failure.
 - Keep adapter and telemetry sinks replaceable so the project can support other spas/pools and different deployment models.
-- The Android/Termux runner is a supported dev/test deployment and should remain safe-by-default (`mock`) unless real spa network reachability is deliberately configured.
