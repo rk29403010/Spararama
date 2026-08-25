@@ -3,14 +3,19 @@ set -u
 
 CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/spararama/phone.conf"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/spararama-phone"
-PID_FILE="$STATE_DIR/server.pid"
-LOG_FILE="$STATE_DIR/server.log"
+SERVER_PID_FILE="$STATE_DIR/server.pid"
+SERVER_LOG_FILE="$STATE_DIR/server.log"
+ADAPTER_PID_FILE="$STATE_DIR/cleverspa.pid"
+ADAPTER_LOG_FILE="$STATE_DIR/cleverspa.log"
 
 # Defaults are deliberately safe for a phone used away from the spa.
 SPAR_REPO="${SPAR_REPO:-$HOME/Spararama}"
 SPAR_BRANCH="${SPAR_BRANCH:-chatgpt-dev}"
 SPAR_ADAPTER="${SPAR_ADAPTER:-mock}"
 SPAR_PORT="${SPAR_PORT:-3000}"
+CLEVERSPA_IP="${CLEVERSPA_IP:-}"
+CLEVERSPA_PASSCODE="${CLEVERSPA_PASSCODE:-}"
+CLEVERSPA_SERVICE_PORT="${CLEVERSPA_SERVICE_PORT:-8787}"
 
 if [ -f "$CONFIG_FILE" ]; then
   # shellcheck disable=SC1090
@@ -19,6 +24,8 @@ fi
 
 URL="http://127.0.0.1:${SPAR_PORT}"
 HEALTH_URL="$URL/api/health"
+ADAPTER_URL="http://127.0.0.1:${CLEVERSPA_SERVICE_PORT}"
+ADAPTER_STATUS_URL="$ADAPTER_URL/api/status"
 mkdir -p "$STATE_DIR"
 
 say() {
@@ -38,17 +45,32 @@ server_healthy() {
   curl -fsS --max-time 2 "$HEALTH_URL" >/dev/null 2>&1
 }
 
-stop_server() {
+adapter_healthy() {
+  curl -fsS --max-time 2 "$ADAPTER_STATUS_URL" >/dev/null 2>&1
+}
+
+persist_setting() {
+  local key="$1"
+  local value="$2"
+  local tmp="$CONFIG_FILE.tmp"
+  mkdir -p "$(dirname "$CONFIG_FILE")"
+  touch "$CONFIG_FILE"
+  grep -v "^${key}=" "$CONFIG_FILE" > "$tmp" || true
+  printf '%s=%q\n' "$key" "$value" >> "$tmp"
+  mv "$tmp" "$CONFIG_FILE"
+  chmod 600 "$CONFIG_FILE"
+}
+
+stop_process_group() {
+  local pid_file="$1"
+  local fallback_pattern="$2"
   local pid=""
 
-  if [ -f "$PID_FILE" ]; then
-    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+  if [ -f "$pid_file" ]; then
+    pid="$(cat "$pid_file" 2>/dev/null || true)"
   fi
 
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-    # New phone servers are started in their own session/process group. Killing
-    # the group ensures pnpm, tsx and Node all stop together instead of leaving
-    # an orphan listener behind.
     kill -TERM -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
     for _ in 1 2 3 4 5 6 7 8 9 10; do
       kill -0 "$pid" 2>/dev/null || break
@@ -59,12 +81,17 @@ stop_server() {
     fi
   fi
 
-  rm -f "$PID_FILE"
-
-  # Also catch a development server that was previously started by hand.
-  # On the phone this pattern is intentionally narrow so unrelated Node apps stay alone.
-  pkill -TERM -f 'tsx server\.ts' 2>/dev/null || true
+  rm -f "$pid_file"
+  pkill -TERM -f "$fallback_pattern" 2>/dev/null || true
   sleep 0.3
+}
+
+stop_server() {
+  stop_process_group "$SERVER_PID_FILE" 'tsx server\.ts'
+}
+
+stop_adapter() {
+  stop_process_group "$ADAPTER_PID_FILE" 'services/cleverspa/src/server\.js'
 }
 
 update_repo() {
@@ -106,27 +133,68 @@ ensure_dependencies() {
   fi
 }
 
+start_adapter() {
+  require_repo
+  cd "$SPAR_REPO" || exit 1
+  command -v setsid >/dev/null 2>&1 || fail "setsid is missing. Re-run: bash scripts/termux/install.sh"
+
+  if adapter_healthy; then
+    printf 'CleverSpa adapter is already running at %s\n' "$ADAPTER_URL"
+    return 0
+  fi
+
+  say "Starting live CleverSpa adapter..."
+  nohup setsid env \
+    CLEVERSPA_SERVICE_HOST="127.0.0.1" \
+    CLEVERSPA_SERVICE_PORT="$CLEVERSPA_SERVICE_PORT" \
+    CLEVERSPA_IP="$CLEVERSPA_IP" \
+    CLEVERSPA_PASSCODE="$CLEVERSPA_PASSCODE" \
+    node --env-file-if-exists=.env services/cleverspa/src/server.js \
+    </dev/null >"$ADAPTER_LOG_FILE" 2>&1 &
+  local pid=$!
+  printf '%s\n' "$pid" > "$ADAPTER_PID_FILE"
+
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    if adapter_healthy; then
+      printf 'CleverSpa adapter running at %s\n' "$ADAPTER_URL"
+      # Ask it to discover/connect now. A disconnected result is not fatal: the
+      # UI can represent an unreachable spa and the user may need to join home Wi-Fi.
+      curl -fsS --max-time 12 -X POST -H 'Content-Type: application/json' -d '{}' \
+        "$ADAPTER_URL/api/discover" >/dev/null 2>&1 || true
+      return 0
+    fi
+    if ! kill -0 "$pid" 2>/dev/null; then
+      break
+    fi
+    sleep 0.25
+  done
+
+  printf '\nCleverSpa adapter did not start. Last log lines:\n' >&2
+  tail -n 60 "$ADAPTER_LOG_FILE" >&2 2>/dev/null || true
+  rm -f "$ADAPTER_PID_FILE"
+  return 1
+}
+
 start_server() {
   require_repo
   cd "$SPAR_REPO" || exit 1
 
   command -v setsid >/dev/null 2>&1 || fail "setsid is missing. Re-run: bash scripts/termux/install.sh"
 
-  say "Starting Spararama..."
+  say "Starting Spararama (${SPAR_ADAPTER} adapter)..."
 
   # Android may background Termux immediately when the browser opens. Put the
-  # whole pnpm/tsx/Node tree in its own session so it is not tied to the shell
-  # that launched `spar`. nohup also protects it from a terminal hangup.
-  nohup setsid env SPA_ADAPTER="$SPAR_ADAPTER" PORT="$SPAR_PORT" pnpm dev \
-    </dev/null >"$LOG_FILE" 2>&1 &
+  # whole pnpm/tsx/Node tree in its own session so it is not tied to the shell.
+  nohup setsid env \
+    SPA_ADAPTER="$SPAR_ADAPTER" \
+    PORT="$SPAR_PORT" \
+    CLEVERSPA_BRIDGE_URL="$ADAPTER_URL" \
+    pnpm dev </dev/null >"$SERVER_LOG_FILE" 2>&1 &
   local pid=$!
-  printf '%s\n' "$pid" > "$PID_FILE"
+  printf '%s\n' "$pid" > "$SERVER_PID_FILE"
 
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
     if server_healthy; then
-      # A server can answer once and then die while the launcher is unwinding.
-      # Give it a brief settling period and verify it remains reachable before
-      # handing control to the browser.
       sleep 1
       if server_healthy; then
         printf 'Running at %s\n' "$URL"
@@ -140,9 +208,21 @@ start_server() {
   done
 
   printf '\nSpararama did not stay running. Last log lines:\n' >&2
-  tail -n 60 "$LOG_FILE" >&2 2>/dev/null || true
-  rm -f "$PID_FILE"
+  tail -n 60 "$SERVER_LOG_FILE" >&2 2>/dev/null || true
+  rm -f "$SERVER_PID_FILE"
   return 1
+}
+
+start_for_mode() {
+  case "$SPAR_ADAPTER" in
+    bridge|cleverspa)
+      start_adapter || return 1
+      ;;
+    *)
+      stop_adapter
+      ;;
+  esac
+  start_server
 }
 
 open_app() {
@@ -151,29 +231,89 @@ open_app() {
   fi
 }
 
+show_live_connection() {
+  local json
+  json="$(curl -fsS --max-time 4 "$ADAPTER_STATUS_URL" 2>/dev/null || true)"
+  if [ -z "$json" ]; then
+    printf 'CleverSpa adapter: not running\n'
+  elif printf '%s' "$json" | grep -q '"connected":true'; then
+    printf 'CleverSpa: connected to live spa\n'
+  else
+    printf 'CleverSpa: adapter running, spa not connected\n'
+    printf '  The phone must be on the spa home LAN. If discovery finds the spa but local login fails,\n'
+    printf '  configure its passcode with: spar live-setup\n'
+  fi
+}
+
 status() {
+  printf 'Mode: %s\n' "$SPAR_ADAPTER"
   if server_healthy; then
-    printf 'Spararama is running: %s\n' "$URL"
-    if [ -f "$PID_FILE" ]; then
-      printf 'PID: %s\n' "$(cat "$PID_FILE" 2>/dev/null || printf '?')"
+    printf 'Spararama: running at %s\n' "$URL"
+    if [ -f "$SERVER_PID_FILE" ]; then
+      printf 'PID: %s\n' "$(cat "$SERVER_PID_FILE" 2>/dev/null || printf '?')"
     fi
   else
-    printf 'Spararama is not running.\n'
-    return 1
+    printf 'Spararama: not running\n'
   fi
+
+  case "$SPAR_ADAPTER" in
+    bridge|cleverspa) show_live_connection ;;
+  esac
+}
+
+live_setup() {
+  local ip passcode
+  printf 'Spa IP [%s] (Enter keeps it; type auto to use discovery): ' "${CLEVERSPA_IP:-auto}"
+  IFS= read -r ip
+  if [ "$ip" = "auto" ]; then
+    CLEVERSPA_IP=""
+  elif [ -n "$ip" ]; then
+    CLEVERSPA_IP="$ip"
+  fi
+
+  printf 'Spa passcode (Enter keeps current; type clear to remove): '
+  IFS= read -r -s passcode
+  printf '\n'
+  if [ "$passcode" = "clear" ]; then
+    CLEVERSPA_PASSCODE=""
+  elif [ -n "$passcode" ]; then
+    CLEVERSPA_PASSCODE="$passcode"
+  fi
+
+  persist_setting CLEVERSPA_IP "$CLEVERSPA_IP"
+  persist_setting CLEVERSPA_PASSCODE "$CLEVERSPA_PASSCODE"
+  printf 'Live-spa settings saved outside the repo in %s\n' "$CONFIG_FILE"
+}
+
+switch_mode() {
+  local mode="$1"
+  SPAR_ADAPTER="$mode"
+  persist_setting SPAR_ADAPTER "$SPAR_ADAPTER"
+  ensure_dependencies
+  stop_server
+  stop_adapter
+  start_for_mode || exit 1
+  if [ "$mode" = "bridge" ]; then
+    show_live_connection
+  fi
+  open_app
 }
 
 show_help() {
   cat <<'EOF'
 Spararama phone runner
 
-  spar          pull latest chatgpt-dev, update deps if needed, restart, open app
-  spar start    start the existing checkout without pulling
-  spar restart  restart the existing checkout without pulling
-  spar stop     stop the phone server
-  spar status   show whether it is running
-  spar log      follow the server log (Ctrl+C to leave)
-  spar open     open the app in the browser
+  spar             pull latest chatgpt-dev, update deps, restart current mode, open app
+  spar live        switch persistently to the real CleverSpa adapter and restart
+  spar mock        switch persistently to the simulated spa and restart
+  spar live-setup  optionally store a known spa IP/passcode in phone-local config
+  spar start       start the existing checkout without pulling
+  spar restart     restart the existing checkout without pulling
+  spar stop        stop Spararama and the phone CleverSpa adapter
+  spar status      show mode, server and live-spa connection state
+  spar log         follow the Spararama server log (Ctrl+C to leave)
+  spar adapter-log follow the CleverSpa adapter log (Ctrl+C to leave)
+  spar open        open the app in the browser
 
 Phone configuration: ~/.config/spararama/phone.conf
 EOF
@@ -188,17 +328,32 @@ case "$command" in
     ensure_dependencies
     say "Restarting Spararama..."
     stop_server
-    start_server || exit 1
+    stop_adapter
+    start_for_mode || exit 1
+    case "$SPAR_ADAPTER" in bridge|cleverspa) show_live_connection ;; esac
     open_app
+    ;;
+  live)
+    printf 'Switching to LIVE spa mode. For LAN control, the phone must be on the same home network as the spa.\n'
+    switch_mode bridge
+    ;;
+  mock)
+    printf 'Switching to MOCK spa mode. No commands will be sent to the real spa.\n'
+    switch_mode mock
+    ;;
+  live-setup)
+    live_setup
     ;;
   start)
     require_repo
     ensure_dependencies
     if server_healthy; then
       printf 'Spararama is already running: %s\n' "$URL"
+      case "$SPAR_ADAPTER" in bridge|cleverspa) show_live_connection ;; esac
     else
       stop_server
-      start_server || exit 1
+      stop_adapter
+      start_for_mode || exit 1
     fi
     open_app
     ;;
@@ -206,19 +361,26 @@ case "$command" in
     require_repo
     ensure_dependencies
     stop_server
-    start_server || exit 1
+    stop_adapter
+    start_for_mode || exit 1
+    case "$SPAR_ADAPTER" in bridge|cleverspa) show_live_connection ;; esac
     open_app
     ;;
   stop)
     stop_server
+    stop_adapter
     printf 'Spararama stopped.\n'
     ;;
   status)
     status
     ;;
   log|logs)
-    touch "$LOG_FILE"
-    tail -f "$LOG_FILE"
+    touch "$SERVER_LOG_FILE"
+    tail -f "$SERVER_LOG_FILE"
+    ;;
+  adapter-log)
+    touch "$ADAPTER_LOG_FILE"
+    tail -f "$ADAPTER_LOG_FILE"
     ;;
   open)
     open_app
