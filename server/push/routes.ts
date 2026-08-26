@@ -31,14 +31,24 @@ importScripts('https://www.gstatic.com/firebasejs/${FIREBASE_WEB_SDK_VERSION}/fi
 firebase.initializeApp(${firebaseConfig});
 const messaging = firebase.messaging();
 
+function vibrationFor(kind) {
+  if (kind === 'heat_soak_complete') return [300, 120, 300, 120, 650];
+  if (kind === 'target_reached') return [220, 120, 350];
+  if (kind === 'manual_start_required') return [250, 120, 250, 120, 500];
+  return [160];
+}
+
 messaging.onBackgroundMessage((payload) => {
   const data = payload.data || {};
   const title = data.title || 'Spararama';
+  const attention = ['manual_start_required', 'target_reached', 'heat_soak_complete'].includes(data.kind);
   const options = {
     body: data.body || '',
     tag: data.notificationId ? 'spararama-' + data.notificationId : 'spararama-heating',
-    renotify: Boolean(data.requiresConfirmation === 'true'),
-    requireInteraction: Boolean(data.requiresConfirmation === 'true'),
+    renotify: attention,
+    requireInteraction: data.kind === 'manual_start_required' || data.kind === 'heat_soak_complete',
+    silent: false,
+    vibrate: vibrationFor(data.kind),
     data: {
       url: data.url || '/',
       scheduleId: data.scheduleId,
