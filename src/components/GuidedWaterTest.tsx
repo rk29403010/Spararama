@@ -92,18 +92,18 @@ function guideStepsForMethod(method: TestMethodProfile): GuideStep[] {
 
   if (method.id === 'current-3-way') {
     return [
-      { id: 'ready', label: 'Phone down', detail: 'Strip ready.', durationMs: 2600, visual: 'ready', spokenText: 'Get ready.' },
-      { id: 'dip', label: 'DIP NOW', detail: 'Straight in and out.', durationMs: 2200, visual: 'quick-dip', spokenText: 'Dip now.', cueAtEnd: true },
+      { id: 'ready', label: 'Get ready to dip', detail: 'Strip ready. Phone down.', durationMs: 4000, visual: 'ready', spokenText: 'Get ready.', showCountdown: true },
+      { id: 'dip', label: 'DIP NOW', detail: 'Straight in and out.', durationMs: 4500, visual: 'quick-dip', spokenText: 'Dip now.', cueAtEnd: true },
       { id: 'hold', label: 'Hold level', detail: 'Pads facing up.', durationMs: waitSeconds * 1000, visual: 'hold', spokenText: 'Hold the strip level.', showCountdown: true, cueAtEnd: true }
     ];
   }
 
   if (method.id === 'current-7-way') {
     return [
-      { id: 'ready', label: 'Phone down', detail: 'Strip ready.', durationMs: 2600, visual: 'ready', spokenText: 'Get ready.' },
-      { id: 'dip', label: 'DIP NOW', detail: 'Pads under water.', durationMs: 650, visual: 'enter', spokenText: 'Dip now.' },
-      { id: 'move', label: 'MOVE', detail: 'Keep it moving.', durationMs: 1200, visual: 'move', spokenText: 'Keep moving.' },
-      { id: 'remove', label: 'REMOVE', detail: 'Keep it level.', durationMs: 650, visual: 'remove', spokenText: 'Remove strip.', cueAtEnd: true },
+      { id: 'ready', label: 'Get ready to dip', detail: 'Strip ready. Phone down.', durationMs: 4000, visual: 'ready', spokenText: 'Get ready.', showCountdown: true },
+      { id: 'dip', label: 'DIP NOW', detail: 'Pads under water.', durationMs: 1500, visual: 'enter', spokenText: 'Dip now.' },
+      { id: 'move', label: 'MOVE', detail: 'Keep it moving for 2 seconds.', durationMs: 2000, visual: 'move', spokenText: 'Keep moving.' },
+      { id: 'remove', label: 'REMOVE', detail: 'Keep it level.', durationMs: 1500, visual: 'remove', spokenText: 'Remove strip.', cueAtEnd: true },
       { id: 'hold', label: 'Hold level', detail: 'Pads facing up.', durationMs: waitSeconds * 1000, visual: 'hold', spokenText: 'Hold the strip level.', showCountdown: true, cueAtEnd: true }
     ];
   }
@@ -131,6 +131,11 @@ function WaterStage({ padCount, visual }: { padCount: number; visual: GuideVisua
     visual === 'enter' ? 'spa-strip-enter' :
     visual === 'move' ? 'spa-strip-move' :
     visual === 'remove' ? 'spa-strip-remove' : '';
+  const animationDuration =
+    visual === 'quick-dip' ? '4.5s' :
+    visual === 'enter' ? '1.5s' :
+    visual === 'move' ? '2s' :
+    visual === 'remove' ? '1.5s' : undefined;
 
   if (visual === 'ready') {
     return (
@@ -148,7 +153,7 @@ function WaterStage({ padCount, visual }: { padCount: number; visual: GuideVisua
   return (
     <div className="relative h-60 w-full max-w-sm overflow-hidden rounded-3xl bg-sky-50 border border-sky-200" aria-hidden="true">
       <div className="absolute left-1/2 top-3 -translate-x-1/2 z-20">
-        <div className={horizontal ? '' : animationClass}><StripBody padCount={padCount} horizontal={horizontal} /></div>
+        <div className={horizontal ? '' : animationClass} style={animationDuration ? { animationDuration } : undefined}><StripBody padCount={padCount} horizontal={horizontal} /></div>
       </div>
       <div className="absolute inset-x-0 bottom-0 h-28 bg-sky-200 border-t-4 border-sky-300">
         <div className="spa-water-wave absolute -top-3 -left-8 w-[125%] h-7 rounded-[50%] bg-sky-200" />
