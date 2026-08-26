@@ -82,7 +82,7 @@ export function TelemetrySettings() {
       }
       playReadySignal();
       if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('Your hot tub is ready!', { tag: 'spararama-alert-test', renotify: true });
+        new Notification('Your hot tub is ready!', { tag: 'spararama-alert-test' });
       }
       const result = await testPushNotification();
       setPhoneMessage(result.successCount > 0
