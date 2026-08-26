@@ -11,6 +11,12 @@ const INVALID_TOKEN_CODES = new Set([
   'messaging/registration-token-not-registered'
 ]);
 
+const ATTENTION_KINDS = new Set<HeatingNotification['kind']>([
+  'manual_start_required',
+  'target_reached',
+  'heat_soak_complete'
+]);
+
 export interface PushConfig {
   enabled: boolean;
   projectId: string;
@@ -23,6 +29,16 @@ export function resolvePushConfig(): PushConfig {
     projectId: process.env.FIREBASE_PROJECT_ID || DEFAULT_PROJECT_ID,
     publicVapidKey: String(process.env.FIREBASE_WEB_PUSH_VAPID_KEY || '').trim()
   };
+}
+
+function notificationCopy(notification: HeatingNotification) {
+  if (notification.kind === 'target_reached') {
+    return { title: 'Hot tub temperature reached.', body: '' };
+  }
+  if (notification.kind === 'heat_soak_complete') {
+    return { title: 'Your hot tub is ready!', body: '' };
+  }
+  return { title: notification.title, body: notification.message };
 }
 
 export class PushService {
@@ -72,6 +88,9 @@ export class PushService {
       return { enabled: true, targetCount: 0, successCount: 0, failureCount: 0, retryableFailureCount: 0, removedInvalidCount: 0 };
     }
 
+    const copy = notificationCopy(notification);
+    const urgent = ATTENTION_KINDS.has(notification.kind);
+
     try {
       const response = await getMessaging(this.app).sendEachForMulticast({
         tokens,
@@ -79,13 +98,16 @@ export class PushService {
           notificationId: notification.id,
           scheduleId: notification.scheduleId,
           kind: notification.kind,
-          title: notification.title,
-          body: notification.message,
+          title: copy.title,
+          body: copy.body,
           requiresConfirmation: String(notification.requiresConfirmation),
           url: '/'
         },
         webpush: {
-          headers: { Urgency: notification.requiresConfirmation ? 'high' : 'normal' }
+          headers: {
+            Urgency: urgent ? 'high' : 'normal',
+            TTL: urgent ? '900' : '3600'
+          }
         }
       });
 
