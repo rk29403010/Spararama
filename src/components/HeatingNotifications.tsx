@@ -108,7 +108,7 @@ export function HeatingNotifications() {
           const copy = alertCopy(item);
           signalForegroundAlert(item.kind);
           if (!item.pushSentAt && 'Notification' in window && Notification.permission === 'granted') {
-            new Notification(copy.title, { body: copy.message, tag: `spararama-${item.id}`, renotify: true });
+            new Notification(copy.title, { body: copy.message, tag: `spararama-${item.id}` });
           }
           await heatingApi.markDelivered(item.id);
           if (!item.requiresConfirmation) setNotice({ ...item, title: copy.title, message: copy.message });
