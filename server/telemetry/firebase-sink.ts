@@ -135,7 +135,7 @@ export class FirebaseTelemetrySink {
           .doc(sample.id);
         // Fresh sparse records can contain optional undefined fields in memory;
         // JSON round-tripping removes them before Firestore validation. The cloud
-        // timestamp is sync metadata only and never becomes part of local events.
+        // timestamp is sync metadata only and never drives the physical event time.
         batch.set(ref, {
           ...serializable(sample),
           [CLOUD_WRITTEN_AT]: FieldValue.serverTimestamp()
@@ -150,22 +150,27 @@ export class FirebaseTelemetrySink {
 
     const knownHosts = new Set(options.knownHosts || []);
     const writtenAfter = Math.max(0, Number(options.writtenAfter) || 0);
-    const collectors = await this.db.collection('telemetryCollectors').get();
-    if (collectors.empty) {
-      // Upgrade path for telemetry written before collector registry documents
-      // existed. Do this once, then bootstrap registry docs for cheap later reads.
-      const legacy = await this.db.collectionGroup('samples').get();
-      const decoded = legacy.docs.map(doc => decodedRecord(doc.data())).filter((record): record is StoredTelemetryRecord => Boolean(record));
+
+    // First sync on an installation deliberately discovers every historical sample.
+    // This is the upgrade path for existing telemetry written before collector
+    // registry documents and _firebaseWrittenAt existed. It runs only while the
+    // local remote cache has no known collectors; later refreshes are incremental.
+    if (knownHosts.size === 0 && writtenAfter === 0) {
+      const bootstrap = await this.db.collectionGroup('samples').get();
+      const records = bootstrap.docs
+        .map(doc => decodedRecord(doc.data()))
+        .filter((record): record is StoredTelemetryRecord => Boolean(record));
       const hosts = new Map<string, string>();
-      let cursor = writtenAfter;
-      for (const record of decoded) {
+      let cursor = 0;
+      for (const record of records) {
         hosts.set(record.hostId, record.collectorVersion);
         cursor = Math.max(cursor, cloudWrittenAt(record));
       }
       await Promise.all(Array.from(hosts.entries()).map(([hostId, version]) => this.registerCollector(hostId, version)));
-      return { records: decoded, collectorIds: Array.from(hosts.keys()), cursor };
+      return { records, collectorIds: Array.from(hosts.keys()), cursor };
     }
 
+    const collectors = await this.db.collection('telemetryCollectors').get();
     const snapshots = await Promise.all(collectors.docs.map(async collector => {
       const samples = collector.ref.collection('samples');
       if (!knownHosts.has(collector.id)) {
