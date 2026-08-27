@@ -53,14 +53,32 @@ export interface TelemetrySampleDto {
   forecast?: ForecastChangeDto[];
 }
 
-export interface TelemetryHistoryDto { samples: TelemetrySampleDto[]; total: number; }
-export interface TelemetryChartDto { samples: TelemetrySampleDto[]; rawTotal: number; rolledUp: boolean; }
+export interface SharedTelemetryStatusDto {
+  source: 'firebase' | 'cache' | 'local-only';
+  remoteRecords: number;
+  lastRefreshAt?: number;
+  lastError?: string;
+}
+
+export interface TelemetryHistoryDto {
+  samples: TelemetrySampleDto[];
+  total: number;
+  sharedHistory?: SharedTelemetryStatusDto;
+}
+export interface TelemetryChartDto {
+  samples: TelemetrySampleDto[];
+  rawTotal: number;
+  rolledUp: boolean;
+  sharedHistory?: SharedTelemetryStatusDto;
+}
 export interface TelemetryStatusDto {
   running: boolean;
   pendingUploads: number;
   firebaseEnabled: boolean;
+  collectorHostId?: string;
   lastUploadAt?: number;
   lastError?: string;
+  sharedHistory?: SharedTelemetryStatusDto;
   equipmentCatalog?: EquipmentCatalogResponse;
 }
 export interface TelemetryConfigDto { intervalSeconds: number; }
