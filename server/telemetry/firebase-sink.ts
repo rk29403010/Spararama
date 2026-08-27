@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import type { TelemetrySample } from './types';
+import type { StoredTelemetryRecord } from './types';
 
 const DEFAULT_PROJECT_ID = 'microprojects-481213';
 const DEFAULT_DATABASE_ID = 'ai-studio-hottubmonitor-c4b572e9-4270-488c-b8d2-306ccf453f65';
@@ -63,7 +63,7 @@ export class FirebaseTelemetrySink {
     this.db = getFirestore(app, this.config.databaseId);
   }
 
-  async writeSamples(samples: TelemetrySample[]) {
+  async writeSamples(samples: StoredTelemetryRecord[]) {
     if (!this.enabled || !this.db || samples.length === 0) return;
 
     for (let offset = 0; offset < samples.length; offset += 450) {
@@ -107,7 +107,7 @@ export class FirebaseTelemetrySink {
     }
   }
 
-  async verifySampleIdempotency(sample: TelemetrySample) {
+  async verifySampleIdempotency(sample: StoredTelemetryRecord) {
     if (!this.enabled || !this.db) {
       throw new Error('Firebase telemetry is disabled. Set FIREBASE_TELEMETRY_ENABLED=true before running the diagnostic.');
     }
