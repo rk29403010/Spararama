@@ -63,12 +63,20 @@ export class VoiceMonkeySecretStore {
     };
   }
 
+  private async addVersion(headers: Record<string, string>, payload: string) {
+    return fetch(`${SECRET_MANAGER_ROOT}/${this.secretName()}:addVersion`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ payload: { data: payload } })
+    });
+  }
+
   async save(config: StoredVoiceMonkeyConfig) {
     const headers = await this.headers(true);
-    const secretUrl = `${SECRET_MANAGER_ROOT}/${this.secretName()}`;
-    const exists = await fetch(secretUrl, { headers: await this.headers() });
+    const payload = Buffer.from(JSON.stringify(config), 'utf8').toString('base64');
+    let response = await this.addVersion(headers, payload);
 
-    if (exists.status === 404) {
+    if (response.status === 404) {
       const create = await fetch(`${SECRET_MANAGER_ROOT}/projects/${this.config.projectId}/secrets?secretId=${encodeURIComponent(this.config.secretId)}`, {
         method: 'POST',
         headers,
@@ -77,16 +85,9 @@ export class VoiceMonkeySecretStore {
       if (!create.ok && create.status !== 409) {
         throw await this.errorFor(create, 'Unable to create Voice Monkey secret');
       }
-    } else if (!exists.ok) {
-      throw await this.errorFor(exists, 'Unable to inspect Voice Monkey secret');
+      response = await this.addVersion(headers, payload);
     }
 
-    const payload = Buffer.from(JSON.stringify(config), 'utf8').toString('base64');
-    const response = await fetch(`${secretUrl}:addVersion`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ payload: { data: payload } })
-    });
     if (!response.ok) throw await this.errorFor(response, 'Unable to save Voice Monkey secret');
     return { projectId: this.config.projectId, secretId: this.config.secretId };
   }
