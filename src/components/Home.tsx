@@ -8,6 +8,7 @@ interface HomeProps { state: AppState; }
 function finiteNumber(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value); }
 
 const CONCERN_AFTER_MS = 60 * 60 * 1000;
+const BUBBLE_AUTO_RESTART_KEY = 'spararama:bubbles:auto-restart';
 
 function ageText(timestamp: number | undefined, now: number) {
   if (!timestamp || !Number.isFinite(timestamp)) return 'unknown';
@@ -20,6 +21,14 @@ function ageText(timestamp: number | undefined, now: number) {
   const remainder = minutes % 60;
   if (hours < 24) return remainder ? `${hours}h ${remainder}m ago` : `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+function countdownText(endsAt: number | undefined, now: number) {
+  if (!endsAt || !Number.isFinite(endsAt)) return null;
+  const total = Math.max(0, Math.ceil((endsAt - now) / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 function acquiredText(timestamp: number | undefined) {
@@ -52,18 +61,19 @@ function RefreshButton({ refreshing, acquiredAt, onClick, dark = true, label }: 
   );
 }
 
-function EquipmentButton({ label, icon, on, disabled, busy, onToggle }: { label: string; icon: React.ReactNode; on: boolean; disabled: boolean; busy: boolean; onToggle: () => void; }) {
+function EquipmentButton({ label, icon, on, highlighted = false, disabled, busy, statusText, onToggle }: { label: string; icon: React.ReactNode; on: boolean; highlighted?: boolean; disabled: boolean; busy: boolean; statusText?: string; onToggle: () => void; }) {
+  const active = on || highlighted;
   return (
     <button
       type="button"
       disabled={disabled}
       aria-pressed={on}
       onClick={onToggle}
-      className={`min-h-24 rounded-2xl border-2 px-3 py-4 flex flex-col items-center justify-center gap-2 text-center transition-colors disabled:opacity-45 ${on ? 'border-indigo-700 bg-indigo-700 text-white' : 'border-slate-200 bg-white text-slate-900'}`}
+      className={`min-h-24 rounded-2xl border-2 px-3 py-4 flex flex-col items-center justify-center gap-2 text-center transition-colors disabled:opacity-55 ${active ? 'border-indigo-700 bg-indigo-700 text-white' : 'border-slate-200 bg-white text-slate-900'}`}
     >
       {busy ? <Loader2 className="w-7 h-7 animate-spin" aria-hidden="true" /> : icon}
       <span className="text-base font-black leading-tight">{label}</span>
-      <span className={`text-sm font-black ${on ? 'text-indigo-100' : 'text-slate-600'}`}>{busy ? 'Updating…' : on ? 'On' : 'Off'}</span>
+      <span className={`text-sm font-black tabular-nums ${active ? 'text-indigo-100' : 'text-slate-600'}`}>{busy ? 'Updating…' : statusText ?? (on ? 'On' : 'Off')}</span>
     </button>
   );
 }
@@ -80,6 +90,9 @@ export function Home({ state }: HomeProps) {
   const [error, setError] = useState('');
   const [showManualLog, setShowManualLog] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [bubbleAutoRestartPreference, setBubbleAutoRestartPreference] = useState(() => {
+    try { return window.localStorage.getItem(BUBBLE_AUTO_RESTART_KEY) === 'true'; } catch { return false; }
+  });
   const refreshInFlight = useRef(false);
 
   const refresh = async (manual = false) => {
@@ -107,7 +120,7 @@ export function Home({ state }: HomeProps) {
     if (connectivity !== 'wifi' || !liveConnectorAvailable) { setReachable(false); setLoading(false); return; }
     void refresh(false);
     const pollTimer = window.setInterval(() => void refresh(false), 15000);
-    const clockTimer = window.setInterval(() => setNow(Date.now()), 30000);
+    const clockTimer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => { window.clearInterval(pollTimer); window.clearInterval(clockTimer); };
   }, [connectivity, liveConnectorAvailable]);
 
@@ -120,8 +133,24 @@ export function Home({ state }: HomeProps) {
       setReachable(Boolean(next.connected));
       setNow(Date.now());
     } catch (err: any) {
-      setReachable(false);
       setError(err?.message || 'Command failed.');
+      if (!String(err?.message || '').toLowerCase().includes('cooling down')) setReachable(false);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const updateBubbleAutoRestart = async (enabled: boolean) => {
+    setBubbleAutoRestartPreference(enabled);
+    try { window.localStorage.setItem(BUBBLE_AUTO_RESTART_KEY, String(enabled)); } catch { /* storage is optional */ }
+    if (!status || status.bubblePhase === 'idle') return;
+    setBusy('bubble-auto-restart');
+    setError('');
+    try {
+      const bubbleState = await spaApi.setBubbleAutoRestart(enabled);
+      setStatus(current => current ? { ...current, ...bubbleState } : current);
+    } catch (err: any) {
+      setError(err?.message || 'Could not update bubble restart.');
     } finally {
       setBusy(null);
     }
@@ -182,6 +211,19 @@ export function Home({ state }: HomeProps) {
     void command('target', () => spaApi.setTargetTemperature(Math.max(5, Math.min(max, value))));
   };
 
+  const bubblePhase = status?.bubblePhase ?? (status?.bubblesOn ? 'running' : 'idle');
+  const bubbleRunCountdown = countdownText(status?.bubbleRunEndsAt, now);
+  const bubbleCooldownCountdown = countdownText(status?.bubbleCooldownEndsAt, now);
+  const bubbleStatusText = bubblePhase === 'cooldown'
+    ? `${bubbleCooldownCountdown ?? '—'} wait`
+    : status?.bubblesOn && status?.bubbleTimingKnown && bubbleRunCountdown
+      ? `${bubbleRunCountdown} left`
+      : status?.bubblesOn ? 'On' : 'Off';
+  const bubbleCooling = bubblePhase === 'cooldown';
+  const bubbleHasCooldown = finiteNumber(status?.bubbleCooldownSeconds) && status.bubbleCooldownSeconds > 0;
+  const bubbleRestartUsed = Boolean(status?.bubbleAutoRestartUsed);
+  const bubbleRestartChecked = bubblePhase === 'idle' ? bubbleAutoRestartPreference : Boolean(status?.bubbleAutoRestartEnabled);
+
   return <>
     <div className="p-4 max-w-xl mx-auto space-y-5">
       <section className="rounded-3xl bg-slate-950 text-white p-5 sm:p-6 overflow-hidden">
@@ -227,8 +269,28 @@ export function Home({ state }: HomeProps) {
         <div className="grid grid-cols-3 gap-3">
           <EquipmentButton label="Filter" icon={<Waves className="w-7 h-7" aria-hidden="true" />} on={Boolean(status?.filterOn)} busy={busy === 'filter'} disabled={disabled} onToggle={() => status && void command('filter', () => spaApi.setFilter(!status.filterOn))} />
           <EquipmentButton label="Heater" icon={<Flame className="w-7 h-7" aria-hidden="true" />} on={Boolean(status?.heaterOn)} busy={busy === 'heater'} disabled={disabled} onToggle={() => status && void command('heater', () => spaApi.setHeater(!status.heaterOn))} />
-          <EquipmentButton label="Bubbles" icon={<Wind className="w-7 h-7" aria-hidden="true" />} on={Boolean(status?.bubblesOn)} busy={busy === 'bubbles'} disabled={disabled} onToggle={() => status && void command('bubbles', () => spaApi.setBubbles(!status.bubblesOn))} />
+          <EquipmentButton
+            label="Bubbles"
+            icon={<Wind className="w-7 h-7" aria-hidden="true" />}
+            on={Boolean(status?.bubblesOn)}
+            highlighted={bubbleCooling}
+            busy={busy === 'bubbles'}
+            disabled={disabled || bubbleCooling}
+            statusText={bubbleStatusText}
+            onToggle={() => status && void command('bubbles', () => spaApi.setBubbles(!status.bubblesOn, !status.bubblesOn && bubbleAutoRestartPreference))}
+          />
         </div>
+
+        {bubbleHasCooldown && <label className={`mt-3 min-h-12 px-1 flex items-center justify-between gap-4 text-sm font-black ${bubbleRestartUsed ? 'text-slate-500' : 'text-slate-800'}`}>
+          <span>{bubbleRestartUsed ? 'Auto restart used' : 'Restart bubbles once'}</span>
+          <input
+            type="checkbox"
+            className="w-6 h-6 accent-indigo-700"
+            checked={bubbleRestartChecked}
+            disabled={disabled || bubbleRestartUsed || busy === 'bubble-auto-restart'}
+            onChange={event => void updateBubbleAutoRestart(event.target.checked)}
+          />
+        </label>}
       </section>
 
       {error && <div role="alert" className={`rounded-2xl p-4 text-sm font-bold ${longOutage ? 'bg-amber-50 text-amber-950 border border-amber-200' : 'bg-white text-slate-800 border border-slate-200'}`}>{error}</div>}
