@@ -255,15 +255,15 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
 
     if (electronic) {
       readings = method.parameters
-        .map(parameter => {
+        .map((parameter): MeasurementReading | null => {
           const value = electronicValues[parameter.measurement];
           if (typeof value !== 'number') return null;
-          return { measurement: parameter.measurement, value, source: 'manual' as const, note: 'Manually entered from electronic tester.' };
+          return { measurement: parameter.measurement, value, source: 'manual', note: 'Manually entered from electronic tester.' };
         })
         .filter((reading): reading is MeasurementReading => Boolean(reading));
     } else {
       readings = method.parameters
-        .map(parameter => {
+        .map((parameter): MeasurementReading | null => {
           const scale = scales[parameter.measurement];
           const selection = stripSelections[parameter.measurement];
           if (!scale || !selection) return null;
