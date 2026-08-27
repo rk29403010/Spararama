@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { CLEVERSPA_PRODUCT_KEY } from "../gizwits/constants.js";
 import { GizwitsCloudClient } from "../gizwits/cloud-client.js";
 import { discoverGizwitsDevices } from "../gizwits/lan-discovery.js";
@@ -21,13 +22,44 @@ function normalizeState(raw) {
   return { connected: Boolean(raw.online), transport: raw.transport, updatedAt, device: raw.device, currentTemperature, targetTemperature, heater: asBoolean(attributes.Heater), filter: asBoolean(attributes.Filter), bubbles: asBoolean(attributes.Bubble), ozone: asBoolean(attributes.O3), filterMinutes: Number(attributes.Time_filter), alerts, controllable: blockedReasons.length === 0, blockedReasons };
 }
 
-export class SpaController {
-  #transport = null; #lastStatus = null; #heaterObservedOffSince = null; #operation = Promise.resolve();
-  constructor({ cloudClient = new GizwitsCloudClient(), discover = discoverGizwitsDevices } = {}) { this.cloudClient = cloudClient; this.discoverDevices = discover; this.diagnostics = { lastDiscoveryAt: null, discoveredDevices: [], lastError: null }; }
+export class SpaController extends EventEmitter {
+  #transport = null; #lastStatus = null; #heaterObservedOffSince = null; #operation = Promise.resolve(); #transportHandlers = null;
+  constructor({ cloudClient = new GizwitsCloudClient(), discover = discoverGizwitsDevices } = {}) {
+    super();
+    this.cloudClient = cloudClient;
+    this.discoverDevices = discover;
+    this.diagnostics = { lastDiscoveryAt: null, discoveredDevices: [], lastError: null };
+  }
   async connectCloud(username, password) { const result = await this.cloudClient.login(username, password); this.#replaceTransport(this.cloudClient); return result; }
   async connectCloudToken(token) { const result = await this.cloudClient.useToken(token); this.#replaceTransport(this.cloudClient); return result; }
-  async connectLan(ip, passcode = "", device = {}) { const client = new GizwitsLanClient({ ip, passcode, device: { ...device, productKey: device.productKey || CLEVERSPA_PRODUCT_KEY } }); await client.connect(); this.#replaceTransport(client); return this.status({ refresh: true }); }
-  #replaceTransport(next) { if (this.#transport && this.#transport !== next && typeof this.#transport.close === "function") this.#transport.close(); this.#transport = next; this.#lastStatus = null; this.#heaterObservedOffSince = null; }
+  async connectLan(ip, passcode = "", device = {}) { const client = new GizwitsLanClient({ ip, passcode, device: { ...device, productKey: device.productKey || CLEVERSPA_PRODUCT_KEY } }); await client.connect(); this.#replaceTransport(client); this.emit("connection", { connected: true, observedAt: Date.now() }); return this.status({ refresh: true }); }
+  #detachTransportHandlers() {
+    if (!this.#transport || !this.#transportHandlers || typeof this.#transport.off !== "function") return;
+    this.#transport.off("status", this.#transportHandlers.status);
+    this.#transport.off("connected", this.#transportHandlers.connected);
+    this.#transport.off("disconnected", this.#transportHandlers.disconnected);
+    this.#transportHandlers = null;
+  }
+  #replaceTransport(next) {
+    this.#detachTransportHandlers();
+    if (this.#transport && this.#transport !== next && typeof this.#transport.close === "function") this.#transport.close();
+    this.#transport = next; this.#lastStatus = null; this.#heaterObservedOffSince = null;
+    if (typeof next?.on === "function") {
+      const status = raw => {
+        try {
+          const normalized = normalizeState(raw);
+          this.#observeStatus(normalized);
+          this.emit("status", { status: normalized, observedAt: Date.now() });
+        } catch {}
+      };
+      const connected = () => this.emit("connection", { connected: true, observedAt: Date.now() });
+      const disconnected = () => this.emit("connection", { connected: false, observedAt: Date.now() });
+      this.#transportHandlers = { status, connected, disconnected };
+      next.on("status", status);
+      next.on("connected", connected);
+      next.on("disconnected", disconnected);
+    }
+  }
   async discover(options = {}) {
     const devices = await this.discoverDevices(options); this.diagnostics.lastDiscoveryAt = new Date().toISOString(); this.diagnostics.discoveredDevices = devices;
     const spa = devices.find((device) => device.productKey === CLEVERSPA_PRODUCT_KEY);
