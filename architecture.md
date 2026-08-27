@@ -234,6 +234,15 @@ Typical automated fields:
 - timestamp and host ID
 - later local environmental sensors/weather observations
 
+Optional Meross MS100 environmental sensors are read through their MSH300 hub by
+the backend sensor-source boundary. When `MEROSS_MSH300_HOST` is configured, the
+collector sends authenticated, read-only Meross LAN requests and stores temperature,
+humidity, battery, battery voltage and connectivity fields when the hub provides them.
+The client can use Meross's read-only HTTP reply-key exchange without an account secret;
+if a device key is configured as a fallback, it remains server-side in the untracked
+local environment. Direct LAN HTTP provides polling; event-triggered updates require an
+MQTT transport and do not replace the collector watchdog.
+
 Disconnected/partial samples are legitimate data. Missing values remain missing so graphs show gaps rather than invented readings.
 
 ```text

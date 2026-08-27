@@ -17,6 +17,7 @@
     "cleverspa:start": "node --env-file-if-exists=.env services/cleverspa/src/server.js",
     "cleverspa:dev": "node --env-file-if-exists=.env --watch services/cleverspa/src/server.js",
     "firebase:diagnose": "tsx scripts/diagnose-firebase.ts",
+    "meross:probe": "tsx scripts/meross-probe.ts",
     "local": "node scripts/local.mjs",
     "local:update": "node scripts/local.mjs update",
     "local:sync": "node scripts/local.mjs sync",

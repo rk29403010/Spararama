@@ -19,6 +19,7 @@ import { HeatingScheduler } from './server/heating/scheduler';
 import { registerHeatingRoutes } from './server/heating/routes';
 import { AlexaAlertDispatcher } from './server/alerts/alexa-dispatcher';
 import { registerAlertRoutes } from './server/alerts/routes';
+import { createMerossMsh300SensorSource } from './server/sensors/meross-msh300';
 
 async function startServer() {
   const app = express();
@@ -65,6 +66,7 @@ async function startServer() {
   }
 
   const weather = new WeatherService();
+  const merossSensors = createMerossMsh300SensorSource();
   const temperatureResolver = new BestEffortTemperatureResolver(spaAdapter, telemetryStore);
   const heatingScheduler = new HeatingScheduler(spaAdapter);
   registerSpaRoutes(app, spaAdapter, temperatureResolver, bubbles);
@@ -73,7 +75,7 @@ async function startServer() {
   registerAlertRoutes(app, alexaAlerts);
   registerSpaHistoryRoutes(app);
 
-  const telemetry = new TelemetryCollector(spaAdapter, telemetryStore, firebaseTelemetry, weather);
+  const telemetry = new TelemetryCollector(spaAdapter, telemetryStore, firebaseTelemetry, weather, merossSensors);
   const telemetrySettingsStore = new TelemetrySettingsStore();
   const telemetrySettings = await telemetrySettingsStore.load();
   telemetry.setIntervalSeconds(telemetrySettings.intervalSeconds);
@@ -96,6 +98,7 @@ async function startServer() {
   console.log(`Firestore database: ${telemetryStatus.firestoreDatabaseId || 'not resolved'}`);
   console.log(`Firebase credential source: ${telemetryStatus.firebaseCredentialSource || 'not resolved'}`);
   console.log(`Telemetry collector ID: ${process.env.TELEMETRY_HOST_ID || 'machine hostname'}`);
+  console.log(`Meross MSH300 sensor polling: ${merossSensors ? `enabled (${merossSensors.config.endpoint.host})` : 'disabled'}`);
 
   const combinedTelemetryStatus = () => ({
     ...telemetry.getStatus(),

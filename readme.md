@@ -42,3 +42,18 @@ The script refuses to make a rule if more than one private IPv4 LAN is active, r
 The core CleverSpa/Gizwits status and control implementation is now in `services/cleverspa` and defaults to loopback port 8787. The main Spararama API talks to it through the generic `SpaAdapter` boundary.
 
 The old `spararama-cleverspa-recovery` repository should be archived, not deleted yet: it remains the historical reference for recovery-only tooling such as legacy ESPTouch Wi-Fi reprovisioning that has not been moved into the main repository.
+
+## Meross MSH300 / MS100 sensors
+
+The always-on backend can poll MS100 temperature/humidity sensors through an MSH300
+on the same LAN. Copy the `MEROSS_MSH300_*` settings from `.env.example` into the
+untracked local `.env`, give the hub a stable DHCP lease, and run `pnpm meross:probe`
+to verify the signed, read-only connection before restarting Spararama.
+
+Spararama first uses Meross's read-only HTTP reply-key exchange, so no account secret
+is normally required. `MEROSS_MSH300_KEY` is an optional fallback for firmware that
+rejects that exchange and, when used, stays in the backend environment. Spararama
+records temperature, humidity, battery percentage, battery voltage and online state
+when supplied by the hub. Direct HTTP is polling-only; near-instant device events
+require either Meross cloud MQTT while the hub remains app-paired, or deliberately
+rebinding the hub to a private MQTT broker.
