@@ -8,35 +8,48 @@ import { TelemetryCollector } from '../../server/telemetry/collector';
 import { resolveFirebaseTelemetryConfig } from '../../server/telemetry/firebase-sink';
 import { TelemetrySettingsStore, validateTelemetryIntervalSeconds } from '../../server/telemetry/settings';
 import type { SpaAdapter, SpaStatus } from '../../server/spa/types';
-import type { TelemetrySample } from '../../server/telemetry/types';
+import type { StoredTelemetryRecord, TelemetrySample } from '../../server/telemetry/types';
+
+function fixedStatus(overrides: Partial<SpaStatus> = {}): SpaStatus {
+  return {
+    transport: 'lan', connected: true, waterTemperatureC: 31.5, targetTemperatureC: 38,
+    heaterOn: true, filterOn: true, bubblesOn: false,
+    filterRuntimeSeconds: 100, heaterRuntimeSeconds: 50, updatedAt: Date.now(),
+    ...overrides
+  };
+}
 
 class FixedSpa implements SpaAdapter {
-  async getStatus(): Promise<SpaStatus> {
-    return {
-      transport: 'lan', connected: true, waterTemperatureC: 31.5, targetTemperatureC: 38,
-      heaterOn: true, filterOn: true, bubblesOn: false,
-      filterRuntimeSeconds: 100, heaterRuntimeSeconds: 50, updatedAt: Date.now()
-    };
-  }
+  async getStatus(): Promise<SpaStatus> { return fixedStatus(); }
   async setHeater() { return this.getStatus(); }
   async setFilter() { return this.getStatus(); }
   async setBubbles() { return this.getStatus(); }
   async setTargetTemperature() { return this.getStatus(); }
 }
 
+class MutableSpa implements SpaAdapter {
+  status = fixedStatus();
+  async getStatus(): Promise<SpaStatus> { return { ...this.status, updatedAt: Date.now() }; }
+  async setHeater(on: boolean) { this.status.heaterOn = on; return this.getStatus(); }
+  async setFilter(on: boolean) { this.status.filterOn = on; return this.getStatus(); }
+  async setBubbles(on: boolean) { this.status.bubblesOn = on; return this.getStatus(); }
+  async setTargetTemperature(celsius: number) { this.status.targetTemperatureC = celsius; return this.getStatus(); }
+}
+
 class FailingSink {
   enabled = true;
-  async writeSamples(_samples: TelemetrySample[]) {
-    throw new Error('offline');
-  }
+  async writeSamples(_samples: StoredTelemetryRecord[]) { throw new Error('offline'); }
 }
 
 class RecordingSink {
   enabled = true;
-  samples: TelemetrySample[] = [];
-  async writeSamples(samples: TelemetrySample[]) {
-    this.samples.push(...samples);
-  }
+  samples: StoredTelemetryRecord[] = [];
+  async writeSamples(samples: StoredTelemetryRecord[]) { this.samples.push(...samples); }
+}
+
+class DisabledSink {
+  enabled = false;
+  async writeSamples(_samples: StoredTelemetryRecord[]) {}
 }
 
 test('Firebase telemetry defaults resolve the intended project and named database', () => {
@@ -56,18 +69,14 @@ test('Firebase telemetry defaults resolve the intended project and named databas
   }
 });
 
-function sample(id: string): TelemetrySample {
+function sample(id: string, overrides: Partial<SpaStatus> = {}, timestamp = Date.now()): TelemetrySample {
   return {
     schemaVersion: 1,
     id,
-    timestamp: Date.now(),
+    timestamp,
     hostId: 'test-host',
     collectorVersion: 'test',
-    spa: {
-      transport: 'lan', connected: true, waterTemperatureC: 31.5, targetTemperatureC: 38,
-      heaterOn: true, filterOn: true, bubblesOn: false,
-      filterRuntimeSeconds: 100, heaterRuntimeSeconds: 50, updatedAt: Date.now()
-    },
+    spa: fixedStatus(overrides),
     changedFields: [], sensors: [], weather: []
   };
 }
@@ -81,10 +90,54 @@ test('telemetry is archived locally and remains queued when cloud upload fails',
 
     const pending = await store.readPending();
     assert.equal(pending.length, 1);
-    assert.equal(pending[0].spa.waterTemperatureC, 31.5);
+    assert.equal(pending[0].schemaVersion, 2);
+    assert.equal(pending[0].spa?.waterTemperatureC, 31.5);
     assert.equal(collector.getStatus().pendingUploads, 1);
     const archive = await fs.readFile(store.archivePath, 'utf8');
     assert.match(archive, /31\.5/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('unchanged polling does not append duplicate telemetry records', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-telemetry-'));
+  try {
+    const store = new LocalTelemetryStore(dir);
+    const collector = new TelemetryCollector(new FixedSpa(), store, new DisabledSink());
+    await collector.collectNow();
+    await collector.collectNow();
+    await collector.collectNow();
+    assert.equal((await store.readPending()).length, 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a temperature change creates one sparse event and history reconstructs full state', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-telemetry-'));
+  try {
+    const store = new LocalTelemetryStore(dir);
+    const spa = new MutableSpa();
+    const collector = new TelemetryCollector(spa, store, new DisabledSink());
+    await collector.collectNow();
+    spa.status.waterTemperatureC = 32.5;
+    spa.status.filterRuntimeSeconds += 300;
+    spa.status.heaterRuntimeSeconds += 300;
+    await collector.collectNow();
+
+    const records = await store.readPending();
+    assert.equal(records.length, 2);
+    assert.equal(records[1].schemaVersion, 2);
+    if (records[1].schemaVersion !== 2) throw new Error('Expected v2 event');
+    assert.equal(records[1].recordKind, 'change');
+    assert.deepEqual(records[1].spa, { waterTemperatureC: 32.5 });
+    assert.deepEqual(records[1].changedFields, ['spa.waterTemperatureC']);
+
+    const history = await store.readRecent(10);
+    assert.equal(history.samples[0].spa.waterTemperatureC, 32.5);
+    assert.equal(history.samples[0].spa.targetTemperatureC, 38);
+    assert.equal(history.samples[0].spa.heaterOn, true);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -121,6 +174,32 @@ test('acknowledging an uploaded snapshot preserves samples appended during uploa
 
     assert.deepEqual((await store.readPending()).map(item => item.id), ['second']);
     assert.equal((await fs.readFile(store.archivePath, 'utf8')).trim().split(/\r?\n/).length, 2);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('legacy v1 backlog compacts to snapshot plus meaningful changes and keeps backups', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-telemetry-'));
+  try {
+    const store = new LocalTelemetryStore(dir);
+    const started = Date.now();
+    await store.append(sample('first', {}, started));
+    await store.append(sample('same', { filterRuntimeSeconds: 400, heaterRuntimeSeconds: 350 }, started + 5 * 60 * 1000));
+    await store.append(sample('changed', { waterTemperatureC: 32.5, filterRuntimeSeconds: 700, heaterRuntimeSeconds: 650 }, started + 10 * 60 * 1000));
+
+    const result = await store.compactLegacyTelemetry();
+    assert.equal(result.archive.before, 3);
+    assert.equal(result.archive.after, 2);
+    assert.equal(result.pending.after, 2);
+    assert.equal((await store.readPending()).length, 2);
+    await fs.access(`${store.archivePath}.v1-backup`);
+    await fs.access(`${store.pendingPath}.v1-backup`);
+
+    const history = await store.readRecent(10);
+    assert.equal(history.samples.length, 2);
+    assert.equal(history.samples[0].spa.waterTemperatureC, 32.5);
+    assert.equal(history.samples[1].spa.waterTemperatureC, 31.5);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
