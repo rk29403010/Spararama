@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import type { SpaAdapter } from './types';
 import type { BestEffortTemperatureResolver } from './temperature';
+import type { BubbleSessionManager } from './bubbles';
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) {
   return (req: Request, res: Response) => {
@@ -11,9 +12,14 @@ function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) {
   };
 }
 
-export function registerSpaRoutes(app: Express, adapter: SpaAdapter, temperatureResolver?: BestEffortTemperatureResolver) {
+export function registerSpaRoutes(
+  app: Express,
+  adapter: SpaAdapter,
+  temperatureResolver?: BestEffortTemperatureResolver,
+  bubbles?: BubbleSessionManager
+) {
   app.get('/api/spa/status', asyncRoute(async (_req, res) => {
-    const status = await adapter.getStatus();
+    const status = bubbles ? await bubbles.getStatus() : await adapter.getStatus();
     if (!temperatureResolver) {
       res.json(status);
       return;
@@ -51,7 +57,7 @@ export function registerSpaRoutes(app: Express, adapter: SpaAdapter, temperature
   }));
 
   app.post('/api/spa/connect', asyncRoute(async (_req, res) => {
-    res.json(adapter.connect ? await adapter.connect() : await adapter.getStatus());
+    res.json(bubbles ? await bubbles.connect() : adapter.connect ? await adapter.connect() : await adapter.getStatus());
   }));
 
   app.post('/api/spa/heater', asyncRoute(async (req, res) => {
@@ -59,7 +65,8 @@ export function registerSpaRoutes(app: Express, adapter: SpaAdapter, temperature
       res.status(400).json({ error: 'Expected boolean field: on' });
       return;
     }
-    res.json(await adapter.setHeater(req.body.on));
+    const status = await adapter.setHeater(req.body.on);
+    res.json(bubbles ? bubbles.decorate(status) : status);
   }));
 
   app.post('/api/spa/filter', asyncRoute(async (req, res) => {
@@ -67,7 +74,8 @@ export function registerSpaRoutes(app: Express, adapter: SpaAdapter, temperature
       res.status(400).json({ error: 'Expected boolean field: on' });
       return;
     }
-    res.json(await adapter.setFilter(req.body.on));
+    const status = await adapter.setFilter(req.body.on);
+    res.json(bubbles ? bubbles.decorate(status) : status);
   }));
 
   app.post('/api/spa/bubbles', asyncRoute(async (req, res) => {
@@ -75,7 +83,25 @@ export function registerSpaRoutes(app: Express, adapter: SpaAdapter, temperature
       res.status(400).json({ error: 'Expected boolean field: on' });
       return;
     }
-    res.json(await adapter.setBubbles(req.body.on));
+    if (!bubbles) {
+      res.json(await adapter.setBubbles(req.body.on));
+      return;
+    }
+    res.json(await bubbles.setBubbles(req.body.on, {
+      autoRestart: req.body?.autoRestart === true
+    }));
+  }));
+
+  app.put('/api/spa/bubbles/auto-restart', asyncRoute(async (req, res) => {
+    if (!bubbles) {
+      res.status(409).json({ error: 'Bubble session management is not configured.' });
+      return;
+    }
+    if (typeof req.body?.enabled !== 'boolean') {
+      res.status(400).json({ error: 'Expected boolean field: enabled' });
+      return;
+    }
+    res.json(await bubbles.setAutoRestart(req.body.enabled));
   }));
 
   app.post('/api/spa/target-temperature', asyncRoute(async (req, res) => {
@@ -84,6 +110,7 @@ export function registerSpaRoutes(app: Express, adapter: SpaAdapter, temperature
       res.status(400).json({ error: 'Expected numeric field: celsius' });
       return;
     }
-    res.json(await adapter.setTargetTemperature(celsius));
+    const status = await adapter.setTargetTemperature(celsius);
+    res.json(bubbles ? bubbles.decorate(status) : status);
   }));
 }
