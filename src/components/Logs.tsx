@@ -38,6 +38,19 @@ function finiteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function ambientWeatherPoint(weather: TelemetryChartDto['samples'][number]['weather']) {
+  const readings = (weather || []).filter(item => finiteNumber(item.temperatureC));
+  if (!readings.length) return null;
+  const temperatureC = readings.reduce((sum, item) => sum + (item.temperatureC as number), 0) / readings.length;
+  const observedAt = readings.map(item => item.observedAt).filter(finiteNumber);
+  return {
+    // Open-Meteo is an area/model estimate rather than a thermometer beside the spa;
+    // present it at a useful half-degree resolution while retaining raw source data.
+    temperatureC: Math.round(temperatureC * 2) / 2,
+    observedAt: observedAt.length ? Math.max(...observedAt) : null
+  };
+}
+
 function heatRangeStart(range: HeatRange, now = Date.now()) {
   if (range === 'today') {
     const start = new Date(now);
@@ -218,13 +231,17 @@ export function Logs({ state }: LogsProps) {
 
   const heatData = useMemo(() => {
     const points = new Map<number, any>();
+    const plottedWeatherObservations = new Set<number>();
     for (const sample of telemetry.samples) {
-      const weather = sample.weather?.find(item => finiteNumber(item.temperatureC));
+      const ambient = ambientWeatherPoint(sample.weather);
+      const ambientObservation = ambient?.observedAt ?? sample.timestamp;
+      const plotAmbient = Boolean(ambient && !plottedWeatherObservations.has(ambientObservation));
+      if (plotAmbient) plottedWeatherObservations.add(ambientObservation);
       points.set(sample.timestamp, {
         timestamp: sample.timestamp,
         water: sample.spa.connected && finiteNumber(sample.spa.waterTemperatureC) ? sample.spa.waterTemperatureC : null,
         target: sample.spa.connected && finiteNumber(sample.spa.targetTemperatureC) ? sample.spa.targetTemperatureC : null,
-        ambient: weather && finiteNumber(weather.temperatureC) ? weather.temperatureC : null,
+        ambient: plotAmbient ? ambient?.temperatureC : null,
         heaterOn: sample.spa.connected && sample.spa.heaterOn,
         connected: sample.spa.connected
       });
@@ -337,9 +354,9 @@ export function Logs({ state }: LogsProps) {
                     {heatPeriods.map((period, index) => <ReferenceArea key={`${period.start}-${index}`} yAxisId="temp" x1={period.start} x2={period.end} fill="#f59e0b" fillOpacity={0.10} strokeOpacity={0} />)}
                     {usualMarkers.map((timestamp, index) => <ReferenceLine key={`usual-${timestamp}`} yAxisId="temp" x={timestamp} stroke="#059669" strokeOpacity={0.55} strokeDasharray="4 4" label={index === usualMarkers.length - 1 ? { value: 'usual time', position: 'insideTopRight', fill: '#047857', fontSize: 12, fontWeight: 700 } : undefined} />)}
                     {bathingMarkers.map(marker => <ReferenceLine key={`${marker.timestamp}-${marker.action}`} yAxisId="temp" x={marker.timestamp} stroke="#047857" strokeOpacity={0.9} strokeDasharray="2 3" />)}
-                    <Line yAxisId="temp" type="monotone" dataKey="water" name="Water °C" stroke="#4338ca" strokeWidth={3} dot={false} connectNulls={false} isAnimationActive={false} />
+                    <Line yAxisId="temp" type="natural" dataKey="water" name="Water °C" stroke="#4338ca" strokeWidth={3} dot={false} connectNulls={false} isAnimationActive={false} />
                     <Line yAxisId="temp" type="stepAfter" dataKey="target" name="Target °C" stroke="#ea580c" strokeWidth={2.5} strokeDasharray="6 4" dot={false} connectNulls={false} isAnimationActive={false} />
-                    {hasWeather && <Line yAxisId="temp" type="monotone" dataKey="ambient" name="Outside °C" stroke="#475569" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />}
+                    {hasWeather && <Line yAxisId="temp" type="natural" dataKey="ambient" name="Outside °C" stroke="#475569" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />}
                     <Line yAxisId="temp" type="linear" dataKey="manualWater" name="Manual reading" stroke="transparent" strokeWidth={0} dot={{ r: 5, fill: '#c7d2fe', stroke: '#3730a3', strokeWidth: 2 }} activeDot={{ r: 7 }} connectNulls={false} legendType="none" isAnimationActive={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
