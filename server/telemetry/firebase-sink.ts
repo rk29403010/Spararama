@@ -45,6 +45,20 @@ export function resolveFirebaseTelemetryConfig(): FirebaseTelemetryConfig {
   };
 }
 
+function serializable<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function isStoredTelemetryRecord(value: unknown): value is StoredTelemetryRecord {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Partial<StoredTelemetryRecord>;
+  return (record.schemaVersion === 1 || record.schemaVersion === 2)
+    && typeof record.id === 'string'
+    && typeof record.hostId === 'string'
+    && typeof record.timestamp === 'number'
+    && Number.isFinite(record.timestamp);
+}
+
 export class FirebaseTelemetrySink {
   readonly enabled: boolean;
   readonly config: FirebaseTelemetryConfig;
@@ -63,8 +77,21 @@ export class FirebaseTelemetrySink {
     this.db = getFirestore(app, this.config.databaseId);
   }
 
+  async registerCollector(hostId: string, collectorVersion?: string) {
+    if (!this.enabled || !this.db || !hostId) return;
+    await this.db.collection('telemetryCollectors').doc(hostId).set({
+      hostId,
+      ...(collectorVersion ? { collectorVersion } : {}),
+      lastRegisteredAt: Date.now()
+    }, { merge: true });
+  }
+
   async writeSamples(samples: StoredTelemetryRecord[]) {
     if (!this.enabled || !this.db || samples.length === 0) return;
+
+    const latestByHost = new Map<string, StoredTelemetryRecord>();
+    for (const sample of samples) latestByHost.set(sample.hostId, sample);
+    await Promise.all(Array.from(latestByHost.values()).map(sample => this.registerCollector(sample.hostId, sample.collectorVersion)));
 
     for (let offset = 0; offset < samples.length; offset += 450) {
       const batchSamples = samples.slice(offset, offset + 450);
@@ -75,10 +102,35 @@ export class FirebaseTelemetrySink {
           .doc(sample.hostId)
           .collection('samples')
           .doc(sample.id);
-        batch.set(ref, sample, { merge: false });
+        // Fresh sparse records can contain optional undefined fields in memory;
+        // JSON round-tripping removes them before Firestore validation.
+        batch.set(ref, serializable(sample), { merge: false });
       }
       await batch.commit();
     }
+  }
+
+  async readSamples(): Promise<StoredTelemetryRecord[]> {
+    if (!this.enabled || !this.db) return [];
+
+    let collectors = await this.db.collection('telemetryCollectors').get();
+    if (collectors.empty) {
+      // Upgrade path for telemetry written before collector registry documents
+      // existed. Do this only when the registry is empty, then bootstrap it.
+      const legacy = await this.db.collectionGroup('samples').get();
+      const records = legacy.docs
+        .map(doc => doc.data())
+        .filter(isStoredTelemetryRecord);
+      const hosts = new Map<string, string>();
+      for (const record of records) hosts.set(record.hostId, record.collectorVersion);
+      await Promise.all(Array.from(hosts.entries()).map(([hostId, version]) => this.registerCollector(hostId, version)));
+      return records;
+    }
+
+    const snapshots = await Promise.all(collectors.docs.map(doc => doc.ref.collection('samples').get()));
+    return snapshots
+      .flatMap(snapshot => snapshot.docs.map(doc => doc.data()))
+      .filter(isStoredTelemetryRecord);
   }
 
   async verifyConnectivity(diagnosticId: string) {
