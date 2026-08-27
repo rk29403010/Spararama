@@ -1,18 +1,30 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import type { StoredTelemetryRecord } from './types';
 
 const DEFAULT_PROJECT_ID = 'microprojects-481213';
 const DEFAULT_DATABASE_ID = 'ai-studio-hottubmonitor-c4b572e9-4270-488c-b8d2-306ccf453f65';
 const TELEMETRY_APP_NAME = 'spararama-telemetry';
+const CLOUD_WRITTEN_AT = '_firebaseWrittenAt';
 
 export interface FirebaseTelemetryConfig {
   enabled: boolean;
   projectId: string;
   databaseId: string;
   credentialSource: string;
+}
+
+export interface FirebaseTelemetryReadOptions {
+  writtenAfter?: number;
+  knownHosts?: string[];
+}
+
+export interface FirebaseTelemetryReadResult {
+  records: StoredTelemetryRecord[];
+  collectorIds: string[];
+  cursor: number;
 }
 
 function credentialSourceDescription() {
@@ -59,6 +71,25 @@ function isStoredTelemetryRecord(value: unknown): value is StoredTelemetryRecord
     && Number.isFinite(record.timestamp);
 }
 
+function cloudWrittenAt(value: any) {
+  const raw = value?.[CLOUD_WRITTEN_AT];
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+  if (raw && typeof raw.toMillis === 'function') {
+    const millis = raw.toMillis();
+    return Number.isFinite(millis) ? millis : 0;
+  }
+  return 0;
+}
+
+function decodedRecord(value: any): StoredTelemetryRecord | null {
+  if (!isStoredTelemetryRecord(value)) return null;
+  const writtenAt = cloudWrittenAt(value);
+  return {
+    ...value,
+    ...(writtenAt ? { [CLOUD_WRITTEN_AT]: writtenAt } : {})
+  } as StoredTelemetryRecord;
+}
+
 export class FirebaseTelemetrySink {
   readonly enabled: boolean;
   readonly config: FirebaseTelemetryConfig;
@@ -82,7 +113,7 @@ export class FirebaseTelemetrySink {
     await this.db.collection('telemetryCollectors').doc(hostId).set({
       hostId,
       ...(collectorVersion ? { collectorVersion } : {}),
-      lastRegisteredAt: Date.now()
+      lastRegisteredAt: FieldValue.serverTimestamp()
     }, { merge: true });
   }
 
@@ -103,34 +134,65 @@ export class FirebaseTelemetrySink {
           .collection('samples')
           .doc(sample.id);
         // Fresh sparse records can contain optional undefined fields in memory;
-        // JSON round-tripping removes them before Firestore validation.
-        batch.set(ref, serializable(sample), { merge: false });
+        // JSON round-tripping removes them before Firestore validation. The cloud
+        // timestamp is sync metadata only and never becomes part of local events.
+        batch.set(ref, {
+          ...serializable(sample),
+          [CLOUD_WRITTEN_AT]: FieldValue.serverTimestamp()
+        }, { merge: false });
       }
       await batch.commit();
     }
   }
 
-  async readSamples(): Promise<StoredTelemetryRecord[]> {
-    if (!this.enabled || !this.db) return [];
+  async readSamples(options: FirebaseTelemetryReadOptions = {}): Promise<FirebaseTelemetryReadResult> {
+    if (!this.enabled || !this.db) return { records: [], collectorIds: [], cursor: options.writtenAfter || 0 };
 
-    let collectors = await this.db.collection('telemetryCollectors').get();
+    const knownHosts = new Set(options.knownHosts || []);
+    const writtenAfter = Math.max(0, Number(options.writtenAfter) || 0);
+    const collectors = await this.db.collection('telemetryCollectors').get();
     if (collectors.empty) {
       // Upgrade path for telemetry written before collector registry documents
-      // existed. Do this only when the registry is empty, then bootstrap it.
+      // existed. Do this once, then bootstrap registry docs for cheap later reads.
       const legacy = await this.db.collectionGroup('samples').get();
-      const records = legacy.docs
-        .map(doc => doc.data())
-        .filter(isStoredTelemetryRecord);
+      const decoded = legacy.docs.map(doc => decodedRecord(doc.data())).filter((record): record is StoredTelemetryRecord => Boolean(record));
       const hosts = new Map<string, string>();
-      for (const record of records) hosts.set(record.hostId, record.collectorVersion);
+      let cursor = writtenAfter;
+      for (const record of decoded) {
+        hosts.set(record.hostId, record.collectorVersion);
+        cursor = Math.max(cursor, cloudWrittenAt(record));
+      }
       await Promise.all(Array.from(hosts.entries()).map(([hostId, version]) => this.registerCollector(hostId, version)));
-      return records;
+      return { records: decoded, collectorIds: Array.from(hosts.keys()), cursor };
     }
 
-    const snapshots = await Promise.all(collectors.docs.map(doc => doc.ref.collection('samples').get()));
-    return snapshots
-      .flatMap(snapshot => snapshot.docs.map(doc => doc.data()))
-      .filter(isStoredTelemetryRecord);
+    const snapshots = await Promise.all(collectors.docs.map(async collector => {
+      const samples = collector.ref.collection('samples');
+      if (!knownHosts.has(collector.id)) {
+        // Newly discovered collector: one full bootstrap, including old records
+        // that pre-date the cloud-write cursor field.
+        return samples.get();
+      }
+      // Known collectors only return newly written/retried records. Using the
+      // server-generated Firestore timestamp means an old offline backlog is still
+      // discovered when it eventually uploads.
+      return samples
+        .where(CLOUD_WRITTEN_AT, '>', Timestamp.fromMillis(writtenAfter))
+        .orderBy(CLOUD_WRITTEN_AT, 'asc')
+        .get();
+    }));
+
+    const records: StoredTelemetryRecord[] = [];
+    let cursor = writtenAfter;
+    for (const snapshot of snapshots) {
+      for (const doc of snapshot.docs) {
+        const record = decodedRecord(doc.data());
+        if (!record) continue;
+        records.push(record);
+        cursor = Math.max(cursor, cloudWrittenAt(record));
+      }
+    }
+    return { records, collectorIds: collectors.docs.map(doc => doc.id), cursor };
   }
 
   async verifyConnectivity(diagnosticId: string) {
