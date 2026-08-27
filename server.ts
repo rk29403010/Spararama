@@ -11,7 +11,7 @@ import { TelemetryCollector } from './server/telemetry/collector';
 import { FirebaseTelemetrySink } from './server/telemetry/firebase-sink';
 import { LocalTelemetryStore } from './server/telemetry/local-store';
 import { SharedTelemetryStore } from './server/telemetry/shared-store';
-import { TelemetrySettingsStore, validateTelemetryIntervalSeconds } from './server/telemetry/settings';
+import { TelemetrySettingsStore } from './server/telemetry/settings';
 import { registerSpaHistoryRoutes } from './server/history/spa-events';
 import { WeatherService } from './server/weather/service';
 import { registerWeatherRoutes } from './server/weather/routes';
@@ -24,9 +24,6 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT || 3000);
 
-  // A whole .env is often copied from a development laptop onto the Termux host.
-  // Do not let the example laptop collector ID make two independent event streams
-  // look like one machine. Explicit non-example IDs are respected.
   const isTermux = String(process.env.PREFIX || '').includes('com.termux');
   if (isTermux && (!process.env.TELEMETRY_HOST_ID || process.env.TELEMETRY_HOST_ID === 'spararama-laptop')) {
     process.env.TELEMETRY_HOST_ID = 'spararama-phone';
@@ -81,6 +78,14 @@ async function startServer() {
   const telemetrySettings = await telemetrySettingsStore.load();
   telemetry.setIntervalSeconds(telemetrySettings.intervalSeconds);
   telemetry.start();
+
+  // Event-capable adapters can ask for an immediate observation. This is optional:
+  // polling-only Wi-Fi adapters, cloud adapters and manual-only spas remain valid.
+  // The collector's system-owned watchdog continues even when push events exist.
+  const unsubscribeSpaEvents = spaAdapter.subscribe?.(() => {
+    void telemetry.collectNow();
+  });
+
   heatingScheduler.start();
   alexaAlerts.start();
   bubbles.start();
@@ -111,18 +116,15 @@ async function startServer() {
   });
 
   app.get('/api/telemetry/config', (_req, res) => {
-    res.json({ intervalSeconds: telemetry.getStatus().intervalMs / 1000 });
+    res.json({ intervalSeconds: telemetry.getStatus().intervalMs / 1000, managedBy: 'system' });
   });
 
-  app.put('/api/telemetry/config', async (req, res) => {
-    try {
-      const intervalSeconds = validateTelemetryIntervalSeconds(req.body?.intervalSeconds);
-      await telemetrySettingsStore.save({ intervalSeconds });
-      telemetry.setIntervalSeconds(intervalSeconds);
-      res.json({ intervalSeconds });
-    } catch (error: any) {
-      res.status(400).json({ error: error?.message || 'Invalid telemetry configuration' });
-    }
+  app.put('/api/telemetry/config', (_req, res) => {
+    res.status(409).json({
+      error: 'Telemetry polling is managed automatically by Spararama.',
+      intervalSeconds: telemetry.getStatus().intervalMs / 1000,
+      managedBy: 'system'
+    });
   });
 
   app.get('/api/telemetry/samples', async (req, res) => {
@@ -163,8 +165,6 @@ async function startServer() {
     res.json(combinedTelemetryStatus());
   });
 
-  // AI remains optional and observation-only. It is not used by the deterministic
-  // chemistry rules engine or by spa control decisions.
   app.post("/api/analyze-image", async (req, res) => {
     try {
       const { imageBase64, type } = req.body;
@@ -256,10 +256,11 @@ async function startServer() {
 
   const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`Telemetry every ${telemetry.getStatus().intervalMs / 1000}s -> ${telemetry.getStatus().localArchivePath}`);
+    console.log(`Telemetry watchdog every ${telemetry.getStatus().intervalMs / 1000}s -> ${telemetry.getStatus().localArchivePath}`);
   });
 
   const shutdown = () => {
+    unsubscribeSpaEvents?.();
     telemetry.stop();
     heatingScheduler.stop();
     alexaAlerts.stop();
