@@ -29,6 +29,7 @@ export class GizwitsLanClient extends EventEmitter {
       const login = await this.#request(0x0008, 0x0009, Buffer.concat([length, this.#passcode]));
       if (!login.length || login[0] !== 0) throw new GizwitsLanError(`The spa rejected the local login${login.length ? ` (code ${login[0]})` : ""}`, "login_failed");
       this.#connected = true;
+      this.emit("connected");
       this.#heartbeat = setInterval(() => { if (this.connected) this.#socket.write(buildPacket(0x0015)); }, 4000); this.#heartbeat.unref();
       await this.getState();
     } catch (error) { this.close(); throw error; }
@@ -46,7 +47,12 @@ export class GizwitsLanClient extends EventEmitter {
     try {
       const extracted = extractPackets(Buffer.concat([this.#buffer, chunk])); this.#buffer = extracted.remainder;
       for (const packet of extracted.packets) {
-        if (packet.command === 0x0091 || packet.command === 0x0093) { try { this.#currentAttributes = parseStatusPayload(packet.payload); this.emit("status", this.#currentAttributes); } catch {} }
+        if (packet.command === 0x0091 || packet.command === 0x0093) {
+          try {
+            this.#currentAttributes = parseStatusPayload(packet.payload);
+            this.emit("status", this.#formatState());
+          } catch {}
+        }
         const queue = this.#waiters.get(packet.command); const waiter = queue?.shift();
         if (waiter) { clearTimeout(waiter.timer); waiter.resolve(packet.payload); if (queue.length === 0) this.#waiters.delete(packet.command); }
       }
