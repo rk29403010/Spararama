@@ -46,12 +46,14 @@ function finite(value: unknown): value is number {
 }
 
 function numericChanged(previous: unknown, current: unknown, deadband = 0) {
-  if (!finite(previous) || !finite(current)) return !Object.is(previous, current);
+  if (Object.is(previous, current)) return false;
+  if (!finite(previous) || !finite(current)) return true;
   return Math.abs(current - previous) >= deadband;
 }
 
 function directionChanged(previous: unknown, current: unknown, deadband: number) {
-  if (!finite(previous) || !finite(current)) return !Object.is(previous, current);
+  if (Object.is(previous, current)) return false;
+  if (!finite(previous) || !finite(current)) return true;
   const difference = Math.abs((((current - previous) + 540) % 360) - 180);
   return difference >= deadband;
 }
@@ -137,8 +139,7 @@ function weatherChanges(previous: Map<string, WeatherObservation>, current: Weat
     };
     let hasChange = false;
     for (const field of WEATHER_NUMERIC_FIELDS) {
-      const isDirection = field === 'windDirectionDegrees';
-      const fieldChanged = isDirection
+      const fieldChanged = field === 'windDirectionDegrees'
         ? directionChanged(before[field], reading[field], weatherDeadband(field))
         : numericChanged(before[field], reading[field], weatherDeadband(field));
       if (!fieldChanged) continue;
@@ -149,8 +150,8 @@ function weatherChanges(previous: Map<string, WeatherObservation>, current: Weat
     if (hasChange) {
       patch.observedAt = reading.observedAt;
       changed.push(patch);
+      previous.set(key, { ...before, ...patch });
     }
-    previous.set(key, { ...reading });
   }
   return { changed, fields };
 }
@@ -171,8 +172,8 @@ function sensorChanges(previous: Map<string, SensorReading>, current: SensorRead
     if (hasChange) {
       changed.push({ ...reading });
       fields.push(`sensor.${reading.id}`);
+      previous.set(reading.id, { ...reading });
     }
-    previous.set(reading.id, { ...reading });
   }
   return { changed, fields };
 }
@@ -217,6 +218,7 @@ export class TelemetryCollector {
   private readonly forecastIntervalMs: number;
   private timer: NodeJS.Timeout | null = null;
   private operation = Promise.resolve();
+  /** Last values actually persisted, not merely the previous poll. */
   private previousSpa: SpaStatus | null = null;
   private previousWeather = new Map<string, WeatherObservation>();
   private previousSensors = new Map<string, SensorReading>();
@@ -314,8 +316,10 @@ export class TelemetryCollector {
           || (item.metric === 'windDirectionDegrees'
             ? directionChanged(before.value, item.value, forecastDeadband(item.metric))
             : numericChanged(before.value, item.value, forecastDeadband(item.metric)));
-        if (meaningful) changed.push(item);
-        this.previousForecast.set(key, item);
+        if (meaningful) {
+          changed.push(item);
+          this.previousForecast.set(key, item);
+        }
       }
       const activeKeys = new Set(forecast.map(forecastKey));
       for (const key of this.previousForecast.keys()) {
@@ -358,7 +362,6 @@ export class TelemetryCollector {
         ? [this.lastSnapshotAt === 0 ? 'initial' : 'snapshot', ...weatherResult.fields, ...sensorResult.fields, ...forecast.map(item => `forecast.${item.forecastFor}.${item.metric}`)]
         : [...spaResult.fields, ...weatherResult.fields, ...sensorResult.fields, ...forecast.map(item => `forecast.${item.forecastFor}.${item.metric}`)];
 
-      this.previousSpa = spa;
       if (snapshot || changedFields.length > 0) {
         const record: TelemetryEventRecord = {
           schemaVersion: 2,
@@ -377,7 +380,14 @@ export class TelemetryCollector {
           weatherSources: snapshot ? weather?.sources : undefined
         };
         await this.store.append(record);
-        if (snapshot) this.lastSnapshotAt = now;
+        if (snapshot) {
+          this.lastSnapshotAt = now;
+          this.previousSpa = { ...spa };
+        } else if (this.previousSpa) {
+          this.previousSpa = { ...this.previousSpa, ...spaResult.patch };
+        } else {
+          this.previousSpa = { ...spa };
+        }
         this.status.samplesCollected += 1;
         this.status.lastSampleAt = now;
       }
