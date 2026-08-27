@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { HeatingStore } from '../heating/store';
 import type { HeatingNotification } from '../heating/types';
-import { VoiceMonkeyService } from './voice-monkey';
+import { VoiceMonkeyService, type VoiceMonkeySettingsInput } from './voice-monkey';
 
 const POLL_INTERVAL_MS = 10_000;
 const MAX_NOTIFICATION_AGE_MS = 30 * 60_000;
@@ -35,6 +35,10 @@ export class AlexaAlertDispatcher {
 
   status() {
     return this.voiceMonkey.status();
+  }
+
+  configure(input: VoiceMonkeySettingsInput) {
+    return this.voiceMonkey.configure(input);
   }
 
   start() {
@@ -77,7 +81,7 @@ export class AlexaAlertDispatcher {
   }
 
   private async processInternal(now: number) {
-    if (!this.voiceMonkey.status().configured) return;
+    if (!(await this.voiceMonkey.status()).configured) return;
 
     const heating = await this.heatingStore.load();
     const delivery = await this.loadDeliveryState();
