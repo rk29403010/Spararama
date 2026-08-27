@@ -10,6 +10,7 @@ interface ManualLogModalProps {
 }
 
 type Action = 'reading_only' | 'heater_on' | 'heater_off' | 'entered_tub' | 'exited_tub';
+type ThreeState = 'on' | 'off' | 'unknown';
 
 const ACTIONS: Array<{ value: Action; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { value: 'reading_only', label: 'Temperature', icon: Thermometer },
@@ -24,8 +25,10 @@ export function ManualLogModal({ state, onClose }: ManualLogModalProps) {
   const maxTemp = state.config.temperatureScale === 'F' ? 104 : 40;
   const [temp, setTemp] = useState<number>(state.config.defaultHeatingTarget || (state.config.temperatureScale === 'F' ? 100 : 38));
   const [action, setAction] = useState<Action>('reading_only');
-  const [cover, setCover] = useState<'on' | 'off' | 'unknown'>('unknown');
-  const [heater, setHeater] = useState<'on' | 'off' | 'unknown'>('unknown');
+  const [cover, setCover] = useState<ThreeState>('unknown');
+  const [heater, setHeater] = useState<ThreeState>('unknown');
+  const [filter, setFilter] = useState<ThreeState>('unknown');
+  const [bubbles, setBubbles] = useState<ThreeState>('unknown');
   const [rattle, setRattle] = useState<'yes' | 'no' | 'unknown'>('unknown');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -60,6 +63,8 @@ export function ManualLogModal({ state, onClose }: ManualLogModalProps) {
       temp: Number(temp),
       cover: cover !== 'unknown' ? cover : null,
       heater: heater !== 'unknown' ? heater : null,
+      filter: filter !== 'unknown' ? filter : null,
+      bubbles: bubbles !== 'unknown' ? bubbles : null,
       rattle: rattle !== 'unknown' ? rattle : null,
       manualTimestamp: logDate.getTime()
     });
@@ -100,6 +105,10 @@ export function ManualLogModal({ state, onClose }: ManualLogModalProps) {
       </div>
     </div>
   );
+
+  const equipmentChoices = [
+    { value: 'unknown' as const, label: 'Unknown' }, { value: 'on' as const, label: 'On' }, { value: 'off' as const, label: 'Off' }
+  ];
 
   return (
     <div className="fixed inset-0 bg-slate-950/70 z-50 flex flex-col justify-end sm:justify-center sm:p-4 overscroll-contain">
@@ -186,14 +195,12 @@ export function ManualLogModal({ state, onClose }: ManualLogModalProps) {
           </section>
 
           <details className="rounded-2xl border border-slate-200 px-4">
-            <summary className="min-h-14 cursor-pointer flex items-center text-lg font-black text-slate-800">More details</summary>
+            <summary className="min-h-14 cursor-pointer flex items-center text-lg font-black text-slate-800">Equipment / details</summary>
             <div className="space-y-5 pb-4">
-              {threeWay('Heater', heater, [
-                { value: 'unknown', label: 'Unknown' }, { value: 'on', label: 'On' }, { value: 'off', label: 'Off' }
-              ], setHeater)}
-              {threeWay('Cover', cover, [
-                { value: 'unknown', label: 'Unknown' }, { value: 'on', label: 'On' }, { value: 'off', label: 'Off' }
-              ], setCover)}
+              {threeWay('Heater', heater, equipmentChoices, setHeater)}
+              {threeWay('Filter', filter, equipmentChoices, setFilter)}
+              {threeWay('Bubbles', bubbles, equipmentChoices, setBubbles)}
+              {threeWay('Cover', cover, equipmentChoices, setCover)}
               {threeWay('Rattle', rattle, [
                 { value: 'unknown', label: 'Unknown' }, { value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }
               ], setRattle)}
