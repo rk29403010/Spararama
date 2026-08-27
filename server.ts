@@ -6,6 +6,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { createSpaAdapter } from './server/spa/factory';
 import { registerSpaRoutes } from './server/spa/routes';
 import { BestEffortTemperatureResolver } from './server/spa/temperature';
+import { BubbleSessionManager, bubblePolicyForAdapter } from './server/spa/bubbles';
 import { TelemetryCollector } from './server/telemetry/collector';
 import { FirebaseTelemetrySink } from './server/telemetry/firebase-sink';
 import { LocalTelemetryStore } from './server/telemetry/local-store';
@@ -16,6 +17,8 @@ import { WeatherService } from './server/weather/service';
 import { registerWeatherRoutes } from './server/weather/routes';
 import { HeatingScheduler } from './server/heating/scheduler';
 import { registerHeatingRoutes } from './server/heating/routes';
+import { AlexaAlertDispatcher } from './server/alerts/alexa-dispatcher';
+import { registerAlertRoutes } from './server/alerts/routes';
 
 async function startServer() {
   const app = express();
@@ -36,6 +39,12 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
 
   const spaAdapter = createSpaAdapter();
+  const alexaAlerts = new AlexaAlertDispatcher();
+  const bubbles = new BubbleSessionManager(
+    spaAdapter,
+    bubblePolicyForAdapter(),
+    text => alexaAlerts.announce(text)
+  );
   const telemetryStore = new LocalTelemetryStore();
   const telemetryMigration = await telemetryStore.compactLegacyTelemetry();
   if (telemetryMigration.archive.migrated || telemetryMigration.pending.migrated) {
@@ -61,9 +70,10 @@ async function startServer() {
   const weather = new WeatherService();
   const temperatureResolver = new BestEffortTemperatureResolver(spaAdapter, telemetryStore);
   const heatingScheduler = new HeatingScheduler(spaAdapter);
-  registerSpaRoutes(app, spaAdapter, temperatureResolver);
+  registerSpaRoutes(app, spaAdapter, temperatureResolver, bubbles);
   registerWeatherRoutes(app, weather);
   registerHeatingRoutes(app, heatingScheduler);
+  registerAlertRoutes(app, alexaAlerts);
   registerSpaHistoryRoutes(app);
 
   const telemetry = new TelemetryCollector(spaAdapter, telemetryStore, firebaseTelemetry, weather);
@@ -72,6 +82,8 @@ async function startServer() {
   telemetry.setIntervalSeconds(telemetrySettings.intervalSeconds);
   telemetry.start();
   heatingScheduler.start();
+  alexaAlerts.start();
+  bubbles.start();
   void sharedTelemetry.refresh();
   const telemetryStatus = telemetry.getStatus();
   console.log(`Firebase telemetry enabled: ${telemetryStatus.firebaseEnabled}`);
@@ -250,6 +262,8 @@ async function startServer() {
   const shutdown = () => {
     telemetry.stop();
     heatingScheduler.stop();
+    alexaAlerts.stop();
+    bubbles.stop();
     server.close(() => process.exit(0));
   };
   process.once('SIGINT', shutdown);
