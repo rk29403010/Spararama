@@ -27,6 +27,13 @@ async function startServer() {
 
   const spaAdapter = createSpaAdapter();
   const telemetryStore = new LocalTelemetryStore();
+  const telemetryMigration = await telemetryStore.compactLegacyTelemetry();
+  if (telemetryMigration.archive.migrated || telemetryMigration.pending.migrated) {
+    console.log(
+      `Compacted legacy telemetry: archive ${telemetryMigration.archive.before} -> ${telemetryMigration.archive.after}, `
+      + `pending ${telemetryMigration.pending.before} -> ${telemetryMigration.pending.after}`
+    );
+  }
   const weather = new WeatherService();
   const temperatureResolver = new BestEffortTemperatureResolver(spaAdapter, telemetryStore);
   const heatingScheduler = new HeatingScheduler(spaAdapter);
