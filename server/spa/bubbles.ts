@@ -70,7 +70,7 @@ export class BubbleSessionManager {
 
   start() {
     if (this.timer) return;
-    this.timer = setInterval(() => void this.tick(), TICK_MS);
+    this.timer = setInterval(() => void this.process(), TICK_MS);
     this.timer.unref?.();
   }
 
@@ -122,6 +122,12 @@ export class BubbleSessionManager {
     }
     this.autoRestartEnabled = enabled;
     return this.fields();
+  }
+
+  process(now = Date.now()) {
+    const next = this.operation.then(() => this.processInternal(now), () => this.processInternal(now));
+    this.operation = next.then(() => undefined, () => undefined);
+    return next;
   }
 
   private beginKnownRun(now: number, autoRestartEnabled: boolean, autoRestartUsed: boolean) {
@@ -182,7 +188,10 @@ export class BubbleSessionManager {
   private reconcileObservedState(status: SpaStatus, now: number) {
     this.advanceTime(now);
     if (status.bubblesOn) {
-      if (this.phase === 'idle' || this.phase === 'cooldown') this.beginUnknownRun();
+      // A status poll can lag the firmware's safety cutoff by a few seconds. Once a
+      // known run has entered its documented cooldown, keep that countdown instead
+      // of converting the stale "on" observation into an untimed new session.
+      if (this.phase === 'idle') this.beginUnknownRun();
       return;
     }
 
@@ -194,21 +203,8 @@ export class BubbleSessionManager {
     }
   }
 
-  private tick(now = Date.now()) {
-    const next = this.operation.then(() => this.tickInternal(now), () => this.tickInternal(now));
-    this.operation = next.then(() => undefined, () => undefined);
-    return next;
-  }
-
-  private async tickInternal(now: number) {
-    const previousPhase = this.phase;
+  private async processInternal(now: number) {
     this.advanceTime(now);
-
-    if (previousPhase === 'running' && this.phase === 'cooldown') {
-      // The spa's own safety system performs the shutoff. No redundant Off command
-      // is sent here because the backend must not fight the device firmware.
-    }
-
     if (this.phase !== 'cooldown' || !this.cooldownEndsAt) return;
     const remainingMs = this.cooldownEndsAt - now;
 
