@@ -41,12 +41,45 @@ async function readJson(request) {
   catch { throw Object.assign(new Error("request body must be valid JSON"), { statusCode: 400 }); }
 }
 
+function streamEvents(request, response) {
+  response.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-store",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  response.write(": connected\n\n");
+
+  const send = (event, payload) => {
+    response.write(`event: ${event}\n`);
+    response.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+  const onStatus = payload => send("status", payload);
+  const onConnection = payload => send("connection", payload);
+  controller.on("status", onStatus);
+  controller.on("connection", onConnection);
+  const keepAlive = setInterval(() => response.write(": keepalive\n\n"), 15_000);
+  keepAlive.unref?.();
+
+  const close = () => {
+    clearInterval(keepAlive);
+    controller.off("status", onStatus);
+    controller.off("connection", onConnection);
+  };
+  request.once("close", close);
+  response.once("close", close);
+}
+
 async function handleApi(request, response, pathname) {
   if (!hasValidAccessToken(request)) {
     sendJson(response, 401, { error: "access token required", code: "unauthorized" });
     return;
   }
 
+  if (request.method === "GET" && pathname === "/api/events") {
+    streamEvents(request, response);
+    return;
+  }
   if (request.method === "GET" && pathname === "/api/status") {
     sendJson(response, 200, await controller.status());
     return;
@@ -57,7 +90,7 @@ async function handleApi(request, response, pathname) {
       host: config.hostname,
       loopbackOnly: config.loopbackOnly,
       accessTokenRequired: Boolean(config.accessToken),
-      capabilities: ["status", "discover", "heater", "filter", "bubbles", "target-temperature", "gizwits-cloud"],
+      capabilities: ["status", "status-events", "connection-events", "discover", "heater", "filter", "bubbles", "target-temperature", "gizwits-cloud"],
     });
     return;
   }
