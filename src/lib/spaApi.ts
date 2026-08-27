@@ -11,7 +11,19 @@ export interface BestEffortTemperatureDto {
   reason: string;
 }
 
-export interface SpaStatusDto {
+export interface BubbleSessionDto {
+  bubblePhase: 'idle' | 'running' | 'cooldown';
+  bubbleRunLimitSeconds: number | null;
+  bubbleCooldownSeconds: number | null;
+  bubbleTimingKnown: boolean;
+  bubbleStartedAt?: number;
+  bubbleRunEndsAt?: number;
+  bubbleCooldownEndsAt?: number;
+  bubbleAutoRestartEnabled: boolean;
+  bubbleAutoRestartUsed: boolean;
+}
+
+export interface SpaStatusDto extends Partial<BubbleSessionDto> {
   transport: 'mock' | 'lan' | 'cloud' | 'manual';
   connected: boolean;
   waterTemperatureC: number | null;
@@ -54,6 +66,7 @@ export const spaApi = {
   connect: () => requestSpa('/api/spa/connect', { method: 'POST' }),
   setHeater: (on: boolean) => requestSpa('/api/spa/heater', { method: 'POST', body: JSON.stringify({ on }) }),
   setFilter: (on: boolean) => requestSpa('/api/spa/filter', { method: 'POST', body: JSON.stringify({ on }) }),
-  setBubbles: (on: boolean) => requestSpa('/api/spa/bubbles', { method: 'POST', body: JSON.stringify({ on }) }),
+  setBubbles: (on: boolean, autoRestart = false) => requestSpa('/api/spa/bubbles', { method: 'POST', body: JSON.stringify({ on, autoRestart }) }),
+  setBubbleAutoRestart: (enabled: boolean) => requestJson<BubbleSessionDto>('/api/spa/bubbles/auto-restart', { method: 'PUT', body: JSON.stringify({ enabled }) }),
   setTargetTemperature: (celsius: number) => requestSpa('/api/spa/target-temperature', { method: 'POST', body: JSON.stringify({ celsius }) })
 };
