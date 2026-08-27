@@ -20,6 +20,10 @@ export interface EquipmentCatalogModel {
   maxTempC?: number;
   heaterPowerWatts?: number;
   nominalHeatingRateCPerHour?: number;
+  /** Documented continuous bubble/massage run before automatic shutoff. */
+  bubbleRunLimitMinutes?: number;
+  /** Mandatory wait before bubbles may restart. Null means no manufacturer cooldown was verified. */
+  bubbleCooldownMinutes?: number | null;
   sourceQuality: 'manufacturer' | 'official_brand' | 'project_verified';
   sources: EquipmentCatalogSource[];
   notes?: string;
@@ -31,7 +35,7 @@ export interface EquipmentCatalogResponse {
   models: EquipmentCatalogModel[];
 }
 
-export const EQUIPMENT_CATALOG_VERSION = 1;
+export const EQUIPMENT_CATALOG_VERSION = 2;
 
 // Manufacturer/model facts below come from first-party manufacturer/brand sources.
 // The current CleverSpa profile keeps the project's established 800 L capacity
@@ -48,16 +52,23 @@ export const EQUIPMENT_CATALOG_SEED: EquipmentCatalogModel[] = [
     wifi: true,
     connectorId: 'cleverspa',
     maxTempC: 40,
+    bubbleRunLimitMinutes: 20,
+    bubbleCooldownMinutes: 10,
     sourceQuality: 'project_verified',
     sources: [
       {
         label: 'CleverSpa / Clever Company - CleverLink App',
         url: 'https://vimeo.com/732425958',
         fields: ['wifi']
+      },
+      {
+        label: 'CleverSpa I-Beam instruction manual',
+        url: 'https://assets.wfcdn.com/dm/document/c0f051bd-e2fc-419c-8e48-d145b375ec93/cleverspa%20i-beam%20im_en17125_16-11-21.pdf',
+        fields: ['bubbleRunLimitMinutes', 'bubbleCooldownMinutes']
       }
     ],
-    notes: '800 L is the established capacity of the current Spararama installation. Wi-Fi is supported by the in-repo CleverSpa connector.',
-    checkedAt: '2026-08-14'
+    notes: '800 L is the established capacity of the current Spararama installation. Air jets stop after 20 continuous minutes and can restart after a 10 minute pump-cooling period.',
+    checkedAt: '2026-08-27'
   },
   {
     id: 'bestway-layzspa-madeira-airjet-60109',
@@ -69,16 +80,23 @@ export const EQUIPMENT_CATALOG_SEED: EquipmentCatalogModel[] = [
     wifi: true,
     maxTempC: 40,
     nominalHeatingRateCPerHour: 1.75,
+    bubbleRunLimitMinutes: 30,
+    bubbleCooldownMinutes: null,
     sourceQuality: 'manufacturer',
     sources: [
       {
         label: 'Bestway product specification',
         url: 'https://bestwaycorp.com/Product/Item?id=1060109XXX23',
         fields: ['capacityLiters', 'wifi', 'maxTempC', 'nominalHeatingRateCPerHour']
+      },
+      {
+        label: 'Bestway AirJet spa pump manual',
+        url: 'https://www.bestwaystore.co.uk/find-your-manual/2020/ibiza.pdf',
+        fields: ['bubbleRunLimitMinutes']
       }
     ],
-    notes: 'Manufacturer gives an approximate 1.5-2.0 °C/h heating rate; catalogue midpoint is 1.75 °C/h.',
-    checkedAt: '2026-08-14'
+    notes: 'Manufacturer gives an approximate 1.5-2.0 °C/h heating rate; catalogue midpoint is 1.75 °C/h. AirJet massage has a 30 minute auto-shutoff. No mandatory restart cooldown was verified in the manufacturer material checked.',
+    checkedAt: '2026-08-27'
   },
   {
     id: 'bestway-layzspa-milan-airjet-plus-54184',
@@ -90,16 +108,23 @@ export const EQUIPMENT_CATALOG_SEED: EquipmentCatalogModel[] = [
     wifi: true,
     maxTempC: 40,
     nominalHeatingRateCPerHour: 1.75,
+    bubbleRunLimitMinutes: 30,
+    bubbleCooldownMinutes: null,
     sourceQuality: 'manufacturer',
     sources: [
       {
         label: 'Bestway product specification',
         url: 'https://m.bestwaycorp.com/Product/Item?id=1C54184XXX20',
         fields: ['capacityLiters', 'wifi', 'maxTempC', 'nominalHeatingRateCPerHour']
+      },
+      {
+        label: 'Bestway AirJet spa pump manual',
+        url: 'https://www.bestwaystore.co.uk/find-your-manual/2020/ibiza.pdf',
+        fields: ['bubbleRunLimitMinutes']
       }
     ],
-    notes: 'Manufacturer gives an approximate 1.5-2.0 °C/h heating rate; catalogue midpoint is 1.75 °C/h.',
-    checkedAt: '2026-08-14'
+    notes: 'Manufacturer gives an approximate 1.5-2.0 °C/h heating rate; catalogue midpoint is 1.75 °C/h. AirJet massage has a 30 minute auto-shutoff. No mandatory restart cooldown was verified in the manufacturer material checked.',
+    checkedAt: '2026-08-27'
   },
   {
     id: 'intex-purespa-greywood-deluxe-6-28441',
@@ -110,6 +135,8 @@ export const EQUIPMENT_CATALOG_SEED: EquipmentCatalogModel[] = [
     capacityLiters: 1098,
     wifi: true,
     maxTempC: 40,
+    bubbleRunLimitMinutes: 30,
+    bubbleCooldownMinutes: null,
     sourceQuality: 'manufacturer',
     sources: [
       {
@@ -121,10 +148,15 @@ export const EQUIPMENT_CATALOG_SEED: EquipmentCatalogModel[] = [
         label: 'Intex Greywood Deluxe product page - INTEX Link app',
         url: 'https://intexcorp.com/purespa-bubble-massage/6-person-greywood-deluxe-round-bubble-spa-set/',
         fields: ['wifi']
+      },
+      {
+        label: 'Intex PureSpa Greywood Deluxe owner manual',
+        url: 'https://intexcorp.com/replacement-parts/spas/purespa-bubble-massage/85in-x-28in/2023/28431e/',
+        fields: ['bubbleRunLimitMinutes']
       }
     ],
-    notes: 'Manufacturer specifies 290 US gallons; stored as approximately 1,098 L. Wi-Fi/app capable, but no Spararama Intex connector is implemented yet.',
-    checkedAt: '2026-08-14'
+    notes: 'Manufacturer specifies 290 US gallons; stored as approximately 1,098 L. Bubble massage has a 30 minute auto-shutoff. No mandatory restart cooldown was verified. Wi-Fi/app capable, but no Spararama Intex connector is implemented yet.',
+    checkedAt: '2026-08-27'
   },
   {
     id: 'intex-prism-frame-15x48-26725',
