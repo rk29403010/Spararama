@@ -45,16 +45,26 @@ export function TelemetrySettings() {
   const [phoneBusy, setPhoneBusy] = useState(false);
   const [phoneMessage, setPhoneMessage] = useState<string | null>(null);
   const [alexa, setAlexa] = useState<AlexaAlertStatus | null>(null);
+  const [alexaEnabled, setAlexaEnabled] = useState(true);
+  const [alexaDevice, setAlexaDevice] = useState('');
+  const [alexaToken, setAlexaToken] = useState('');
+  const [alexaChime, setAlexaChime] = useState('');
   const [alexaBusy, setAlexaBusy] = useState(false);
   const [alexaMessage, setAlexaMessage] = useState<string | null>(null);
+
+  const applyAlexaStatus = (status: AlexaAlertStatus) => {
+    setAlexa(status);
+    setAlexaEnabled(status.enabled);
+    if (status.device) setAlexaDevice(status.device);
+  };
 
   useEffect(() => {
     telemetryApi.config()
       .then(config => setIntervalSeconds(config.intervalSeconds))
       .catch(error => setMessage(error?.message || 'Unable to load telemetry settings.'));
     alertsApi.alexaStatus()
-      .then(setAlexa)
-      .catch(() => setAlexa({ enabled: false, configured: false, chimeConfigured: false }));
+      .then(applyAlexaStatus)
+      .catch(error => setAlexaMessage(error?.message || 'Sign in to configure Alexa alerts.'));
   }, []);
 
   const updateInterval = async (value: number) => {
@@ -95,6 +105,27 @@ export function TelemetrySettings() {
     }
   };
 
+  const saveAlexa = async () => {
+    setAlexaBusy(true);
+    setAlexaMessage(null);
+    try {
+      const status = await alertsApi.updateAlexa({
+        enabled: alexaEnabled,
+        device: alexaDevice,
+        token: alexaToken || undefined,
+        chime: alexaChime || undefined
+      });
+      applyAlexaStatus(status);
+      setAlexaToken('');
+      setAlexaChime('');
+      setAlexaMessage('Alexa settings saved securely.');
+    } catch (error: any) {
+      setAlexaMessage(error?.message || 'Unable to save Alexa settings.');
+    } finally {
+      setAlexaBusy(false);
+    }
+  };
+
   const testAlexa = async () => {
     setAlexaBusy(true);
     setAlexaMessage(null);
@@ -124,18 +155,73 @@ export function TelemetrySettings() {
         </div>
         {phoneMessage && <p role="status" className="text-sm font-bold text-slate-600">{phoneMessage}</p>}
 
-        <div className="border-t border-slate-200 pt-4 flex items-center justify-between gap-4">
-          <div>
-            <div className="font-black text-slate-800 text-base sm:text-lg">Alexa</div>
-            <div className="text-sm font-bold text-slate-600">
-              {alexa === null ? 'Checking…' : alexa.configured ? 'Voice Monkey ready' : 'Not configured on server'}
+        <div className="border-t border-slate-200 pt-4 space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="font-black text-slate-800 text-base sm:text-lg">Alexa</div>
+              <div className="text-sm font-bold text-slate-600">
+                {alexa === null
+                  ? 'Not configured'
+                  : alexa.configured
+                    ? `Voice Monkey ready · ${alexa.source === 'secret-manager' ? 'Secret Manager' : 'environment'}`
+                    : 'Voice Monkey not ready'}
+              </div>
             </div>
+            <label className="flex items-center gap-2 font-black text-slate-700">
+              <span>Enabled</span>
+              <input type="checkbox" checked={alexaEnabled} onChange={event => setAlexaEnabled(event.target.checked)} className="w-6 h-6 accent-indigo-700" />
+            </label>
           </div>
-          <button type="button" disabled={!alexa?.configured || alexaBusy} onClick={() => void testAlexa()} className="min-h-12 px-4 rounded-xl bg-slate-950 text-white font-black disabled:opacity-40">
-            {alexaBusy ? 'Testing…' : 'Test'}
-          </button>
+
+          <label className="block">
+            <span className="block text-sm font-black text-slate-700">Device / monkey</span>
+            <input
+              type="text"
+              autoComplete="off"
+              value={alexaDevice}
+              onChange={event => setAlexaDevice(event.target.value)}
+              placeholder="e.g. hot-tub"
+              className="mt-1 w-full min-h-12 rounded-xl bg-slate-100 px-3 font-bold text-slate-950"
+            />
+          </label>
+
+          <label className="block">
+            <span className="block text-sm font-black text-slate-700">Voice Monkey API key</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={alexaToken}
+              onChange={event => setAlexaToken(event.target.value)}
+              placeholder={alexa?.configured ? 'Stored securely - leave blank to keep' : 'Paste API key'}
+              className="mt-1 w-full min-h-12 rounded-xl bg-slate-100 px-3 font-bold text-slate-950"
+            />
+            <span className="mt-1 block text-xs font-bold text-slate-500">Saved server-side in Google Secret Manager; the stored key is never sent back to this page.</span>
+          </label>
+
+          <label className="block">
+            <span className="block text-sm font-black text-slate-700">Chime <span className="font-bold text-slate-500">(optional)</span></span>
+            <input
+              type="text"
+              autoComplete="off"
+              value={alexaChime}
+              onChange={event => setAlexaChime(event.target.value)}
+              placeholder={alexa?.chimeConfigured ? 'Configured - leave blank to keep' : 'None'}
+              className="mt-1 w-full min-h-12 rounded-xl bg-slate-100 px-3 font-bold text-slate-950"
+            />
+          </label>
+
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" disabled={alexaBusy || !alexaDevice.trim()} onClick={() => void saveAlexa()} className="min-h-12 rounded-xl bg-indigo-700 text-white font-black disabled:opacity-40">
+              {alexaBusy ? 'Working…' : 'Save'}
+            </button>
+            <button type="button" disabled={!alexa?.configured || alexaBusy} onClick={() => void testAlexa()} className="min-h-12 rounded-xl bg-slate-950 text-white font-black disabled:opacity-40">
+              Test
+            </button>
+          </div>
+
+          {alexa?.storageError && <p role="alert" className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-sm font-bold text-amber-950">Secret Manager: {alexa.storageError}</p>}
+          {alexaMessage && <p role="status" className="text-sm font-bold text-slate-600">{alexaMessage}</p>}
         </div>
-        {alexaMessage && <p role="status" className="text-sm font-bold text-slate-600">{alexaMessage}</p>}
       </section>
 
       <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 space-y-3">
