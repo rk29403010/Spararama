@@ -47,7 +47,7 @@ function temperatureChange(hostId: string, id: string, timestamp: number, waterT
 }
 
 function cloudRecord(record: StoredTelemetryRecord, writtenAt: number): StoredTelemetryRecord {
-  return { ...record, _firebaseWrittenAt: writtenAt } as StoredTelemetryRecord;
+  return { ...record, _firebaseWrittenAt: writtenAt } as unknown as StoredTelemetryRecord;
 }
 
 class FixedRemote {
