@@ -5,6 +5,7 @@ import './domain/spoons.test';
 import './domain/equipment.test';
 import './server/mock-spa.test';
 import './server/manual-spa.test';
+import './server/bubbles.test';
 import './server/runtime.test';
 import './server/recovery-bridge.test';
 import './server/telemetry.test';
