@@ -41,6 +41,10 @@ export class AlexaAlertDispatcher {
     return this.voiceMonkey.configure(input);
   }
 
+  announce(text: string) {
+    return this.voiceMonkey.announce(text);
+  }
+
   start() {
     if (this.timer) return;
     void this.process();
