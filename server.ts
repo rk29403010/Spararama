@@ -7,7 +7,9 @@ import { createSpaAdapter } from './server/spa/factory';
 import { registerSpaRoutes } from './server/spa/routes';
 import { BestEffortTemperatureResolver } from './server/spa/temperature';
 import { TelemetryCollector } from './server/telemetry/collector';
+import { FirebaseTelemetrySink } from './server/telemetry/firebase-sink';
 import { LocalTelemetryStore } from './server/telemetry/local-store';
+import { SharedTelemetryStore } from './server/telemetry/shared-store';
 import { TelemetrySettingsStore, validateTelemetryIntervalSeconds } from './server/telemetry/settings';
 import { registerSpaHistoryRoutes } from './server/history/spa-events';
 import { WeatherService } from './server/weather/service';
@@ -34,6 +36,20 @@ async function startServer() {
       + `pending ${telemetryMigration.pending.before} -> ${telemetryMigration.pending.after}`
     );
   }
+
+  const firebaseTelemetry = new FirebaseTelemetrySink();
+  const sharedTelemetry = new SharedTelemetryStore(telemetryStore, firebaseTelemetry);
+  if (firebaseTelemetry.enabled) {
+    try {
+      const localRecords = await telemetryStore.readArchiveRecords();
+      const localCollectors = new Map<string, string>();
+      for (const record of localRecords) localCollectors.set(record.hostId, record.collectorVersion);
+      await Promise.all(Array.from(localCollectors.entries()).map(([hostId, version]) => firebaseTelemetry.registerCollector(hostId, version)));
+    } catch (error: any) {
+      console.warn(`Could not register local telemetry collectors with Firebase: ${error?.message || String(error)}`);
+    }
+  }
+
   const weather = new WeatherService();
   const temperatureResolver = new BestEffortTemperatureResolver(spaAdapter, telemetryStore);
   const heatingScheduler = new HeatingScheduler(spaAdapter);
@@ -42,28 +58,34 @@ async function startServer() {
   registerHeatingRoutes(app, heatingScheduler);
   registerSpaHistoryRoutes(app);
 
-  const telemetry = new TelemetryCollector(spaAdapter, telemetryStore, undefined, weather);
+  const telemetry = new TelemetryCollector(spaAdapter, telemetryStore, firebaseTelemetry, weather);
   const telemetrySettingsStore = new TelemetrySettingsStore();
   const telemetrySettings = await telemetrySettingsStore.load();
   telemetry.setIntervalSeconds(telemetrySettings.intervalSeconds);
   telemetry.start();
   heatingScheduler.start();
+  void sharedTelemetry.refresh();
   const telemetryStatus = telemetry.getStatus();
   console.log(`Firebase telemetry enabled: ${telemetryStatus.firebaseEnabled}`);
   console.log(`Firebase project: ${telemetryStatus.firebaseProjectId || 'not resolved'}`);
   console.log(`Firestore database: ${telemetryStatus.firestoreDatabaseId || 'not resolved'}`);
   console.log(`Firebase credential source: ${telemetryStatus.firebaseCredentialSource || 'not resolved'}`);
 
+  const combinedTelemetryStatus = () => ({
+    ...telemetry.getStatus(),
+    sharedHistory: sharedTelemetry.getStatus()
+  });
+
   app.get("/api/health", (_req, res) => {
     res.json({
       status: "ok",
       spaAdapter: process.env.SPA_ADAPTER || 'bridge',
-      telemetry: telemetry.getStatus()
+      telemetry: combinedTelemetryStatus()
     });
   });
 
   app.get('/api/telemetry/status', (_req, res) => {
-    res.json(telemetry.getStatus());
+    res.json(combinedTelemetryStatus());
   });
 
   app.get('/api/telemetry/config', (_req, res) => {
@@ -85,9 +107,9 @@ async function startServer() {
     try {
       const requestedLimit = Number(req.query.limit || 200);
       const limit = Number.isFinite(requestedLimit) ? requestedLimit : 200;
-      res.json(await telemetry.readRecentSamples(limit));
+      res.json(await sharedTelemetry.readRecent(limit));
     } catch (error: any) {
-      res.status(500).json({ error: error?.message || 'Unable to read telemetry history' });
+      res.status(500).json({ error: error?.message || 'Unable to read shared telemetry history' });
     }
   });
 
@@ -99,20 +121,24 @@ async function startServer() {
         res.status(400).json({ error: 'Expected numeric query parameter: since' });
         return;
       }
-      res.json(await telemetry.readChartRange(since, maxPoints));
+      res.json(await sharedTelemetry.readChartRange(since, maxPoints));
     } catch (error: any) {
-      res.status(500).json({ error: error?.message || 'Unable to prepare telemetry chart history' });
+      res.status(500).json({ error: error?.message || 'Unable to prepare shared telemetry chart history' });
     }
+  });
+
+  app.post('/api/telemetry/refresh', async (_req, res) => {
+    res.json(await sharedTelemetry.refresh());
   });
 
   app.post('/api/telemetry/collect-now', async (_req, res) => {
     await telemetry.collectNow();
-    res.json(telemetry.getStatus());
+    res.json(combinedTelemetryStatus());
   });
 
   app.post('/api/telemetry/flush', async (_req, res) => {
     await telemetry.flushPending();
-    res.json(telemetry.getStatus());
+    res.json(combinedTelemetryStatus());
   });
 
   // AI remains optional and observation-only. It is not used by the deterministic
