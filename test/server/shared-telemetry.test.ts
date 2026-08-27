@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { LocalTelemetryStore } from '../../server/telemetry/local-store';
-import { SharedTelemetryStore } from '../../server/telemetry/shared-store';
+import { SharedTelemetryStore, type RemoteTelemetryReadOptions } from '../../server/telemetry/shared-store';
 import type { StoredTelemetryRecord, TelemetryEventRecord } from '../../server/telemetry/types';
 
 function snapshot(hostId: string, id: string, timestamp: number, waterTemperatureC: number): TelemetryEventRecord {
@@ -46,6 +46,10 @@ function temperatureChange(hostId: string, id: string, timestamp: number, waterT
   };
 }
 
+function cloudRecord(record: StoredTelemetryRecord, writtenAt: number): StoredTelemetryRecord {
+  return { ...record, _firebaseWrittenAt: writtenAt } as StoredTelemetryRecord;
+}
+
 class FixedRemote {
   enabled = true;
   constructor(private readonly records: StoredTelemetryRecord[]) {}
@@ -59,6 +63,26 @@ class FailingRemote {
 
 class DisabledRemote {
   enabled = false;
+}
+
+class IncrementalRemote {
+  enabled = true;
+  calls: RemoteTelemetryReadOptions[] = [];
+  async readSamples(options: RemoteTelemetryReadOptions = {}) {
+    this.calls.push(options);
+    if (this.calls.length === 1) {
+      return {
+        records: [cloudRecord(snapshot('phone', 'phone-1', 1000, 32), 100)],
+        collectorIds: ['phone'],
+        cursor: 100
+      };
+    }
+    return {
+      records: [cloudRecord(temperatureChange('phone', 'phone-2', 2000, 33), 200)],
+      collectorIds: ['phone'],
+      cursor: 200
+    };
+  }
 }
 
 test('shared telemetry merges local and Firebase collectors without cross-contaminating state', async () => {
@@ -84,6 +108,31 @@ test('shared telemetry merges local and Firebase collectors without cross-contam
     const laptop = history.samples.find(sample => sample.id === 'local-1');
     assert.equal(laptop?.spa.waterTemperatureC, 35);
     assert.equal(history.sharedHistory.source, 'firebase');
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('shared telemetry advances a cloud-write cursor and merges incremental changes', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-shared-incremental-'));
+  try {
+    const local = new LocalTelemetryStore(dir);
+    const remote = new IncrementalRemote();
+    const shared = new SharedTelemetryStore(local, remote);
+    await shared.refresh();
+    await shared.refresh();
+
+    assert.equal(remote.calls.length, 2);
+    assert.equal(remote.calls[0].writtenAfter, 0);
+    assert.deepEqual(remote.calls[0].knownHosts, []);
+    assert.equal(remote.calls[1].writtenAfter, 100);
+    assert.deepEqual(remote.calls[1].knownHosts, ['phone']);
+
+    const history = await shared.readRecent(10);
+    assert.equal(history.total, 2);
+    assert.equal(history.samples[0].id, 'phone-2');
+    assert.equal(history.samples[0].spa.waterTemperatureC, 33);
+    assert.equal(history.samples[0].spa.targetTemperatureC, 38);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
