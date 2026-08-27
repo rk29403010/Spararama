@@ -55,14 +55,18 @@ async function startServer() {
   const firebaseTelemetry = new FirebaseTelemetrySink();
   const sharedTelemetry = new SharedTelemetryStore(telemetryStore, firebaseTelemetry);
   if (firebaseTelemetry.enabled) {
-    try {
-      const localRecords = await telemetryStore.readArchiveRecords();
-      const localCollectors = new Map<string, string>();
-      for (const record of localRecords) localCollectors.set(record.hostId, record.collectorVersion);
-      await Promise.all(Array.from(localCollectors.entries()).map(([hostId, version]) => firebaseTelemetry.registerCollector(hostId, version)));
-    } catch (error: any) {
-      console.warn(`Could not register local telemetry collectors with Firebase: ${error?.message || String(error)}`);
-    }
+    // Cloud registration must not delay the local listener. Firestore can spend
+    // minutes retrying a quota/network error while local telemetry remains healthy.
+    void (async () => {
+      try {
+        const localRecords = await telemetryStore.readArchiveRecords();
+        const localCollectors = new Map<string, string>();
+        for (const record of localRecords) localCollectors.set(record.hostId, record.collectorVersion);
+        await Promise.all(Array.from(localCollectors.entries()).map(([hostId, version]) => firebaseTelemetry.registerCollector(hostId, version)));
+      } catch (error: any) {
+        console.warn(`Could not register local telemetry collectors with Firebase: ${error?.message || String(error)}`);
+      }
+    })();
   }
 
   const weather = new WeatherService();
