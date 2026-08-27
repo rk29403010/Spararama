@@ -2,14 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Bell, Radio, Volume2 } from 'lucide-react';
 import { alertsApi, type AlexaAlertStatus } from '../lib/alertsApi';
 import { syncPushRegistration, testPushNotification } from '../lib/pushNotifications';
-import { telemetryApi } from '../lib/telemetryApi';
-
-const OPTIONS = [
-  { seconds: 60, label: 'Every minute' },
-  { seconds: 300, label: 'Every 5 minutes' },
-  { seconds: 900, label: 'Every 15 minutes' },
-  { seconds: 1800, label: 'Every 30 minutes' }
-];
 
 function playReadySignal() {
   if ('vibrate' in navigator) navigator.vibrate([300, 120, 300, 120, 650]);
@@ -39,9 +31,6 @@ function playReadySignal() {
 }
 
 export function TelemetrySettings() {
-  const [intervalSeconds, setIntervalSeconds] = useState<number | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [phoneBusy, setPhoneBusy] = useState(false);
   const [phoneMessage, setPhoneMessage] = useState<string | null>(null);
   const [alexa, setAlexa] = useState<AlexaAlertStatus | null>(null);
@@ -59,27 +48,10 @@ export function TelemetrySettings() {
   };
 
   useEffect(() => {
-    telemetryApi.config()
-      .then(config => setIntervalSeconds(config.intervalSeconds))
-      .catch(error => setMessage(error?.message || 'Unable to load telemetry settings.'));
     alertsApi.alexaStatus()
       .then(applyAlexaStatus)
       .catch(error => setAlexaMessage(error?.message || 'Sign in to configure Alexa alerts.'));
   }, []);
-
-  const updateInterval = async (value: number) => {
-    setSaving(true);
-    setMessage(null);
-    try {
-      const config = await telemetryApi.updateConfig(value);
-      setIntervalSeconds(config.intervalSeconds);
-      setMessage('Saved');
-    } catch (error: any) {
-      setMessage(error?.message || 'Unable to save telemetry settings.');
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const testPhoneAlerts = async () => {
     setPhoneBusy(true);
@@ -175,48 +147,23 @@ export function TelemetrySettings() {
 
           <label className="block">
             <span className="block text-sm font-black text-slate-700">Device / monkey</span>
-            <input
-              type="text"
-              autoComplete="off"
-              value={alexaDevice}
-              onChange={event => setAlexaDevice(event.target.value)}
-              placeholder="e.g. hot-tub"
-              className="mt-1 w-full min-h-12 rounded-xl bg-slate-100 px-3 font-bold text-slate-950"
-            />
+            <input type="text" autoComplete="off" value={alexaDevice} onChange={event => setAlexaDevice(event.target.value)} placeholder="e.g. hot-tub" className="mt-1 w-full min-h-12 rounded-xl bg-slate-100 px-3 font-bold text-slate-950" />
           </label>
 
           <label className="block">
             <span className="block text-sm font-black text-slate-700">Voice Monkey API key</span>
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={alexaToken}
-              onChange={event => setAlexaToken(event.target.value)}
-              placeholder={alexa?.configured ? 'Stored securely - leave blank to keep' : 'Paste API key'}
-              className="mt-1 w-full min-h-12 rounded-xl bg-slate-100 px-3 font-bold text-slate-950"
-            />
+            <input type="password" autoComplete="new-password" value={alexaToken} onChange={event => setAlexaToken(event.target.value)} placeholder={alexa?.configured ? 'Stored securely - leave blank to keep' : 'Paste API key'} className="mt-1 w-full min-h-12 rounded-xl bg-slate-100 px-3 font-bold text-slate-950" />
             <span className="mt-1 block text-xs font-bold text-slate-500">Saved server-side in Google Secret Manager; the stored key is never sent back to this page.</span>
           </label>
 
           <label className="block">
             <span className="block text-sm font-black text-slate-700">Chime <span className="font-bold text-slate-500">(optional)</span></span>
-            <input
-              type="text"
-              autoComplete="off"
-              value={alexaChime}
-              onChange={event => setAlexaChime(event.target.value)}
-              placeholder={alexa?.chimeConfigured ? 'Configured - leave blank to keep' : 'None'}
-              className="mt-1 w-full min-h-12 rounded-xl bg-slate-100 px-3 font-bold text-slate-950"
-            />
+            <input type="text" autoComplete="off" value={alexaChime} onChange={event => setAlexaChime(event.target.value)} placeholder={alexa?.chimeConfigured ? 'Configured - leave blank to keep' : 'None'} className="mt-1 w-full min-h-12 rounded-xl bg-slate-100 px-3 font-bold text-slate-950" />
           </label>
 
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" disabled={alexaBusy || !alexaDevice.trim()} onClick={() => void saveAlexa()} className="min-h-12 rounded-xl bg-indigo-700 text-white font-black disabled:opacity-40">
-              {alexaBusy ? 'Working…' : 'Save'}
-            </button>
-            <button type="button" disabled={!alexa?.configured || alexaBusy} onClick={() => void testAlexa()} className="min-h-12 rounded-xl bg-slate-950 text-white font-black disabled:opacity-40">
-              Test
-            </button>
+            <button type="button" disabled={alexaBusy || !alexaDevice.trim()} onClick={() => void saveAlexa()} className="min-h-12 rounded-xl bg-indigo-700 text-white font-black disabled:opacity-40">{alexaBusy ? 'Working…' : 'Save'}</button>
+            <button type="button" disabled={!alexa?.configured || alexaBusy} onClick={() => void testAlexa()} className="min-h-12 rounded-xl bg-slate-950 text-white font-black disabled:opacity-40">Test</button>
           </div>
 
           {alexa?.storageError && <p role="alert" className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-sm font-bold text-amber-950">Secret Manager: {alexa.storageError}</p>}
@@ -224,23 +171,13 @@ export function TelemetrySettings() {
         </div>
       </section>
 
-      <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 space-y-3">
-        <label className="flex items-center justify-between gap-4">
+      <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200">
+        <div className="flex items-center justify-between gap-4">
           <span className="font-black text-slate-800 text-base sm:text-lg flex items-center gap-2">
-            <Radio className="w-5 h-5 text-indigo-700" aria-hidden="true" />Telemetry frequency
+            <Radio className="w-5 h-5 text-indigo-700" aria-hidden="true" />Telemetry
           </span>
-          <select
-            aria-label="Telemetry frequency"
-            value={intervalSeconds ?? ''}
-            disabled={intervalSeconds === null || saving}
-            onChange={event => void updateInterval(Number(event.target.value))}
-            className="min-h-12 bg-slate-100 text-slate-950 font-black px-3 rounded-xl disabled:opacity-50"
-          >
-            {intervalSeconds === null && <option value="">Loading…</option>}
-            {OPTIONS.map(option => <option key={option.seconds} value={option.seconds}>{option.label}</option>)}
-          </select>
-        </label>
-        {message && <p role="status" className="text-sm font-bold text-slate-600">{message}</p>}
+          <span className="rounded-xl bg-slate-100 px-3 py-2 font-black text-slate-700">Automatic</span>
+        </div>
       </div>
     </>
   );
