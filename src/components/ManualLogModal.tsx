@@ -80,8 +80,8 @@ export function ManualLogModal({ state, onClose }: ManualLogModalProps) {
   const threeWay = <T extends string>(
     label: string,
     value: T,
-    values: Array<{ value: T; label: string }>,
-    setValue: (next: T) => void
+    values: Array<{ value: NoInfer<T>; label: string }>,
+    setValue: (next: NoInfer<T>) => void
   ) => (
     <div>
       <div className="mb-2 text-base font-black text-slate-800">{label}</div>
