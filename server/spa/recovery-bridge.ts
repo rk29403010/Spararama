@@ -1,4 +1,4 @@
-import type { SpaAdapter, SpaStatus } from './types';
+import type { SpaAdapter, SpaAdapterEventListener, SpaStatus } from './types';
 
 interface RecoveryStatus {
   connected?: boolean;
@@ -10,6 +10,12 @@ interface RecoveryStatus {
   filter?: boolean;
   bubbles?: boolean;
   filterMinutes?: number;
+}
+
+interface BridgeEventPayload {
+  observedAt?: number;
+  connected?: boolean;
+  status?: RecoveryStatus;
 }
 
 const STATUS_ATTEMPTS = 3;
@@ -100,9 +106,6 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
 
   private disconnectedStatus(): SpaStatus {
     this.contactFailureCount += 1;
-    // Runtime cannot be inferred while the spa is unreachable, so stop accumulating
-    // it until a real state is observed again. Preserve the last displayed state as
-    // stale data rather than replacing it with invented zeros.
     this.accumulateRuntime(false, false);
     if (this.lastGoodStatus) {
       return {
@@ -135,56 +138,93 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
     await this.request('/api/discover', { method: 'POST', body: '{}' });
   }
 
+  subscribe(listener: SpaAdapterEventListener) {
+    const abort = new AbortController();
+    let stopped = false;
+
+    const run = async () => {
+      while (!stopped) {
+        try {
+          const response = await fetch(`${this.baseUrl}/api/events`, {
+            headers: { ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}) },
+            signal: abort.signal
+          });
+          if (!response.ok || !response.body) throw new Error(`Bridge event stream failed (${response.status})`);
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          while (!stopped) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let boundary = buffer.indexOf('\n\n');
+            while (boundary >= 0) {
+              const frame = buffer.slice(0, boundary);
+              buffer = buffer.slice(boundary + 2);
+              let eventName = '';
+              let data = '';
+              for (const line of frame.split(/\r?\n/)) {
+                if (line.startsWith('event:')) eventName = line.slice(6).trim();
+                if (line.startsWith('data:')) data += line.slice(5).trim();
+              }
+              if (data) {
+                const payload = JSON.parse(data) as BridgeEventPayload;
+                const observedAt = Number(payload.observedAt) || Date.now();
+                if (eventName === 'status' && payload.status) {
+                  await listener({ kind: 'status', observedAt, status: this.normalize(payload.status), source: 'bridge-event' });
+                } else if (eventName === 'connection' && typeof payload.connected === 'boolean') {
+                  await listener({ kind: 'connection', observedAt, connected: payload.connected, source: 'bridge-event' });
+                }
+              }
+              boundary = buffer.indexOf('\n\n');
+            }
+          }
+        } catch (error: any) {
+          if (stopped || error?.name === 'AbortError') break;
+          await delay(2_000);
+        }
+      }
+    };
+    void run();
+    return () => { stopped = true; abort.abort(); };
+  }
+
   async getStatus(): Promise<SpaStatus> {
     for (let attempt = 0; attempt < STATUS_ATTEMPTS; attempt += 1) {
       try {
         const raw = await this.request<RecoveryStatus>('/api/status');
         if (raw.connected) return this.normalize(raw);
-
-        // A disconnected response can simply mean that the outdoor device has
-        // dropped off Wi-Fi. Give LAN discovery one chance before the retries.
         if (attempt === 0) {
-          try { await this.discoverIfNeeded(); } catch { /* retry status below */ }
+          try { await this.discoverIfNeeded(); } catch {}
         }
       } catch {
         if (attempt === 0) {
-          try { await this.discoverIfNeeded(); } catch { /* retry status below */ }
+          try { await this.discoverIfNeeded(); } catch {}
         }
       }
-
-      if (attempt < STATUS_ATTEMPTS - 1) {
-        await delay(RETRY_DELAYS_MS[attempt] ?? 800);
-      }
+      if (attempt < STATUS_ATTEMPTS - 1) await delay(RETRY_DELAYS_MS[attempt] ?? 800);
     }
     return this.disconnectedStatus();
   }
 
   async connect(): Promise<SpaStatus> {
-    try { await this.request('/api/discover', { method: 'POST', body: '{}' }); } catch { /* status retries provide the final result */ }
+    try { await this.request('/api/discover', { method: 'POST', body: '{}' }); } catch {}
     return this.getStatus();
   }
 
   async setHeater(on: boolean): Promise<SpaStatus> {
-    return this.normalize(await this.request<RecoveryStatus>('/api/control/heater', {
-      method: 'POST', body: JSON.stringify({ enabled: on })
-    }));
+    return this.normalize(await this.request<RecoveryStatus>('/api/control/heater', { method: 'POST', body: JSON.stringify({ enabled: on }) }));
   }
 
   async setFilter(on: boolean): Promise<SpaStatus> {
-    return this.normalize(await this.request<RecoveryStatus>('/api/control/filter', {
-      method: 'POST', body: JSON.stringify({ enabled: on })
-    }));
+    return this.normalize(await this.request<RecoveryStatus>('/api/control/filter', { method: 'POST', body: JSON.stringify({ enabled: on }) }));
   }
 
   async setBubbles(on: boolean): Promise<SpaStatus> {
-    return this.normalize(await this.request<RecoveryStatus>('/api/control/bubbles', {
-      method: 'POST', body: JSON.stringify({ enabled: on })
-    }));
+    return this.normalize(await this.request<RecoveryStatus>('/api/control/bubbles', { method: 'POST', body: JSON.stringify({ enabled: on }) }));
   }
 
   async setTargetTemperature(celsius: number): Promise<SpaStatus> {
-    return this.normalize(await this.request<RecoveryStatus>('/api/control/target-temperature', {
-      method: 'POST', body: JSON.stringify({ temperature: Math.round(celsius) })
-    }));
+    return this.normalize(await this.request<RecoveryStatus>('/api/control/target-temperature', { method: 'POST', body: JSON.stringify({ temperature: Math.round(celsius) }) }));
   }
 }
