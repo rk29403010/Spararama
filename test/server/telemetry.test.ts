@@ -46,6 +46,33 @@ class SequenceSensors {
   }
 }
 
+class SequenceWeather {
+  private index = 0;
+  private readonly values = [18, 18.4, 18.5];
+
+  async current() {
+    const value = this.values[Math.min(this.index, this.values.length - 1)];
+    this.index += 1;
+    const observedAt = Date.now();
+    return {
+      raw: [{
+        source: 'open-meteo', provider: 'open-meteo', sourceLocationId: 'weather-point-1',
+        temperatureC: value, humidityPercent: 70, observedAt
+      }],
+      derived: { method: 'single', sourceCount: 1, sourceLocationIds: ['weather-point-1'], temperatureC: value, humidityPercent: 70, observedAt },
+      influence: { overall: 1, temperature: 1, wind: 1, solar: 1, precipitation: 1 },
+      sources: []
+    };
+  }
+
+  async forecast() {
+    return {
+      derived: { time: [], temperatureC: [], windSpeedMps: [], cloudPercent: [], precipitationMm: [], shortwaveRadiationWm2: [] },
+      raw: [], influence: { overall: 1, temperature: 1, wind: 1, solar: 1, precipitation: 1 }, sources: []
+    };
+  }
+}
+
 class FailingSink {
   enabled = true;
   async writeSamples(_samples: StoredTelemetryRecord[]) { throw new Error('offline'); }
@@ -139,6 +166,26 @@ test('sensor deadbands accumulate against the last stored value rather than each
     if (records[1].schemaVersion !== 2) throw new Error('Expected v2 event');
     assert.deepEqual(records[1].changedFields, ['sensor.garden.temperature']);
     assert.equal(records[1].sensors?.[0].value, 20.1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('Open-Meteo temperature changes are stored only after a half-degree movement', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-weather-deadband-'));
+  try {
+    const store = new LocalTelemetryStore(dir);
+    const collector = new TelemetryCollector(new FixedSpa(), store, new DisabledSink(), new SequenceWeather() as any);
+    await collector.collectNow();
+    await collector.collectNow();
+    await collector.collectNow();
+
+    const records = await store.readPending();
+    assert.equal(records.length, 2);
+    assert.equal(records[1].schemaVersion, 2);
+    if (records[1].schemaVersion !== 2) throw new Error('Expected v2 event');
+    assert.deepEqual(records[1].changedFields, ['weather.weather-point-1.temperatureC']);
+    assert.equal(records[1].weather?.[0].temperatureC, 18.5);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
