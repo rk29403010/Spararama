@@ -2,9 +2,22 @@ import type { StoredTelemetryRecord } from './types';
 import { LocalTelemetryStore, materializeTelemetryRecords, mergeTelemetryRecords } from './local-store';
 import { rollUpTelemetry } from './rollup';
 
+const CLOUD_WRITTEN_AT = '_firebaseWrittenAt';
+
+export interface RemoteTelemetryReadOptions {
+  writtenAfter?: number;
+  knownHosts?: string[];
+}
+
+export interface RemoteTelemetryReadResult {
+  records: StoredTelemetryRecord[];
+  collectorIds: string[];
+  cursor: number;
+}
+
 export interface RemoteTelemetrySource {
   enabled: boolean;
-  readSamples?(): Promise<StoredTelemetryRecord[]>;
+  readSamples?(options?: RemoteTelemetryReadOptions): Promise<StoredTelemetryRecord[] | RemoteTelemetryReadResult>;
 }
 
 export interface SharedTelemetryStatus {
@@ -14,10 +27,27 @@ export interface SharedTelemetryStatus {
   lastError?: string;
 }
 
+function recordCloudWrittenAt(record: StoredTelemetryRecord) {
+  const value = Number((record as any)[CLOUD_WRITTEN_AT]);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function normaliseReadResult(result: StoredTelemetryRecord[] | RemoteTelemetryReadResult): RemoteTelemetryReadResult {
+  if (!Array.isArray(result)) return result;
+  return {
+    records: result,
+    collectorIds: Array.from(new Set(result.map(record => record.hostId))),
+    cursor: result.reduce((latest, record) => Math.max(latest, recordCloudWrittenAt(record)), 0)
+  };
+}
+
 export class SharedTelemetryStore {
   private readonly refreshIntervalMs: number;
   private cachedRemote: StoredTelemetryRecord[] | null = null;
+  private remoteCursor = 0;
+  private knownHosts = new Set<string>();
   private lastRefreshAt = 0;
+  private lastAttemptAt = 0;
   private status: SharedTelemetryStatus = { source: 'local-only', remoteRecords: 0 };
   private refreshOperation: Promise<StoredTelemetryRecord[]> | null = null;
 
@@ -34,10 +64,18 @@ export class SharedTelemetryStore {
     return { ...this.status };
   }
 
+  private initialiseRemoteState(records: StoredTelemetryRecord[]) {
+    for (const record of records) {
+      this.knownHosts.add(record.hostId);
+      this.remoteCursor = Math.max(this.remoteCursor, recordCloudWrittenAt(record));
+    }
+  }
+
   private async loadCachedRemote() {
     if (this.cachedRemote) return this.cachedRemote;
     try {
       this.cachedRemote = await this.local.readRemoteCache();
+      this.initialiseRemoteState(this.cachedRemote);
       if (this.cachedRemote.length) {
         this.status = { ...this.status, source: 'cache', remoteRecords: this.cachedRemote.length };
       }
@@ -54,14 +92,14 @@ export class SharedTelemetryStore {
 
   private async refreshRemote(force = false): Promise<StoredTelemetryRecord[]> {
     const now = Date.now();
-    if (!force && this.cachedRemote && this.lastRefreshAt && now - this.lastRefreshAt < this.refreshIntervalMs) {
+    if (!force && this.cachedRemote && this.lastAttemptAt && now - this.lastAttemptAt < this.refreshIntervalMs) {
       return this.cachedRemote;
     }
     if (this.refreshOperation) return this.refreshOperation;
 
     this.refreshOperation = (async () => {
+      const cached = await this.loadCachedRemote();
       if (!this.remote.enabled || !this.remote.readSamples) {
-        const cached = await this.loadCachedRemote();
         this.status = {
           source: cached.length ? 'cache' : 'local-only',
           remoteRecords: cached.length,
@@ -71,8 +109,16 @@ export class SharedTelemetryStore {
         return cached;
       }
 
+      this.lastAttemptAt = Date.now();
       try {
-        const records = mergeTelemetryRecords(await this.remote.readSamples());
+        const result = normaliseReadResult(await this.remote.readSamples({
+          writtenAfter: this.remoteCursor,
+          knownHosts: Array.from(this.knownHosts)
+        }));
+        for (const hostId of result.collectorIds) this.knownHosts.add(hostId);
+        this.initialiseRemoteState(result.records);
+        this.remoteCursor = Math.max(this.remoteCursor, Number(result.cursor) || 0);
+        const records = mergeTelemetryRecords(cached, result.records);
         await this.local.replaceRemoteCache(records);
         this.cachedRemote = records;
         this.lastRefreshAt = Date.now();
@@ -84,7 +130,6 @@ export class SharedTelemetryStore {
         };
         return records;
       } catch (error: any) {
-        const cached = await this.loadCachedRemote();
         this.status = {
           source: cached.length ? 'cache' : 'local-only',
           remoteRecords: cached.length,
