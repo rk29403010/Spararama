@@ -165,7 +165,7 @@ function legacyToEvents(samples: TelemetrySample[]): TelemetryEventRecord[] {
   return output;
 }
 
-function materialize(records: StoredTelemetryRecord[]): TelemetrySample[] {
+function materializeHost(records: StoredTelemetryRecord[]): TelemetrySample[] {
   const output: TelemetrySample[] = [];
   let spa: SpaStatus | null = null;
   const sensors = new Map<string, SensorReading>();
@@ -174,7 +174,7 @@ function materialize(records: StoredTelemetryRecord[]): TelemetrySample[] {
   let weatherInfluence: TelemetrySample['weatherInfluence'];
   let weatherSources: TelemetrySample['weatherSources'];
 
-  for (const record of records) {
+  for (const record of records.slice().sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id))) {
     if (isLegacy(record)) {
       spa = { ...record.spa };
       sensors.clear();
@@ -226,14 +226,42 @@ function materialize(records: StoredTelemetryRecord[]): TelemetrySample[] {
   return output;
 }
 
+export function telemetryRecordKey(record: StoredTelemetryRecord) {
+  return `${record.hostId}:${record.id}`;
+}
+
+/** Merge collector archives without feeding cloud records back into the upload queue. */
+export function mergeTelemetryRecords(...groups: StoredTelemetryRecord[][]): StoredTelemetryRecord[] {
+  const merged = new Map<string, StoredTelemetryRecord>();
+  for (const group of groups) {
+    for (const record of group) merged.set(telemetryRecordKey(record), record);
+  }
+  return Array.from(merged.values()).sort((a, b) => a.timestamp - b.timestamp || a.hostId.localeCompare(b.hostId) || a.id.localeCompare(b.id));
+}
+
+/** Materialize each collector independently, then combine their timelines. */
+export function materializeTelemetryRecords(records: StoredTelemetryRecord[]): TelemetrySample[] {
+  const byHost = new Map<string, StoredTelemetryRecord[]>();
+  for (const record of records) {
+    const group = byHost.get(record.hostId) || [];
+    group.push(record);
+    byHost.set(record.hostId, group);
+  }
+  return Array.from(byHost.values())
+    .flatMap(materializeHost)
+    .sort((a, b) => a.timestamp - b.timestamp || a.hostId.localeCompare(b.hostId) || a.id.localeCompare(b.id));
+}
+
 export class LocalTelemetryStore {
   readonly archivePath: string;
   readonly pendingPath: string;
+  readonly remoteCachePath: string;
   private operation = Promise.resolve();
 
   constructor(baseDir = process.env.TELEMETRY_DIR || path.join(process.cwd(), 'data', 'telemetry')) {
     this.archivePath = path.join(baseDir, 'telemetry.ndjson');
     this.pendingPath = path.join(baseDir, 'pending.ndjson');
+    this.remoteCachePath = path.join(baseDir, 'remote-cache.ndjson');
   }
 
   private serialized<T>(action: () => Promise<T>): Promise<T> {
@@ -246,7 +274,7 @@ export class LocalTelemetryStore {
     await fs.mkdir(path.dirname(this.archivePath), { recursive: true });
   }
 
-  private parse(text: string, label: 'queue' | 'archive'): StoredTelemetryRecord[] {
+  private parse(text: string, label: 'queue' | 'archive' | 'remote cache'): StoredTelemetryRecord[] {
     const records: StoredTelemetryRecord[] = [];
     let lineNumber = 0;
     for (const line of text.split(/\r?\n/)) {
@@ -256,7 +284,7 @@ export class LocalTelemetryStore {
       try {
         records.push(JSON.parse(trimmed));
       } catch {
-        const noun = label === 'queue' ? 'queue entry' : 'archive entry';
+        const noun = label === 'queue' ? 'queue entry' : `${label} entry`;
         throw new Error(`Malformed telemetry ${noun} at line ${lineNumber}; ${label} was left intact.`);
       }
     }
@@ -282,8 +310,27 @@ export class LocalTelemetryStore {
     });
   }
 
+  async readArchiveRecords(): Promise<StoredTelemetryRecord[]> {
+    return this.serialized(async () => this.parse(await this.readText(this.archivePath), 'archive'));
+  }
+
   async readPending(): Promise<StoredTelemetryRecord[]> {
     return this.serialized(async () => this.parse(await this.readText(this.pendingPath), 'queue'));
+  }
+
+  async readRemoteCache(): Promise<StoredTelemetryRecord[]> {
+    return this.serialized(async () => this.parse(await this.readText(this.remoteCachePath), 'remote cache'));
+  }
+
+  async replaceRemoteCache(records: StoredTelemetryRecord[]) {
+    return this.serialized(async () => {
+      await this.ensureDir();
+      const merged = mergeTelemetryRecords(records);
+      const data = merged.length ? `${merged.map(record => JSON.stringify(record)).join('\n')}\n` : '';
+      const tempPath = `${this.remoteCachePath}.tmp-${process.pid}`;
+      await fs.writeFile(tempPath, data, 'utf8');
+      await fs.rename(tempPath, this.remoteCachePath);
+    });
   }
 
   async replacePending(records: StoredTelemetryRecord[]) {
@@ -339,23 +386,19 @@ export class LocalTelemetryStore {
   }
 
   async readRecent(limit = 200) {
-    return this.serialized(async () => {
-      const samples = materialize(this.parse(await this.readText(this.archivePath), 'archive'));
-      const safeLimit = Math.max(1, Math.min(500, Math.floor(limit) || 200));
-      return { samples: samples.slice(-safeLimit).reverse(), total: samples.length };
-    });
+    const samples = materializeTelemetryRecords(await this.readArchiveRecords());
+    const safeLimit = Math.max(1, Math.min(500, Math.floor(limit) || 200));
+    return { samples: samples.slice(-safeLimit).reverse(), total: samples.length };
   }
 
   async readChartRange(since: number, maxPoints = 500) {
-    return this.serialized(async () => {
-      // Materialize before filtering so a change just inside the requested window
-      // inherits state from the most recent snapshot/event before that window.
-      const samples = materialize(this.parse(await this.readText(this.archivePath), 'archive'))
-        .filter(sample => Number.isFinite(sample.timestamp) && sample.timestamp >= since)
-        .sort((a, b) => a.timestamp - b.timestamp);
-      const safeMax = Math.max(50, Math.min(800, Math.floor(maxPoints) || 500));
-      const rolled = rollUpTelemetry(samples, safeMax);
-      return { samples: rolled, rawTotal: samples.length, rolledUp: rolled.length < samples.length };
-    });
+    // Materialize before filtering so a change just inside the requested window
+    // inherits state from the most recent snapshot/event before that window.
+    const samples = materializeTelemetryRecords(await this.readArchiveRecords())
+      .filter(sample => Number.isFinite(sample.timestamp) && sample.timestamp >= since)
+      .sort((a, b) => a.timestamp - b.timestamp);
+    const safeMax = Math.max(50, Math.min(800, Math.floor(maxPoints) || 500));
+    const rolled = rollUpTelemetry(samples, safeMax);
+    return { samples: rolled, rawTotal: samples.length, rolledUp: rolled.length < samples.length };
   }
 }
