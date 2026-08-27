@@ -51,7 +51,7 @@ function sensorDeadband(kind: string) {
 function weatherDeadband(field: keyof WeatherObservation) {
   switch (field) {
     case 'latitude': case 'longitude': return 0.0001;
-    case 'temperatureC': return 0.1;
+    case 'temperatureC': return 0.5;
     case 'humidityPercent': return 1;
     case 'pressureHpa': return 0.5;
     case 'windSpeedMps': return 0.2;
