@@ -4,12 +4,40 @@ import type { EquipmentCatalogResponse } from '../domain/equipmentCatalog';
 export interface WeatherObservationDto {
   source: string;
   station?: string;
+  provider?: string;
+  sourceLocationId?: string;
+  latitude?: number;
+  longitude?: number;
   temperatureC?: number;
   humidityPercent?: number;
+  pressureHpa?: number;
   windSpeedMps?: number;
+  windDirectionDegrees?: number;
   cloudPercent?: number;
   precipitationMm?: number;
+  shortwaveRadiationWm2?: number;
   observedAt?: number;
+}
+
+export interface SensorReadingDto {
+  id: string;
+  kind: string;
+  value: number | boolean | string;
+  unit?: string;
+  location?: string;
+  quality?: number;
+  deviceId?: string;
+  source?: string;
+  observedAt?: number;
+}
+
+export interface ForecastChangeDto {
+  source: string;
+  sourceLocationId?: string;
+  forecastFor: number;
+  metric: string;
+  value: number | null;
+  unit?: string;
 }
 
 export interface TelemetrySampleDto {
@@ -20,7 +48,9 @@ export interface TelemetrySampleDto {
   collectorVersion: string;
   spa: SpaStatusDto;
   changedFields: string[];
+  sensors?: SensorReadingDto[];
   weather?: WeatherObservationDto[];
+  forecast?: ForecastChangeDto[];
 }
 
 export interface TelemetryHistoryDto { samples: TelemetrySampleDto[]; total: number; }
