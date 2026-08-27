@@ -21,6 +21,14 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT || 3000);
 
+  // A whole .env is often copied from a development laptop onto the Termux host.
+  // Do not let the example laptop collector ID make two independent event streams
+  // look like one machine. Explicit non-example IDs are respected.
+  const isTermux = String(process.env.PREFIX || '').includes('com.termux');
+  if (isTermux && (!process.env.TELEMETRY_HOST_ID || process.env.TELEMETRY_HOST_ID === 'spararama-laptop')) {
+    process.env.TELEMETRY_HOST_ID = 'spararama-phone';
+  }
+
   app.use((_req, res, next) => {
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
     next();
@@ -70,9 +78,11 @@ async function startServer() {
   console.log(`Firebase project: ${telemetryStatus.firebaseProjectId || 'not resolved'}`);
   console.log(`Firestore database: ${telemetryStatus.firestoreDatabaseId || 'not resolved'}`);
   console.log(`Firebase credential source: ${telemetryStatus.firebaseCredentialSource || 'not resolved'}`);
+  console.log(`Telemetry collector ID: ${process.env.TELEMETRY_HOST_ID || 'machine hostname'}`);
 
   const combinedTelemetryStatus = () => ({
     ...telemetry.getStatus(),
+    collectorHostId: process.env.TELEMETRY_HOST_ID || 'machine-hostname',
     sharedHistory: sharedTelemetry.getStatus()
   });
 
