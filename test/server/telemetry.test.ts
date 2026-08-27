@@ -36,6 +36,16 @@ class MutableSpa implements SpaAdapter {
   async setTargetTemperature(celsius: number) { this.status.targetTemperatureC = celsius; return this.getStatus(); }
 }
 
+class SequenceSensors {
+  private index = 0;
+  private readonly values = [20, 20.05, 20.1];
+  async read() {
+    const value = this.values[Math.min(this.index, this.values.length - 1)];
+    this.index += 1;
+    return [{ id: 'garden.temperature', deviceId: 'garden-probe', kind: 'temperature', value, unit: 'C', source: 'test' }];
+  }
+}
+
 class FailingSink {
   enabled = true;
   async writeSamples(_samples: StoredTelemetryRecord[]) { throw new Error('offline'); }
@@ -109,6 +119,26 @@ test('unchanged polling does not append duplicate telemetry records', async () =
     await collector.collectNow();
     await collector.collectNow();
     assert.equal((await store.readPending()).length, 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('sensor deadbands accumulate against the last stored value rather than each poll', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-telemetry-'));
+  try {
+    const store = new LocalTelemetryStore(dir);
+    const collector = new TelemetryCollector(new FixedSpa(), store, new DisabledSink(), undefined, new SequenceSensors());
+    await collector.collectNow();
+    await collector.collectNow();
+    await collector.collectNow();
+
+    const records = await store.readPending();
+    assert.equal(records.length, 2);
+    assert.equal(records[1].schemaVersion, 2);
+    if (records[1].schemaVersion !== 2) throw new Error('Expected v2 event');
+    assert.deepEqual(records[1].changedFields, ['sensor.garden.temperature']);
+    assert.equal(records[1].sensors?.[0].value, 20.1);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
