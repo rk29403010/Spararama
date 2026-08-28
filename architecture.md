@@ -280,6 +280,15 @@ Telemetry is written under:
 
 Frontend and backend must target both the same Firebase project **and the same named Firestore database**. Do not weaken browser rules to fix an Admin credential problem.
 
+The two browser-facing history paths are intentionally different:
+
+- automatic telemetry charts call the Spararama `/api/telemetry/*` endpoints; the backend merges its local archive with its cached/incremental Firestore copy;
+- signed-in human activity logs currently use the Firebase browser SDK directly under `/users/{uid}/logs`.
+
+Opening Logs starts a demand-driven history refresh. Navigating away unmounts the screen, and hiding the browser pauses UI refreshes; the screen refreshes immediately when it becomes visible again. This affects display synchronisation only. The backend collector continues polling hardware and writing its local durable archive with no browser open.
+
+The Enterprise database does not create automatic indexes. Incremental telemetry sync therefore uses the repository-owned sparse collection-group index on `_firebaseWrittenAt` from `firestore.indexes.json`; signed-in activity history has a sparse descending `timestamp` index. Do not replace either with repeated unindexed scans.
+
 ## Local and cloud data roles
 
 Current development hierarchy:
@@ -299,6 +308,8 @@ local SQLite/Postgres authoritative store
 ```
 
 Do not make Firestore-specific structures the core domain model.
+
+Firestore is the off-machine working dataset and multi-device synchronisation layer, not the intended analytical engine. Statistical analysis should operate on a local relational/time-series representation or deliberate rollups rather than repeatedly scanning raw Firestore documents. The current NDJSON archive remains the durable source until the planned SQLite/Postgres store is introduced.
 
 ## AI Studio / branches
 

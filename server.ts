@@ -54,20 +54,6 @@ async function startServer() {
 
   const firebaseTelemetry = new FirebaseTelemetrySink();
   const sharedTelemetry = new SharedTelemetryStore(telemetryStore, firebaseTelemetry);
-  if (firebaseTelemetry.enabled) {
-    // Cloud registration must not delay the local listener. Firestore can spend
-    // minutes retrying a quota/network error while local telemetry remains healthy.
-    void (async () => {
-      try {
-        const localRecords = await telemetryStore.readArchiveRecords();
-        const localCollectors = new Map<string, string>();
-        for (const record of localRecords) localCollectors.set(record.hostId, record.collectorVersion);
-        await Promise.all(Array.from(localCollectors.entries()).map(([hostId, version]) => firebaseTelemetry.registerCollector(hostId, version)));
-      } catch (error: any) {
-        console.warn(`Could not register local telemetry collectors with Firebase: ${error?.message || String(error)}`);
-      }
-    })();
-  }
 
   const weather = new WeatherService();
   const merossSensors = createMerossMsh300SensorSource();
@@ -84,6 +70,14 @@ async function startServer() {
   const telemetrySettings = await telemetrySettingsStore.load();
   telemetry.setIntervalSeconds(telemetrySettings.intervalSeconds);
   telemetry.start();
+  if (firebaseTelemetry.enabled) {
+    // Register only this active collector. Historical collector documents and
+    // samples remain intact, but old hosts are no longer refreshed indefinitely.
+    const identity = telemetry.getIdentity();
+    void firebaseTelemetry.registerCollector(identity.hostId, identity.collectorVersion).catch((error: any) => {
+      console.warn(`Could not register this telemetry collector with Firebase: ${error?.message || String(error)}`);
+    });
+  }
 
   // Event-capable adapters can ask for an immediate observation. This is optional:
   // polling-only Wi-Fi adapters, cloud adapters and manual-only spas remain valid.

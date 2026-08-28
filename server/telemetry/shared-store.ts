@@ -3,6 +3,8 @@ import { LocalTelemetryStore, materializeTelemetryRecords, mergeTelemetryRecords
 import { rollUpTelemetry } from './rollup';
 
 const CLOUD_WRITTEN_AT = '_firebaseWrittenAt';
+const DEFAULT_SHARED_TELEMETRY_REFRESH_SECONDS = 300;
+const MIN_SHARED_TELEMETRY_REFRESH_SECONDS = 60;
 
 export interface RemoteTelemetryReadOptions {
   writtenAfter?: number;
@@ -55,8 +57,10 @@ export class SharedTelemetryStore {
     private readonly local: LocalTelemetryStore,
     private readonly remote: RemoteTelemetrySource
   ) {
-    const configured = Number(process.env.SHARED_TELEMETRY_REFRESH_SECONDS || 30);
-    const seconds = Number.isFinite(configured) ? Math.max(10, Math.floor(configured)) : 30;
+    const configured = Number(process.env.SHARED_TELEMETRY_REFRESH_SECONDS || DEFAULT_SHARED_TELEMETRY_REFRESH_SECONDS);
+    const seconds = Number.isFinite(configured)
+      ? Math.max(MIN_SHARED_TELEMETRY_REFRESH_SECONDS, Math.floor(configured))
+      : DEFAULT_SHARED_TELEMETRY_REFRESH_SECONDS;
     this.refreshIntervalMs = seconds * 1000;
   }
 

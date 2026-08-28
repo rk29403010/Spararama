@@ -1,0 +1,29 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "samples",
+      "queryScope": "COLLECTION_GROUP",
+      "apiScope": "ANY_API",
+      "density": "SPARSE_ANY",
+      "fields": [
+        {
+          "fieldPath": "_firebaseWrittenAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "logs",
+      "queryScope": "COLLECTION",
+      "apiScope": "ANY_API",
+      "density": "SPARSE_ANY",
+      "fields": [
+        {
+          "fieldPath": "timestamp",
+          "order": "DESCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

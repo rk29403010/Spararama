@@ -8,6 +8,7 @@ const DEFAULT_PROJECT_ID = 'microprojects-481213';
 const DEFAULT_DATABASE_ID = 'ai-studio-hottubmonitor-c4b572e9-4270-488c-b8d2-306ccf453f65';
 const TELEMETRY_APP_NAME = 'spararama-telemetry';
 const CLOUD_WRITTEN_AT = '_firebaseWrittenAt';
+const COLLECTOR_REGISTRATION_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export interface FirebaseTelemetryConfig {
   enabled: boolean;
@@ -94,6 +95,8 @@ export class FirebaseTelemetrySink {
   readonly enabled: boolean;
   readonly config: FirebaseTelemetryConfig;
   private db: ReturnType<typeof getFirestore> | null = null;
+  private readonly collectorRegisteredAt = new Map<string, number>();
+  private readonly collectorRegistrationOperations = new Map<string, Promise<void>>();
 
   constructor() {
     this.config = resolveFirebaseTelemetryConfig();
@@ -110,11 +113,26 @@ export class FirebaseTelemetrySink {
 
   async registerCollector(hostId: string, collectorVersion?: string) {
     if (!this.enabled || !this.db || !hostId) return;
-    await this.db.collection('telemetryCollectors').doc(hostId).set({
-      hostId,
-      ...(collectorVersion ? { collectorVersion } : {}),
-      lastRegisteredAt: FieldValue.serverTimestamp()
-    }, { merge: true });
+    const lastRegisteredAt = this.collectorRegisteredAt.get(hostId) || 0;
+    if (Date.now() - lastRegisteredAt < COLLECTOR_REGISTRATION_INTERVAL_MS) return;
+
+    const existing = this.collectorRegistrationOperations.get(hostId);
+    if (existing) return existing;
+
+    const operation = (async () => {
+      await this.db!.collection('telemetryCollectors').doc(hostId).set({
+        hostId,
+        ...(collectorVersion ? { collectorVersion } : {}),
+        lastRegisteredAt: FieldValue.serverTimestamp()
+      }, { merge: true });
+      this.collectorRegisteredAt.set(hostId, Date.now());
+    })();
+    this.collectorRegistrationOperations.set(hostId, operation);
+    try {
+      await operation;
+    } finally {
+      this.collectorRegistrationOperations.delete(hostId);
+    }
   }
 
   async writeSamples(samples: StoredTelemetryRecord[]) {
@@ -170,34 +188,25 @@ export class FirebaseTelemetrySink {
       return { records, collectorIds: Array.from(hosts.keys()), cursor };
     }
 
-    const collectors = await this.db.collection('telemetryCollectors').get();
-    const snapshots = await Promise.all(collectors.docs.map(async collector => {
-      const samples = collector.ref.collection('samples');
-      if (!knownHosts.has(collector.id)) {
-        // Newly discovered collector: one full bootstrap, including old records
-        // that pre-date the cloud-write cursor field.
-        return samples.get();
-      }
-      // Known collectors only return newly written/retried records. Using the
-      // server-generated Firestore timestamp means an old offline backlog is still
-      // discovered when it eventually uploads.
-      return samples
-        .where(CLOUD_WRITTEN_AT, '>', Timestamp.fromMillis(writtenAfter))
-        .orderBy(CLOUD_WRITTEN_AT, 'asc')
-        .get();
-    }));
-
+    // One indexed collection-group query discovers new collectors and delayed
+    // backlog uploads without scanning every collector's complete history. This
+    // requires the repository-owned sparse index in firestore.indexes.json.
+    const snapshot = await this.db
+      .collectionGroup('samples')
+      .where(CLOUD_WRITTEN_AT, '>', Timestamp.fromMillis(writtenAfter))
+      .orderBy(CLOUD_WRITTEN_AT, 'asc')
+      .get();
     const records: StoredTelemetryRecord[] = [];
+    const collectorIds = new Set(knownHosts);
     let cursor = writtenAfter;
-    for (const snapshot of snapshots) {
-      for (const doc of snapshot.docs) {
-        const record = decodedRecord(doc.data());
-        if (!record) continue;
-        records.push(record);
-        cursor = Math.max(cursor, cloudWrittenAt(record));
-      }
+    for (const doc of snapshot.docs) {
+      const record = decodedRecord(doc.data());
+      if (!record) continue;
+      records.push(record);
+      collectorIds.add(record.hostId);
+      cursor = Math.max(cursor, cloudWrittenAt(record));
     }
-    return { records, collectorIds: collectors.docs.map(doc => doc.id), cursor };
+    return { records, collectorIds: Array.from(collectorIds), cursor };
   }
 
   async verifyConnectivity(diagnosticId: string) {

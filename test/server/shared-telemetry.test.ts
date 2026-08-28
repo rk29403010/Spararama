@@ -138,6 +138,24 @@ test('shared telemetry advances a cloud-write cursor and merges incremental chan
   }
 });
 
+test('ordinary history reads share the cached cloud result until an explicit refresh', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-shared-throttle-'));
+  try {
+    const local = new LocalTelemetryStore(dir);
+    const remote = new IncrementalRemote();
+    const shared = new SharedTelemetryStore(local, remote);
+
+    await shared.readRecent(10);
+    await shared.readRecent(10);
+    assert.equal(remote.calls.length, 1);
+
+    await shared.refresh();
+    assert.equal(remote.calls.length, 2);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('shared telemetry falls back to cached Firebase history when cloud read fails', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-shared-cache-'));
   try {

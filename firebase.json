@@ -1,0 +1,9 @@
+{
+  "$schema": "https://raw.githubusercontent.com/firebase/firebase-tools/master/schema/firebase-config.json",
+  "firestore": [
+    {
+      "database": "ai-studio-hottubmonitor-c4b572e9-4270-488c-b8d2-306ccf453f65",
+      "indexes": "firestore.indexes.json"
+    }
+  ]
+}

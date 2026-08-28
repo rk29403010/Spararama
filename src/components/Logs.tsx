@@ -19,6 +19,7 @@ import {
 
 type HeatRange = 'today' | '48h' | '7d' | '30d' | '1y';
 type ChemistryRange = '7d' | '30d' | '1y';
+const HISTORY_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
 const HEAT_RANGES: Array<{ key: HeatRange; label: string }> = [
   { key: 'today', label: 'Today' },
@@ -182,11 +183,32 @@ export function Logs({ state }: LogsProps) {
   useEffect(() => {
     const unsubscribe = subscribeToAuthChanges(userValue => {
       setUser(userValue);
-      if (!userValue) { setLogs([]); return; }
-      void getLogs(500).then(setLogs).catch(() => setLogs([]));
+      if (!userValue) setLogs([]);
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    const load = () => {
+      if (document.visibilityState !== 'visible') return;
+      void getLogs(500)
+        .then(result => { if (active) setLogs(result); })
+        .catch(() => { if (active) setLogs([]); });
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    load();
+    const timer = window.setInterval(load, HISTORY_REFRESH_INTERVAL_MS);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user]);
 
   useEffect(() => {
     let active = true;
@@ -211,9 +233,20 @@ export function Logs({ state }: LogsProps) {
       }
     };
     setTelemetryLoading(true);
-    void load();
-    const timer = window.setInterval(load, 30_000);
-    return () => { active = false; window.clearInterval(timer); };
+    const loadIfVisible = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    loadIfVisible();
+    const timer = window.setInterval(loadIfVisible, HISTORY_REFRESH_INTERVAL_MS);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [heatRange]);
 
   const heatWindow = useMemo(() => {
