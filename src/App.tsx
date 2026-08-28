@@ -160,12 +160,13 @@ export default function App() {
           {activeTab === 'chemicals' && <Chemicals state={state} updateState={updateState} />}
           {activeTab === 'logs' && <Logs state={state} />}
           {activeTab === 'settings' && (
-            <div className="p-4 sm:p-8 text-slate-700 max-w-xl mx-auto space-y-6">
+            <div className="p-4 sm:p-8 text-slate-700 max-w-2xl mx-auto space-y-5">
               <h2 className="text-3xl font-black tracking-tight text-slate-950">Settings</h2>
               <ErrorBoundary resetKey="spa-configuration" title="Spa / pool settings failed"><SpaConfiguration state={state} updateState={updateState} /></ErrorBoundary>
               <ErrorBoundary resetKey="weather-configuration" title="Weather settings failed"><WeatherConfiguration /></ErrorBoundary>
 
               <section className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 space-y-6">
+                <h3 className="text-xl font-black text-slate-950">Preferences</h3>
                 <label className="flex items-center justify-between gap-4">
                   <span className="font-black text-slate-800 text-base sm:text-lg">Account</span>
                   {user ? <button type="button" className="min-h-12 px-4 bg-slate-100 text-slate-800 rounded-xl font-black flex items-center gap-2 hover:bg-slate-200" onClick={signOutUser}><LogOut className="w-5 h-5" aria-hidden="true" />Sign out</button> : <GoogleSignInButton />}
@@ -188,12 +189,12 @@ export default function App() {
                 </div>
 
                 <label className="flex items-center justify-between gap-4">
-                  <span className="font-black text-slate-800 text-base sm:text-lg">Default tub time</span>
+                  <span className="font-black text-slate-800 text-base sm:text-lg">Usual ready time</span>
                   <input name="default-ready-time" autoComplete="off" type="time" value={state.config.defaultReadyTime} onChange={event => updateState({...state, config: {...state.config, defaultReadyTime: event.target.value}})} className="min-h-12 bg-slate-100 text-slate-950 font-black px-4 py-2 rounded-xl" />
                 </label>
 
                 <label className="flex items-center justify-between gap-4">
-                  <span className="font-black text-slate-800 text-base sm:text-lg">Default target</span>
+                  <span className="font-black text-slate-800 text-base sm:text-lg">Usual water temperature</span>
                   <div className="flex items-center gap-2"><input name="default-target" autoComplete="off" inputMode="numeric" type="number" value={state.config.defaultHeatingTarget} onChange={event => updateState({...state, config: {...state.config, defaultHeatingTarget: Number(event.target.value) || 40}})} className="min-h-12 bg-slate-100 text-slate-950 font-black px-3 py-2 rounded-xl w-24 text-center" /><span className="font-black">°{state.config.temperatureScale}</span></div>
                 </label>
 
@@ -203,7 +204,7 @@ export default function App() {
                 </label>
 
                 <label className="min-h-12 flex items-center justify-between gap-4 cursor-pointer">
-                  <span className="font-black text-slate-800 text-base sm:text-lg">Alert at target</span>
+                  <span className="font-black text-slate-800 text-base sm:text-lg">Alert when target reached</span>
                   <input type="checkbox" checked={state.config.alertOnTargetReached !== false} onChange={event => updateState({...state, config: {...state.config, alertOnTargetReached: event.target.checked}})} className="w-6 h-6 accent-indigo-700" />
                 </label>
 
@@ -213,7 +214,7 @@ export default function App() {
                 </label>
 
                 <label className="flex items-center justify-between gap-4">
-                  <span className="font-black text-slate-800 text-base sm:text-lg">Electricity rate</span>
+                  <span className="font-black text-slate-800 text-base sm:text-lg">Electricity price</span>
                   <div className="flex items-center gap-2"><span className="font-black">£</span><input name="electricity-rate" autoComplete="off" inputMode="decimal" type="number" step="0.0001" min="0" value={state.config.electricityRatePerKwh} onChange={event => updateState({...state, config: {...state.config, electricityRatePerKwh: parseFloat(event.target.value) || 0}})} className="min-h-12 bg-slate-100 text-slate-950 font-black px-3 py-2 rounded-xl w-28 text-center" /><span className="font-black text-sm">/kWh</span></div>
                 </label>
               </section>

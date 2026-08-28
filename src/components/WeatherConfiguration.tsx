@@ -59,9 +59,12 @@ export function WeatherConfiguration() {
     const term = query.trim();
     if (term.length < 2) return;
     setBusy('lookup');
-    setMessage('');
+    setResults([]);
+    setMessage('Searching…');
     try {
-      setResults(await weatherApi.lookup(term));
+      const matches = await weatherApi.lookup(term);
+      setResults(matches);
+      setMessage(matches.length ? '' : 'No matching location found.');
     } catch (error: any) {
       setMessage(error?.message || 'Location lookup failed.');
     } finally {
@@ -109,11 +112,11 @@ export function WeatherConfiguration() {
       </div>
 
       <button type="button" disabled={Boolean(busy)} onClick={usePhoneLocation} className="w-full min-h-14 rounded-xl bg-indigo-700 text-white text-base font-black flex items-center justify-center gap-2 disabled:opacity-50">
-        <LocateFixed className="w-5 h-5" aria-hidden="true" />Use device location
+        <LocateFixed className="w-5 h-5" aria-hidden="true" />Use this device's location
       </button>
 
-      <div className="space-y-2">
-        <label htmlFor="weather-location-search" className="text-base font-black text-slate-800">Place or postcode</label>
+      <form className="space-y-2" onSubmit={event => { event.preventDefault(); void search(); }}>
+        <label htmlFor="weather-location-search" className="text-base font-black text-slate-800">Spa postcode or town</label>
         <div className="flex gap-2">
           <input
             id="weather-location-search"
@@ -121,12 +124,11 @@ export function WeatherConfiguration() {
             autoComplete="off"
             value={query}
             onChange={event => setQuery(event.target.value)}
-            onKeyDown={event => { if (event.key === 'Enter') void search(); }}
-            placeholder="NR13 3SF…"
+            placeholder="Norwich or NR13 3SF"
             className="min-w-0 flex-1 min-h-14 bg-slate-100 text-slate-950 rounded-xl px-3 font-bold"
           />
-          <button type="button" aria-label="Search locations" disabled={busy === 'lookup' || query.trim().length < 2} onClick={() => void search()} className="w-14 h-14 shrink-0 rounded-xl bg-slate-950 text-white flex items-center justify-center disabled:opacity-50">
-            <Search className="w-6 h-6" aria-hidden="true" />
+          <button type="submit" disabled={busy === 'lookup' || query.trim().length < 2} className="min-h-14 shrink-0 rounded-xl bg-slate-950 text-white px-4 flex items-center justify-center gap-2 font-black disabled:opacity-50">
+            <Search className="w-5 h-5" aria-hidden="true" />{busy === 'lookup' ? 'Searching' : 'Search'}
           </button>
         </div>
         {results.length > 0 && (
@@ -139,7 +141,7 @@ export function WeatherConfiguration() {
             ))}
           </div>
         )}
-      </div>
+      </form>
 
       <details className="border-t border-slate-200 pt-4">
         <summary className="min-h-12 cursor-pointer flex items-center text-base font-black text-slate-800">Advanced weather settings</summary>

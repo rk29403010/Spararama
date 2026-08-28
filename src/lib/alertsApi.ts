@@ -3,11 +3,18 @@ import { auth } from './firebase';
 export interface AlexaAlertStatus {
   enabled: boolean;
   configured: boolean;
+  tokenConfigured: boolean;
   device?: string;
   chimeConfigured: boolean;
+  chime?: string;
   source: 'secret-manager' | 'environment' | 'none';
   secretId: string;
   storageError?: string;
+}
+
+export interface AlexaSpeakerDto {
+  id: string;
+  name: string;
 }
 
 export interface AlexaAlertSettingsInput {
@@ -39,6 +46,10 @@ export const alertsApi = {
   updateAlexa: (settings: AlexaAlertSettingsInput) => requestJson<AlexaAlertStatus>('/api/alerts/alexa', {
     method: 'PUT',
     body: JSON.stringify(settings)
+  }),
+  alexaSpeakers: (token?: string) => requestJson<{ speakers: AlexaSpeakerDto[] }>('/api/alerts/alexa/speakers', {
+    method: 'POST',
+    body: JSON.stringify(token ? { token } : {})
   }),
   testAlexa: () => requestJson<{ enabled: boolean; sent: boolean; error?: string }>('/api/alerts/alexa/test', { method: 'POST' })
 };

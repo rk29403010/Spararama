@@ -41,6 +41,10 @@ export class AlexaAlertDispatcher {
     return this.voiceMonkey.configure(input);
   }
 
+  listSpeakers(candidateToken?: string) {
+    return this.voiceMonkey.listSpeakers(candidateToken);
+  }
+
   announce(text: string) {
     return this.voiceMonkey.announce(text);
   }
@@ -85,7 +89,8 @@ export class AlexaAlertDispatcher {
   }
 
   private async processInternal(now: number) {
-    if (!(await this.voiceMonkey.status()).configured) return;
+    const status = await this.voiceMonkey.status();
+    if (!status.enabled || !status.configured) return;
 
     const heating = await this.heatingStore.load();
     const delivery = await this.loadDeliveryState();

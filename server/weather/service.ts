@@ -11,6 +11,7 @@ import type {
 } from './types';
 
 const EARTH_RADIUS_KM = 6371;
+const UK_POSTCODE_PATTERN = /^(GIR0AA|[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2})$/i;
 
 function average(values: Array<number | null | undefined>) {
   const usable = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
@@ -19,6 +20,14 @@ function average(values: Array<number | null | undefined>) {
 
 function clamp(value: number, min = 0, max = 2) {
   return Math.max(min, Math.min(max, value));
+}
+
+function compactUkPostcode(value: string) {
+  return value.toUpperCase().replace(/\s+/g, '');
+}
+
+function isFullUkPostcode(value: string) {
+  return UK_POSTCODE_PATTERN.test(compactUkPostcode(value));
 }
 
 function destination(latitude: number, longitude: number, distanceKm: number, bearingDegrees: number) {
@@ -126,7 +135,10 @@ function aggregateSeries(series: WeatherForecastSeries[]): WeatherForecastSeries
 export class WeatherService {
   private settings: WeatherSettings | null = null;
 
-  constructor(private readonly store = new WeatherSettingsStore()) {}
+  constructor(
+    private readonly store = new WeatherSettingsStore(),
+    private readonly request: typeof fetch = fetch
+  ) {}
 
   async getSettings() {
     if (!this.settings) this.settings = await this.store.load();
@@ -141,8 +153,30 @@ export class WeatherService {
   async lookup(query: string) {
     const term = query.trim();
     if (term.length < 2) return [];
+
+    if (isFullUkPostcode(term)) {
+      const compact = compactUkPostcode(term);
+      const response = await this.request(`https://api.postcodes.io/postcodes/${encodeURIComponent(compact)}`);
+      if (response.status === 404) return [];
+      if (!response.ok) throw new Error(`Postcode lookup failed (${response.status}).`);
+      const data: any = await response.json();
+      const item = data?.result;
+      if (!item || !Number.isFinite(Number(item.latitude)) || !Number.isFinite(Number(item.longitude))) return [];
+      return [{
+        id: `postcode:${compact}`,
+        name: String(item.postcode || term).trim(),
+        admin1: String(item.admin_county || item.region || '').trim() || undefined,
+        admin2: String(item.parish || item.admin_district || '').trim() || undefined,
+        country: String(item.country || 'United Kingdom').trim(),
+        postcodes: [String(item.postcode || term).trim()],
+        latitude: Number(item.latitude),
+        longitude: Number(item.longitude),
+        timezone: 'Europe/London'
+      }];
+    }
+
     const params = new URLSearchParams({ name: term, count: '8', language: 'en', countryCode: 'GB', format: 'json' });
-    const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?${params}`);
+    const response = await this.request(`https://geocoding-api.open-meteo.com/v1/search?${params}`);
     if (!response.ok) throw new Error(`Location lookup failed (${response.status}).`);
     const data: any = await response.json();
     return (data?.results || []).map((item: any) => ({
@@ -169,7 +203,7 @@ export class WeatherService {
       wind_speed_unit: 'ms',
       timeformat: 'unixtime'
     });
-    const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
+    const response = await this.request(`https://api.open-meteo.com/v1/forecast?${params}`);
     if (!response.ok) throw new Error(`Weather lookup failed (${response.status}).`);
     const payload: any = await response.json();
     const rows = Array.isArray(payload) ? payload : [payload];
@@ -205,7 +239,7 @@ export class WeatherService {
       timeformat: 'unixtime',
       forecast_days: String(safeDays)
     });
-    const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
+    const response = await this.request(`https://api.open-meteo.com/v1/forecast?${params}`);
     if (!response.ok) throw new Error(`Weather forecast failed (${response.status}).`);
     const payload: any = await response.json();
     const rows = Array.isArray(payload) ? payload : [payload];

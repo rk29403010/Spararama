@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DEFAULT_WEATHER_SETTINGS, validateWeatherSettings } from '../../server/weather/settings';
-import { weatherInfluence } from '../../server/weather/service';
+import { WeatherService, weatherInfluence } from '../../server/weather/service';
 
 test('weather settings accept nearest and triangulation modes with a spa location', () => {
   const nearest = validateWeatherSettings({
@@ -37,4 +37,65 @@ test('overall weather influence is bounded', () => {
   assert.equal(off.temperature, 0);
   assert.equal(off.wind, 0);
   assert.equal(off.solar, 0);
+});
+
+test('UK postcode lookup uses Postcodes.io and maps a friendly location', async () => {
+  let requestedUrl = '';
+  const request: typeof fetch = async input => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({
+      status: 200,
+      result: {
+        postcode: 'NR13 3SF',
+        latitude: 52.59203,
+        longitude: 1.517333,
+        parish: 'Cantley, Limpenhoe and Southwood',
+        admin_county: 'Norfolk',
+        country: 'England'
+      }
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+
+  const result = await new WeatherService(undefined, request).lookup('nr13 3sf');
+  assert.equal(requestedUrl, 'https://api.postcodes.io/postcodes/NR133SF');
+  assert.deepEqual(result, [{
+    id: 'postcode:NR133SF',
+    name: 'NR13 3SF',
+    admin1: 'Norfolk',
+    admin2: 'Cantley, Limpenhoe and Southwood',
+    country: 'England',
+    postcodes: ['NR13 3SF'],
+    latitude: 52.59203,
+    longitude: 1.517333,
+    timezone: 'Europe/London'
+  }]);
+});
+
+test('unknown UK postcode returns an empty location list', async () => {
+  const request: typeof fetch = async () => new Response(JSON.stringify({ status: 404 }), {
+    status: 404,
+    headers: { 'Content-Type': 'application/json' }
+  });
+  assert.deepEqual(await new WeatherService(undefined, request).lookup('SW1A 9ZZ'), []);
+});
+
+test('place lookup continues to use Open-Meteo', async () => {
+  let requestedUrl = '';
+  const request: typeof fetch = async input => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({ results: [{
+      id: 2641181,
+      name: 'Norwich',
+      admin1: 'England',
+      admin2: 'Norfolk',
+      country: 'United Kingdom',
+      latitude: 52.62783,
+      longitude: 1.29834,
+      timezone: 'Europe/London'
+    }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+
+  const result = await new WeatherService(undefined, request).lookup('Norwich');
+  assert.match(requestedUrl, /^https:\/\/geocoding-api\.open-meteo\.com\/v1\/search\?/);
+  assert.equal(result[0]?.name, 'Norwich');
 });

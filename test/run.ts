@@ -16,3 +16,4 @@ import './server/temperature-resolver.test';
 import './server/weather.test';
 import './server/heating-scheduler.test';
 import './server/push-store.test';
+import './server/voice-monkey.test';

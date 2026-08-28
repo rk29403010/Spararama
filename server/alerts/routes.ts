@@ -69,6 +69,13 @@ export function registerAlertRoutes(app: Express, dispatcher: AlexaAlertDispatch
     }));
   }));
 
+  app.post('/api/alerts/alexa/speakers', asyncRoute(async (req, res) => {
+    if (!(await requireSettingsUser(req, res))) return;
+    res.setHeader('Cache-Control', 'no-store');
+    const token = typeof req.body?.token === 'string' ? req.body.token.slice(0, 500) : undefined;
+    res.json({ speakers: await dispatcher.listSpeakers(token) });
+  }));
+
   app.post('/api/alerts/alexa/test', asyncRoute(async (req, res) => {
     if (!(await requireSettingsUser(req, res))) return;
     res.json(await dispatcher.test());

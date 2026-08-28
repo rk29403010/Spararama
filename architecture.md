@@ -285,6 +285,10 @@ The two browser-facing history paths are intentionally different:
 - automatic telemetry charts call the Spararama `/api/telemetry/*` endpoints; the backend merges its local archive with its cached/incremental Firestore copy;
 - signed-in human activity logs currently use the Firebase browser SDK directly under `/users/{uid}/logs`.
 
+Alert credentials follow the backend identity boundary. The signed-in Settings screen sends a newly entered Voice Monkey token only to the authenticated Spararama API. The backend stores it in Secret Manager and calls Voice Monkey itself. Speaker discovery uses Voice Monkey's `/devices` API and returns only speaker IDs and friendly names; stored tokens are never returned to the browser.
+
+Weather location lookup also remains behind the Spararama API. Place names use Open-Meteo geocoding, while complete UK postcodes use Postcodes.io because Open-Meteo does not reliably resolve UK postcode units. Both providers return coordinates into the same provider-neutral location model.
+
 Opening Logs starts a demand-driven history refresh. Navigating away unmounts the screen, and hiding the browser pauses UI refreshes; the screen refreshes immediately when it becomes visible again. This affects display synchronisation only. The backend collector continues polling hardware and writing its local durable archive with no browser open.
 
 The Enterprise database does not create automatic indexes. Incremental telemetry sync therefore uses the repository-owned sparse collection-group index on `_firebaseWrittenAt` from `firestore.indexes.json`; signed-in activity history has a sparse descending `timestamp` index. Do not replace either with repeated unindexed scans.
