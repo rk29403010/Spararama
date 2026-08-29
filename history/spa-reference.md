@@ -46,6 +46,17 @@
 - Buffered chlorine tablets used in a floating dispenser.
 - Exact tablet mass / label release rate is not yet recorded.
 
+## Water testing equipment
+
+### YINMIK BLE-C600
+
+- Bluetooth 7-in-1 handheld water-quality meter received 29 Aug 2026.
+- Power: **3 x LR44** cells.
+- Manufacturer/manual parameters: pH, EC, TDS, salinity, specific gravity, ORP and temperature.
+- It does **not** directly measure free chlorine; do not treat an ORP value as a chlorine reading.
+- Direct Web Bluetooth support is implemented in Spararama on `chatgpt-dev`; see `docs/ble-c600.md`.
+- First physical BLE read and high-range EC/TDS/salinity scaling are not yet validated against this individual unit.
+
 ## Baseline tap-water strip readings
 
 - Free chlorine: 0 ppm
