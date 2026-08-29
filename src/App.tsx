@@ -13,6 +13,7 @@ import { GoogleSignInButton } from './components/GoogleSignInButton';
 import { TelemetrySettings } from './components/TelemetrySettings';
 import { SpaConfiguration } from './components/SpaConfiguration';
 import { WeatherConfiguration } from './components/WeatherConfiguration';
+import { BleC600Settings } from './components/BleC600Settings';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ClipboardPlus, Droplets, Flame, Settings, List, LogOut, User as UserIcon, House } from 'lucide-react';
 import { subscribeToAuthChanges, signOutUser } from './lib/firebase';
@@ -164,6 +165,7 @@ export default function App() {
               <h2 className="text-3xl font-black tracking-tight text-slate-950">Settings</h2>
               <ErrorBoundary resetKey="spa-configuration" title="Spa / pool settings failed"><SpaConfiguration state={state} updateState={updateState} /></ErrorBoundary>
               <ErrorBoundary resetKey="weather-configuration" title="Weather settings failed"><WeatherConfiguration /></ErrorBoundary>
+              <ErrorBoundary resetKey="ble-c600-settings" title="BLE-C600 settings failed"><BleC600Settings /></ErrorBoundary>
 
               <section className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 space-y-6">
                 <label className="flex items-center justify-between gap-4">
