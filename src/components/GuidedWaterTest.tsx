@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Volume2, VolumeX, X } from 'lucide-react';
+import { AlertTriangle, Bluetooth, CheckCircle2, Volume2, VolumeX, X } from 'lucide-react';
 import type { AppState } from '../types';
-import type { ChemistryAssessment, MeasurementReading, TestMethodProfile } from '../domain/models';
+import type { ChemistryAssessment, InstrumentSnapshot, MeasurementKey, MeasurementReading, TestMethodProfile } from '../domain/models';
 import { assessChemistry } from '../domain/chemistry';
 import { logEvent } from '../lib/firebase';
 import { spaApi } from '../lib/spaApi';
+import { BleC600WaterTest } from './BleC600WaterTest';
 import { WaterTestReadingEntry } from './WaterTestReadingEntry';
 
 interface GuidedWaterTestProps {
@@ -26,6 +27,15 @@ interface GuideStep {
   showCountdown?: boolean;
   cueAtEnd?: boolean;
 }
+
+const BLE_C600_METHOD: TestMethodProfile = {
+  id: 'ble-c600',
+  name: 'BLE-C600 meter',
+  description: 'YINMIK Bluetooth pH/EC/TDS/ORP/salinity/temperature meter.',
+  instructions: [],
+  parameters: [{ measurement: 'ph', label: 'pH' }],
+  notes: 'pH is used directly for chemistry. ORP, EC, TDS, salinity, S.G. and temperature are stored with the instrument snapshot.'
+};
 
 const ELECTRONIC_METHOD: TestMethodProfile = {
   id: 'electronic',
@@ -56,7 +66,7 @@ const PAD_CLASSES = [
 function actionTitle(assessment: ChemistryAssessment) {
   const action = assessment.nextAction;
   if (action.kind === 'dose') return `Add ${action.amount}${action.unit} ${action.productName}`;
-  if (action.kind === 'retest') return 'Retest before dosing';
+  if (action.kind === 'retest') return 'More testing needed';
   return 'Water ready';
 }
 
@@ -72,8 +82,16 @@ function formatCountdown(seconds: number) {
   return `${mins}:${String(secs).padStart(2, '0')}`;
 }
 
+function isBleC600(methodId: string) {
+  return methodId === BLE_C600_METHOD.id;
+}
+
 function isElectronic(methodId: string) {
   return methodId === ELECTRONIC_METHOD.id;
+}
+
+function isDigital(methodId: string) {
+  return isBleC600(methodId) || isElectronic(methodId);
 }
 
 function padCountForMethod(methodId: string) {
@@ -83,8 +101,41 @@ function padCountForMethod(methodId: string) {
 function displayNameForMethod(methodId: string, fallback: string) {
   if (methodId === 'current-3-way') return '3-in-1';
   if (methodId === 'current-7-way') return '7-in-1';
-  if (methodId === ELECTRONIC_METHOD.id) return 'Electronic';
+  if (methodId === BLE_C600_METHOD.id) return 'BLE-C600';
+  if (methodId === ELECTRONIC_METHOD.id) return 'Other digital';
   return fallback;
+}
+
+function sanitizerMeasurement(sanitizer: string): MeasurementKey | null {
+  if (sanitizer === 'bromine') return 'bromine';
+  if (sanitizer === 'chlorine' || sanitizer === 'salt_chlorine') return 'free_chlorine';
+  return null;
+}
+
+function requireSanitizerReading(
+  assessment: ChemistryAssessment,
+  readings: MeasurementReading[],
+  sanitizer: string
+): ChemistryAssessment {
+  const required = sanitizerMeasurement(sanitizer);
+  if (!required || readings.some(reading => reading.measurement === required) || assessment.nextAction.kind !== 'none') return assessment;
+
+  return {
+    findings: [
+      ...assessment.findings,
+      {
+        measurement: required,
+        severity: 'warning',
+        code: 'sanitizer_not_measured',
+        message: 'Sanitizer was not measured by this test.'
+      }
+    ],
+    nextAction: {
+      kind: 'retest',
+      measurements: [required],
+      reason: `${required === 'bromine' ? 'Bromine' : 'Free chlorine'} still needs to be checked before the water can be marked ready.`
+    }
+  };
 }
 
 function guideStepsForMethod(method: TestMethodProfile): GuideStep[] {
@@ -202,20 +253,21 @@ function ChartBottleGraphic() {
 }
 
 function PreparationVisual({ methodId }: { methodId: string }) {
-  const electronic = isElectronic(methodId);
+  const digital = isDigital(methodId);
+  const c600 = isBleC600(methodId);
   return (
     <div className="grid grid-cols-3 gap-3">
       <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3 text-center flex flex-col justify-between min-h-32">
         <div className="scale-75 -my-4"><TestChoiceGraphic methodId={methodId} /></div>
-        <span className="text-sm font-black text-slate-800">{electronic ? 'Tester' : 'Strip'}</span>
+        <span className="text-sm font-black text-slate-800">{digital ? 'Tester' : 'Strip'}</span>
       </div>
       <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3 text-center flex flex-col justify-between min-h-32">
         <div className="flex-1 flex items-center justify-center"><SpaOpenGraphic /></div>
         <span className="text-sm font-black text-slate-800">Spa open</span>
       </div>
       <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3 text-center flex flex-col justify-between min-h-32">
-        <div className="flex-1 flex items-center justify-center"><ChartBottleGraphic /></div>
-        <span className="text-sm font-black text-slate-800">{electronic ? 'Instructions' : 'Bottle'}</span>
+        <div className="flex-1 flex items-center justify-center">{c600 ? <Bluetooth className="w-14 h-14 text-indigo-700" aria-hidden="true" /> : <ChartBottleGraphic />}</div>
+        <span className="text-sm font-black text-slate-800">{c600 ? 'Bluetooth' : digital ? 'Instructions' : 'Bottle'}</span>
       </div>
     </div>
   );
@@ -244,12 +296,12 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
     const knownStrips = ['current-3-way', 'current-7-way']
       .map(id => state.domain.testMethods.find(item => item.id === id))
       .filter((item): item is TestMethodProfile => Boolean(item));
-    return [...knownStrips, ELECTRONIC_METHOD];
+    return [BLE_C600_METHOD, ...knownStrips, ELECTRONIC_METHOD];
   }, [state.domain.testMethods]);
 
   const initialMethodId = availableMethods.some(item => item.id === state.domain.activeTestMethodId)
     ? state.domain.activeTestMethodId
-    : (availableMethods[1]?.id ?? availableMethods[0]?.id ?? ELECTRONIC_METHOD.id);
+    : (availableMethods[0]?.id ?? BLE_C600_METHOD.id);
 
   const [phase, setPhase] = useState<Phase>('choose');
   const [methodId, setMethodId] = useState(initialMethodId);
@@ -264,7 +316,7 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
   const [clock, setClock] = useState(Date.now());
   const [savingDose, setSavingDose] = useState(false);
 
-  const method = useMemo(() => availableMethods.find(item => item.id === methodId) ?? availableMethods[0] ?? ELECTRONIC_METHOD, [availableMethods, methodId]);
+  const method = useMemo(() => availableMethods.find(item => item.id === methodId) ?? availableMethods[0] ?? BLE_C600_METHOD, [availableMethods, methodId]);
   const waterBody = useMemo(() => state.domain.waterBodies.find(item => item.id === state.domain.activeWaterBodyId) ?? state.domain.waterBodies[0], [state.domain.waterBodies, state.domain.activeWaterBodyId]);
   const guideSteps = useMemo(() => guideStepsForMethod(method), [method]);
   const currentStep = guideSteps[stepIndex];
@@ -300,7 +352,8 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
   useEffect(() => {
     if (phase !== 'readings') return;
     playCue();
-    speak(isElectronic(method.id) ? 'Enter the readings shown by your tester.' : 'Read the strip now.');
+    if (isBleC600(method.id)) speak('Connect the meter, dip to the immersion line, and wait for the readings to settle.');
+    else speak(isElectronic(method.id) ? 'Enter the readings shown by your tester.' : 'Read the strip now.');
   }, [phase]);
 
   useEffect(() => {
@@ -317,19 +370,21 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
     setAssessment(null);
     setStripStartedAt(null);
     setStepIndex(0);
-    if (isElectronic(method.id)) { setClock(Date.now()); setPhase('readings'); }
+    if (isDigital(method.id)) { setClock(Date.now()); setPhase('readings'); }
     else setPhase('guide');
   };
 
-  const submitReadings = (readings: MeasurementReading[]) => {
+  const submitReadings = (readings: MeasurementReading[], instrument?: InstrumentSnapshot) => {
     if (readings.length === 0) { setEntryError('Record at least one reading.'); return; }
-    const result = assessChemistry(waterBody, state.domain.products, readings);
+    const assessed = assessChemistry(waterBody, state.domain.products, readings);
+    const result = requireSanitizerReading(assessed, readings, waterBody.sanitizer);
     const record = {
       id: crypto.randomUUID(),
       timestamp: Date.now(),
       waterBodyId: waterBody.id,
       testMethodId: method.id,
-      readings
+      readings,
+      ...(instrument ? { instrument } : {})
     };
 
     updateState({
@@ -371,17 +426,21 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
     setPhase('mixing');
   };
 
-  const restartForRetest = () => {
+  const restartForRetest = (preferSanitizerStrip = false) => {
     setAssessment(null);
     setEntryError('');
     setControlError('');
     setMixEndsAt(null);
     setStripStartedAt(null);
     setStepIndex(0);
+    if (preferSanitizerStrip) {
+      const quickStrip = availableMethods.find(item => item.id === 'current-3-way');
+      if (quickStrip) setMethodId(quickStrip.id);
+    }
     setPhase('prepare');
   };
 
-  const stripReadingsPhase = phase === 'readings' && !isElectronic(method.id);
+  const stripReadingsPhase = phase === 'readings' && !isDigital(method.id);
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/70 flex items-end sm:items-center justify-center overscroll-contain">
@@ -399,11 +458,11 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
         {phase === 'choose' && (
           <div className="p-5 space-y-5">
             <h3 className="text-3xl font-black text-slate-950">Choose test</h3>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {availableMethods.map(item => {
                 const selected = methodId === item.id;
                 return (
-                  <button key={item.id} type="button" onClick={() => setMethodId(item.id)} aria-pressed={selected} className={`relative min-h-44 rounded-2xl border-2 p-2 text-center overflow-hidden ${selected ? 'border-indigo-700 bg-indigo-50' : 'border-slate-200 bg-white'}`}>
+                  <button key={item.id} type="button" onClick={() => setMethodId(item.id)} aria-pressed={selected} className={`relative min-h-40 rounded-2xl border-2 p-2 text-center overflow-hidden ${selected ? 'border-indigo-700 bg-indigo-50' : 'border-slate-200 bg-white'}`}>
                     {selected && <span className="absolute top-2 right-2 w-7 h-7 rounded-full bg-indigo-700 text-white flex items-center justify-center"><CheckCircle2 className="w-5 h-5" aria-hidden="true" /></span>}
                     <TestChoiceGraphic methodId={item.id} />
                     <span className="block text-lg font-black text-slate-950">{displayNameForMethod(item.id, item.name)}</span>
@@ -419,10 +478,11 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
           <div className="p-5 space-y-5">
             <h3 className="text-3xl font-black text-slate-950">Ready?</h3>
             <PreparationVisual methodId={method.id} />
-            {!isElectronic(method.id) && <p className="text-lg font-black text-slate-800 text-center">Put the phone down where you can see it.</p>}
+            {!isDigital(method.id) && <p className="text-lg font-black text-slate-800 text-center">Put the phone down where you can see it.</p>}
+            {isBleC600(method.id) && <p className="text-base font-bold text-slate-700">Turn the meter on. Hold ON/OFF until the Bluetooth symbol appears.</p>}
             {isElectronic(method.id) && <p className="text-base font-bold text-slate-700">Use the tester manufacturer’s procedure.</p>}
             <button type="button" onClick={startPreparedTest} className="w-full min-h-16 rounded-2xl bg-indigo-700 text-white text-xl font-black">
-              {isElectronic(method.id) ? 'Enter readings' : 'Ready'}
+              {isBleC600(method.id) ? 'Connect meter' : isElectronic(method.id) ? 'Enter readings' : 'Ready'}
             </button>
             <button type="button" onClick={() => setPhase('choose')} className="w-full min-h-12 rounded-xl text-slate-700 font-black">Change test</button>
           </div>
@@ -444,7 +504,7 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
           </div>
         )}
 
-        {phase === 'readings' && !isElectronic(method.id) && (
+        {phase === 'readings' && !isDigital(method.id) && (
           <div className="flex min-h-0 flex-1 flex-col p-3">
             <div className="mb-2 flex min-h-12 shrink-0 items-center justify-between gap-3">
               <h3 className="text-3xl font-black tracking-tight text-slate-950">READ NOW</h3>
@@ -459,6 +519,14 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
             </div>
             <WaterTestReadingEntry method={method} onSubmit={submitReadings} />
             {entryError && <div role="alert" className="mt-2 shrink-0 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 px-3 py-2 text-sm font-black">{entryError}</div>}
+          </div>
+        )}
+
+        {phase === 'readings' && isBleC600(method.id) && (
+          <div className="p-5 space-y-5">
+            <h3 className="text-3xl font-black text-slate-950">BLE-C600</h3>
+            <BleC600WaterTest onSubmit={submitReadings} />
+            {entryError && <div role="alert" className="rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 p-4 font-black">{entryError}</div>}
           </div>
         )}
 
@@ -493,6 +561,11 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
                 <button type="button" disabled={savingDose} onClick={() => void confirmDose()} className="w-full min-h-16 rounded-2xl bg-slate-950 disabled:bg-slate-400 text-white text-xl font-black">{savingDose ? 'Recording…' : 'Dose added'}</button>
                 <button type="button" onClick={onClose} className="w-full min-h-12 rounded-xl text-slate-700 font-black">Not now</button>
               </div>
+            ) : assessment.nextAction.kind === 'retest' ? (
+              <div className="space-y-3">
+                <button type="button" onClick={() => restartForRetest(isBleC600(method.id))} className="w-full min-h-16 rounded-2xl bg-indigo-700 text-white text-xl font-black">Continue testing</button>
+                <button type="button" onClick={onClose} className="w-full min-h-12 rounded-xl text-slate-700 font-black">Done for now</button>
+              </div>
             ) : (
               <button type="button" onClick={onClose} className="w-full min-h-16 rounded-2xl bg-slate-950 text-white text-xl font-black">Done</button>
             )}
@@ -507,7 +580,7 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
             <h3 className="text-3xl font-black text-slate-950">{remainingMixSeconds > 0 ? 'Mixing' : 'Retest now'}</h3>
             {remainingMixSeconds > 0 && <p className="text-lg font-black text-slate-700">Keep filtration on.</p>}
             {controlError && <div role="alert" className="rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 p-4 font-bold text-left">{controlError}</div>}
-            {remainingMixSeconds === 0 && <button type="button" onClick={restartForRetest} className="w-full min-h-16 rounded-2xl bg-indigo-700 text-white text-xl font-black">Retest</button>}
+            {remainingMixSeconds === 0 && <button type="button" onClick={() => restartForRetest()} className="w-full min-h-16 rounded-2xl bg-indigo-700 text-white text-xl font-black">Retest</button>}
           </div>
         )}
       </div>
