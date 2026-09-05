@@ -19,6 +19,8 @@ import { HeatingScheduler } from './server/heating/scheduler';
 import { registerHeatingRoutes } from './server/heating/routes';
 import { AlexaAlertDispatcher } from './server/alerts/alexa-dispatcher';
 import { registerAlertRoutes } from './server/alerts/routes';
+import { AlexaSpaCommandService } from './server/alexa/direct';
+import { registerDirectAlexaRoutes } from './server/alexa/routes';
 
 async function startServer() {
   const app = express();
@@ -67,10 +69,12 @@ async function startServer() {
   const weather = new WeatherService();
   const temperatureResolver = new BestEffortTemperatureResolver(spaAdapter, telemetryStore);
   const heatingScheduler = new HeatingScheduler(spaAdapter);
+  const alexaDirect = new AlexaSpaCommandService(spaAdapter, bubbles, heatingScheduler);
   registerSpaRoutes(app, spaAdapter, temperatureResolver, bubbles);
   registerWeatherRoutes(app, weather);
   registerHeatingRoutes(app, heatingScheduler);
   registerAlertRoutes(app, alexaAlerts);
+  registerDirectAlexaRoutes(app, alexaDirect);
   registerSpaHistoryRoutes(app);
 
   const telemetry = new TelemetryCollector(spaAdapter, telemetryStore, firebaseTelemetry, weather);
