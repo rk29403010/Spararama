@@ -43,7 +43,9 @@ The Multi-Capability Skill also has a UK custom model with invocation name `spar
 
 `ReadyAtIntent` creates a normal Spararama heating schedule. It does not directly switch the spa outside the scheduler. Bubble commands also go through `BubbleSessionManager`, so firmware cooldown and the one-auto-restart policy are not bypassed.
 
-For the first implementation, ready-time estimation uses `ALEXA_HEATING_RATE_C_PER_HOUR` (default 1.5 C/hour), optional `ALEXA_HEAT_SOAK_MINUTES`, and either `ALEXA_DEFAULT_READY_TARGET_C` or the spa's current target setpoint. This should later be pointed at the same central settings/model used by the Heating UI; it is kept explicit for the initial Alexa proof rather than silently inventing client-local settings on the server.
+Ready-time estimation now uses the same pure calculation in `src/domain/heating.ts` as the Heating UI. Both paths use the same volume adjustment, heat-soak allowance, temperature/wind/solar/precipitation adjustments and minimum effective heating-rate floor. Alexa obtains forecast data directly from the backend `WeatherService`; if weather is unavailable it deliberately falls back to the same neutral-weather assumptions as the UI.
+
+The browser still owns user-editable app configuration, while Alexa runs without a browser, so Alexa needs server-side physical-profile values. Defaults mirror the current 800 L CleverSpa app profile: 1.5 C/hour at 800 L, 30-minute heat soak and 1800 W heater. They can be overridden with the `ALEXA_*` environment settings in `.env.example`. This is configuration duplication, not calculation duplication; the estimate algorithm itself has one implementation.
 
 ## Security and enabling
 

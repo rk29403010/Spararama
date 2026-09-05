@@ -55,6 +55,43 @@ function customIntent(name: string, slots: Record<string, string> = {}) {
   };
 }
 
+function coldWeatherService(now: number) {
+  const times = Array.from({ length: 8 }, (_, index) => now + index * 60 * 60 * 1000);
+  return {
+    async forecast() {
+      return {
+        settings: {
+          samplingMode: 'triangulate' as const,
+          triangulationRadiusKm: 5,
+          tweaks: {
+            installation: 'outdoor' as const,
+            windExposure: 'normal' as const,
+            solarExposure: 'mixed' as const,
+            overallInfluencePercent: 100
+          }
+        },
+        influence: { overall: 1, temperature: 1, wind: 1, solar: 0, precipitation: 0 },
+        sources: [1, 2, 3].map(index => ({
+          id: `weather-point-${index}`,
+          provider: 'open-meteo' as const,
+          requestedLatitude: 52,
+          requestedLongitude: 1,
+          label: `Weather point ${index}`
+        })),
+        raw: [],
+        derived: {
+          time: times,
+          temperatureC: times.map(() => 5),
+          windSpeedMps: times.map(() => 20 / 3.6),
+          cloudPercent: times.map(() => 50),
+          precipitationMm: times.map(() => 0),
+          shortwaveRadiationWm2: times.map(() => 0)
+        }
+      };
+    }
+  };
+}
+
 test('Alexa discovery exposes hot tub, bubbles and filter endpoints', async () => {
   const adapter = new AlexaTestAdapter();
   const commands = new AlexaSpaCommandService(adapter, new BubbleSessionManager(adapter, { runLimitSeconds: 1200, cooldownSeconds: 600 }), new HeatingTestScheduler());
@@ -102,7 +139,33 @@ test('ready-at intent creates a normal heating schedule', async () => {
   assert.equal(scheduler.schedules.length, 1);
   assert.equal(scheduler.schedules[0].targetTemperatureC, 38);
   assert.equal(scheduler.schedules[0].sessionData.source, 'alexa');
+  assert.equal(scheduler.schedules[0].sessionData.estimation, 'shared-heating-model');
   assert.match(response.response.outputSpeech.text, /scheduled for 17:00/i);
+});
+
+test('ready-at intent uses the shared weather-adjusted heating model', async () => {
+  const now = Date.parse('2026-09-05T14:00:00Z'); // 15:00 Europe/London
+  const adapter = new AlexaTestAdapter();
+  const scheduler = new HeatingTestScheduler();
+  const commands = new AlexaSpaCommandService(adapter, undefined, scheduler, {
+    timeZone: 'Europe/London',
+    heatingRateCPerHour: 1.5,
+    waterVolumeLiters: 800,
+    heatingRateReferenceVolumeLiters: 800,
+    heatSoakMinutes: 0,
+    defaultReadyTargetC: 38,
+    weatherService: coldWeatherService(now)
+  });
+
+  const response: any = await handleAlexaDirectRequest(customIntent('ReadyAtIntent', { time: '20:00' }), commands, now);
+  const schedule = scheduler.schedules[0];
+  const expectedStart = Date.parse('2026-09-05T19:00:00Z') - (3 / 0.9) * 60 * 60 * 1000;
+
+  assert.ok(Math.abs(schedule.startTime - expectedStart) < 2);
+  assert.ok(Math.abs(schedule.sessionData.effectiveHeatingRateCPerHour - 0.9) < 1e-8);
+  assert.equal(schedule.sessionData.weatherMode, 'forecast');
+  assert.equal(schedule.sessionData.weatherSourceCount, 3);
+  assert.match(response.response.outputSpeech.text, /scheduled for 20:00/i);
 });
 
 test('Alexa times resolve in Europe/London rather than server UTC', () => {

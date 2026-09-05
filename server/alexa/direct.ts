@@ -1,5 +1,13 @@
+import {
+  DEFAULT_HEATER_POWER_WATTS,
+  DEFAULT_HEATING_RATE_C_PER_HOUR,
+  DEFAULT_HEATING_REFERENCE_VOLUME_LITERS,
+  DEFAULT_HEAT_SOAK_MINUTES,
+  estimateHeatingPlan
+} from '../../src/domain/heating';
 import type { BubbleAwareSpaStatus, BubbleSessionManager } from '../spa/bubbles';
 import type { SpaAdapter, SpaStatus } from '../spa/types';
+import type { WeatherForecastSnapshot } from '../weather/types';
 
 export const ALEXA_ENDPOINTS = {
   hotTub: 'spararama-hot-tub',
@@ -22,11 +30,20 @@ interface HeatingSchedulerLike {
   }): Promise<unknown>;
 }
 
+interface WeatherServiceLike {
+  forecast(days?: number): Promise<WeatherForecastSnapshot>;
+}
+
 export interface AlexaDirectOptions {
   timeZone?: string;
   heatingRateCPerHour?: number;
+  waterVolumeLiters?: number;
+  heatingRateReferenceVolumeLiters?: number;
   heatSoakMinutes?: number;
+  heaterPowerWatts?: number;
+  electricityRatePerKwh?: number;
   defaultReadyTargetC?: number;
+  weatherService?: WeatherServiceLike;
 }
 
 export interface AlexaReadyPlan {
@@ -35,8 +52,10 @@ export interface AlexaReadyPlan {
   targetTemperatureC: number;
   startTemperatureC: number;
   heatSoakMinutes: number;
+  effectiveHeatingRateCPerHour: number;
   canMeetTarget: boolean;
   autoStartPreferred: boolean;
+  weatherAdjusted: boolean;
 }
 
 function finitePositive(value: unknown, fallback: number) {
@@ -320,11 +339,26 @@ function formatTime(timestamp: number, timeZone: string) {
   }).format(new Date(timestamp));
 }
 
+function weatherForHeating(forecast: WeatherForecastSnapshot | undefined) {
+  if (!forecast) return undefined;
+  return {
+    derived: forecast.derived,
+    influence: forecast.influence,
+    sourceCount: forecast.sources.length,
+    samplingMode: forecast.settings.samplingMode
+  };
+}
+
 export class AlexaSpaCommandService {
   readonly timeZone: string;
   readonly heatingRateCPerHour: number;
+  readonly waterVolumeLiters: number;
+  readonly heatingRateReferenceVolumeLiters: number;
   readonly heatSoakMinutes: number;
+  readonly heaterPowerWatts: number;
+  readonly electricityRatePerKwh: number;
   readonly defaultReadyTargetC?: number;
+  private readonly weatherService?: WeatherServiceLike;
 
   constructor(
     private readonly adapter: SpaAdapter,
@@ -335,14 +369,31 @@ export class AlexaSpaCommandService {
     this.timeZone = options.timeZone || process.env.SPARARAMA_TIME_ZONE || 'Europe/London';
     this.heatingRateCPerHour = finitePositive(
       options.heatingRateCPerHour ?? environmentNumber('ALEXA_HEATING_RATE_C_PER_HOUR'),
-      1.5
+      DEFAULT_HEATING_RATE_C_PER_HOUR
+    );
+    this.waterVolumeLiters = finitePositive(
+      options.waterVolumeLiters ?? environmentNumber('ALEXA_WATER_VOLUME_LITERS'),
+      DEFAULT_HEATING_REFERENCE_VOLUME_LITERS
+    );
+    this.heatingRateReferenceVolumeLiters = finitePositive(
+      options.heatingRateReferenceVolumeLiters ?? environmentNumber('ALEXA_HEATING_RATE_REFERENCE_VOLUME_LITERS'),
+      DEFAULT_HEATING_REFERENCE_VOLUME_LITERS
     );
     this.heatSoakMinutes = finiteNonNegative(
       options.heatSoakMinutes ?? environmentNumber('ALEXA_HEAT_SOAK_MINUTES'),
-      0
+      DEFAULT_HEAT_SOAK_MINUTES
+    );
+    this.heaterPowerWatts = finiteNonNegative(
+      options.heaterPowerWatts ?? environmentNumber('ALEXA_HEATER_POWER_WATTS'),
+      DEFAULT_HEATER_POWER_WATTS
+    );
+    this.electricityRatePerKwh = finiteNonNegative(
+      options.electricityRatePerKwh ?? environmentNumber('ALEXA_ELECTRICITY_RATE_PER_KWH'),
+      0.2086
     );
     const configuredTarget = options.defaultReadyTargetC ?? environmentNumber('ALEXA_DEFAULT_READY_TARGET_C');
     this.defaultReadyTargetC = Number.isFinite(configuredTarget) ? configuredTarget : undefined;
+    this.weatherService = options.weatherService;
   }
 
   status(): Promise<BubbleAwareSpaStatus | SpaStatus> {
@@ -375,36 +426,71 @@ export class AlexaSpaCommandService {
       throw new Error('A current and target temperature are required to plan heating.');
     }
 
-    const hoursToHeat = Math.max(0, target - status.waterTemperatureC) / this.heatingRateCPerHour;
-    const totalMs = (hoursToHeat + this.heatSoakMinutes / 60) * 60 * 60 * 1000;
-    const calculatedStartTime = targetTime - totalMs;
-    const startTime = Math.max(now, calculatedStartTime);
+    let forecast: WeatherForecastSnapshot | undefined;
+    let weatherError: string | undefined;
+    if (this.weatherService) {
+      try {
+        forecast = await this.weatherService.forecast(2);
+      } catch (error) {
+        weatherError = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    const estimate = estimateHeatingPlan({
+      mode: 'by-time',
+      now,
+      currentTemperatureC: status.waterTemperatureC,
+      targetTemperatureC: target,
+      targetTime,
+      baseHeatingRateCPerHour: this.heatingRateCPerHour,
+      waterVolumeLiters: this.waterVolumeLiters,
+      referenceVolumeLiters: this.heatingRateReferenceVolumeLiters,
+      heatSoakMinutes: this.heatSoakMinutes,
+      heaterPowerWatts: this.heaterPowerWatts,
+      electricityRatePerKwh: this.electricityRatePerKwh,
+      weather: weatherForHeating(forecast)
+    });
+    const startTime = Math.max(now, estimate.startTime);
     const autoStartPreferred = status.connected && status.transport !== 'manual';
 
     await this.heating.createSchedule({
       startTime,
-      targetTime,
-      startTemperatureC: status.waterTemperatureC,
-      targetTemperatureC: target,
+      targetTime: estimate.targetTime,
+      startTemperatureC: estimate.startTemperatureC,
+      targetTemperatureC: estimate.targetTemperatureC,
       autoStartPreferred,
-      heatSoakMinutes: this.heatSoakMinutes,
+      heatSoakMinutes: estimate.heatSoakMinutes,
       alertOnTargetReached: true,
       alertOnHeatSoakComplete: true,
       sessionData: {
         source: 'alexa',
-        estimation: 'base-heating-rate',
-        heatingRateCPerHour: this.heatingRateCPerHour
+        estimation: 'shared-heating-model',
+        weatherMode: forecast ? 'forecast' : 'neutral',
+        baseHeatingRateCPerHour: estimate.baseHeatingRateCPerHour,
+        effectiveHeatingRateCPerHour: estimate.effectiveHeatingRateCPerHour,
+        waterVolumeLiters: this.waterVolumeLiters,
+        heatingRateReferenceVolumeLiters: this.heatingRateReferenceVolumeLiters,
+        heatSoakMinutes: estimate.heatSoakMinutes,
+        avgAmbientTemperatureC: estimate.avgAmbientTemperatureC,
+        avgWindSpeedKph: estimate.avgWindSpeedKph,
+        avgSolarRadiationWm2: estimate.avgSolarRadiationWm2,
+        avgPrecipitationMm: estimate.avgPrecipitationMm,
+        weatherSourceCount: estimate.weatherSourceCount,
+        weatherSamplingMode: estimate.weatherSamplingMode,
+        ...(weatherError ? { weatherError } : {})
       }
     });
 
     return {
-      targetTime,
+      targetTime: estimate.targetTime,
       startTime,
-      targetTemperatureC: target,
-      startTemperatureC: status.waterTemperatureC,
-      heatSoakMinutes: this.heatSoakMinutes,
-      canMeetTarget: calculatedStartTime >= now,
-      autoStartPreferred
+      targetTemperatureC: estimate.targetTemperatureC,
+      startTemperatureC: estimate.startTemperatureC,
+      heatSoakMinutes: estimate.heatSoakMinutes,
+      effectiveHeatingRateCPerHour: estimate.effectiveHeatingRateCPerHour,
+      canMeetTarget: estimate.canMeetTarget,
+      autoStartPreferred,
+      weatherAdjusted: Boolean(forecast)
     };
   }
 }

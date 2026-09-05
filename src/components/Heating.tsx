@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AppState, HeatingSession } from '../types';
 import { addDays, format } from 'date-fns';
-import { volumeAdjustedHeatingRate } from '../domain/heating';
+import { estimateHeatingPlan } from '../domain/heating';
 import { spaApi } from '../lib/spaApi';
 import { weatherApi, type WeatherForecastDto } from '../lib/weatherApi';
 import { heatingApi } from '../lib/heatingApi';
@@ -17,11 +17,6 @@ type ReadyMode = 'asap' | 'by-time';
 
 function displayTemperature(celsius: number, scale: 'C' | 'F') {
   return scale === 'F' ? Math.round((celsius * 9 / 5) + 32) : Math.round(celsius);
-}
-
-function mean(values: Array<number | null | undefined>, fallback: number) {
-  const usable = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
-  return usable.length ? usable.reduce((sum, value) => sum + value, 0) / usable.length : fallback;
 }
 
 export function Heating({ state, updateState }: HeatingProps) {
@@ -152,105 +147,64 @@ export function Heating({ state, updateState }: HeatingProps) {
         return;
       }
 
-      let cTemp = currentTemp;
-      let tTemp = targetTemp;
+      let currentTemperatureC = currentTemp;
+      let targetTemperatureC = targetTemp;
       if (scale === 'F') {
-        cTemp = (currentTemp - 32) * 5 / 9;
-        tTemp = (targetTemp - 32) * 5 / 9;
+        currentTemperatureC = (currentTemp - 32) * 5 / 9;
+        targetTemperatureC = (targetTemp - 32) * 5 / 9;
       }
-      const tempDiff = Math.max(0, tTemp - cTemp);
-      const now = Date.now();
-      const soakHours = Math.max(0, state.config.heatSoakMinutes || 0) / 60;
-      const baseHeatingRate = volumeAdjustedHeatingRate(
-        state.config.baseHeatingRatePerHour,
-        waterVolumeLiters,
-        state.config.heatingRateReferenceVolumeLiters || 800
-      );
 
-      let targetTimestamp: number;
-      if (readyMode === 'asap') {
-        const provisionalHours = (tempDiff / Math.max(0.5, baseHeatingRate)) + soakHours;
-        targetTimestamp = now + Math.max(60_000, provisionalHours * 60 * 60 * 1000);
-      } else {
+      const now = Date.now();
+      let requestedTargetTime: number | undefined;
+      if (readyMode === 'by-time') {
         const baseDate = readyDay === 'today' ? new Date() : addDays(new Date(), 1);
         const targetDate = new Date(baseDate.setHours(readyHour, 0, 0, 0));
-        targetTimestamp = targetDate.getTime();
-        if (targetTimestamp <= now) {
+        requestedTargetTime = targetDate.getTime();
+        if (requestedTargetTime <= now) {
           setError('Choose a future ready time.');
           setCalculation(null);
           return;
         }
       }
 
-      let avgAmbientTemp = 15;
-      let avgWindSpeed = 10;
-      let avgSolarRadiationWm2 = 0;
-      let avgPrecipitationMm = 0;
-      let temperatureInfluence = 1;
-      let windInfluence = 1;
-      let solarInfluence = 0;
-      let precipitationInfluence = 0;
+      const estimate = estimateHeatingPlan({
+        mode: readyMode,
+        now,
+        currentTemperatureC,
+        targetTemperatureC,
+        targetTime: requestedTargetTime,
+        baseHeatingRateCPerHour: state.config.baseHeatingRatePerHour,
+        waterVolumeLiters,
+        referenceVolumeLiters: state.config.heatingRateReferenceVolumeLiters || 800,
+        heatSoakMinutes: state.config.heatSoakMinutes || 0,
+        heaterPowerWatts: state.config.heaterPowerWatts,
+        electricityRatePerKwh: state.config.electricityRatePerKwh,
+        weather: weatherData ? {
+          derived: weatherData.derived,
+          influence: weatherData.influence,
+          sourceCount: weatherData.sources.length,
+          samplingMode: weatherData.settings.samplingMode
+        } : undefined
+      });
 
-      if (weatherData) {
-        const selectedIndexes = weatherData.derived.time
-          .map((time, index) => ({ time, index }))
-          .filter(item => item.time >= now && item.time <= targetTimestamp)
-          .map(item => item.index);
-
-        if (selectedIndexes.length) {
-          avgAmbientTemp = mean(selectedIndexes.map(index => weatherData.derived.temperatureC[index]), 15);
-          avgWindSpeed = mean(selectedIndexes.map(index => weatherData.derived.windSpeedMps[index]), 10 / 3.6) * 3.6;
-          avgSolarRadiationWm2 = mean(selectedIndexes.map(index => weatherData.derived.shortwaveRadiationWm2[index]), 0);
-          avgPrecipitationMm = mean(selectedIndexes.map(index => weatherData.derived.precipitationMm[index]), 0);
-        }
-        temperatureInfluence = weatherData.influence.temperature;
-        windInfluence = weatherData.influence.wind;
-        solarInfluence = weatherData.influence.solar;
-        precipitationInfluence = weatherData.influence.precipitation;
-      }
-
-      let effectiveHeatingRate = baseHeatingRate;
-      if (avgAmbientTemp < 15) effectiveHeatingRate -= (15 - avgAmbientTemp) * 0.05 * temperatureInfluence;
-      if (avgWindSpeed > 10) effectiveHeatingRate -= ((avgWindSpeed - 10) / 5) * 0.05 * windInfluence;
-      if (avgSolarRadiationWm2 > 0) effectiveHeatingRate += Math.min(0.12, (avgSolarRadiationWm2 / 800) * 0.12) * solarInfluence;
-      if (avgPrecipitationMm > 0) effectiveHeatingRate -= Math.min(0.08, avgPrecipitationMm * 0.02) * precipitationInfluence;
-      effectiveHeatingRate = Math.max(0.5, effectiveHeatingRate);
-
-      const hoursToHeat = tempDiff / effectiveHeatingRate;
-      const totalHours = hoursToHeat + soakHours;
-      const startTimestamp = readyMode === 'asap'
-        ? now
-        : targetTimestamp - totalHours * 60 * 60 * 1000;
-
-      if (readyMode === 'asap') {
-        targetTimestamp = now + Math.max(60_000, totalHours * 60 * 60 * 1000);
-      } else if (startTimestamp < now) {
+      if (readyMode === 'by-time' && !estimate.canMeetTarget) {
         setError('Choose ASAP - this ready time is too soon.');
       }
 
-      const activeHeatingKwh = (state.config.heaterPowerWatts / 1000) * hoursToHeat;
-      const soakKwh = (state.config.heaterPowerWatts / 1000) * soakHours * 0.5;
-      const costEstimate = (activeHeatingKwh + soakKwh) * state.config.electricityRatePerKwh;
-
       setCalculation({
         id: Date.now().toString(),
-        targetTemp: tTemp,
-        targetTime: targetTimestamp,
-        startTemp: cTemp,
-        startTime: startTimestamp,
-        ambientTempAvg: avgAmbientTemp,
-        avgWindSpeed,
-        avgSolarRadiationWm2,
-        weatherSourceCount: weatherData?.sources.length,
-        weatherSamplingMode: weatherData?.settings.samplingMode,
-        weatherInfluence: weatherData ? {
-          temperature: weatherData.influence.temperature,
-          wind: weatherData.influence.wind,
-          solar: weatherData.influence.solar,
-          precipitation: weatherData.influence.precipitation
-        } : undefined,
-        expectedDurationHours: totalHours,
-        costEstimate
+        targetTemp: estimate.targetTemperatureC,
+        targetTime: estimate.targetTime,
+        startTemp: estimate.startTemperatureC,
+        startTime: estimate.startTime,
+        ambientTempAvg: estimate.avgAmbientTemperatureC,
+        avgWindSpeed: estimate.avgWindSpeedKph,
+        avgSolarRadiationWm2: estimate.avgSolarRadiationWm2,
+        weatherSourceCount: estimate.weatherSourceCount,
+        weatherSamplingMode: estimate.weatherSamplingMode,
+        weatherInfluence: estimate.weatherInfluence,
+        expectedDurationHours: estimate.totalHours,
+        costEstimate: estimate.costEstimate
       });
     } catch {
       setError('Heating estimate failed.');
