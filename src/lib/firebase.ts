@@ -1,6 +1,9 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp, writeBatch, doc } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithCredential, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { assessChemistry } from '../domain/chemistry';
+import { createDefaultDomainState } from '../domain/defaults';
+import { correctLegacySevenWayReadings, SEVEN_WAY_SCALE_REVISION } from '../domain/stripScales';
 
 const firebaseConfig = {
   projectId: "microprojects-481213",
@@ -24,6 +27,7 @@ export const auth = firebaseApp ? getAuth(firebaseApp) : null;
 const googleClientId = '917911030888-umuoc3r4l62j26naqdj474rmjtijd4kn.apps.googleusercontent.com';
 let googleIdentityPromise: Promise<any> | null = null;
 let googleIdentityInitialized = false;
+const sevenWayCorrectionInFlight = new Set<string>();
 
 function loadGoogleIdentity() {
   if ((window as any).google?.accounts?.id) return Promise.resolve((window as any).google);
@@ -77,12 +81,143 @@ export function signOutUser() {
   return signOut(auth);
 }
 
+export interface SevenWayCorrectionSummary {
+  scanned: number;
+  correctedRecords: number;
+  correctedReadings: number;
+  unresolvedReadings: number;
+  readyToNotReady: number;
+  notReadyToReady: number;
+}
+
+/**
+ * One-off/idempotent repair of water-test logs created while the 7-in-1 bottle
+ * scales were wrong. The original UI wrote the chosen swatch label into each
+ * reading note, so the correction is based on swatch position rather than on
+ * the bad numeric value. It runs using the signed-in user's own Firestore
+ * permissions; no service/admin credentials are required.
+ */
+export async function correctSevenWayWaterTestLogs(userOverride?: User): Promise<SevenWayCorrectionSummary> {
+  const summary: SevenWayCorrectionSummary = {
+    scanned: 0,
+    correctedRecords: 0,
+    correctedReadings: 0,
+    unresolvedReadings: 0,
+    readyToNotReady: 0,
+    notReadyToReady: 0
+  };
+
+  if (!auth || !db) return summary;
+  const user = userOverride ?? auth.currentUser;
+  if (!user || sevenWayCorrectionInFlight.has(user.uid)) return summary;
+
+  const firestore = db;
+  sevenWayCorrectionInFlight.add(user.uid);
+  try {
+    const snap = await getDocs(collection(firestore, 'users', user.uid, 'logs'));
+    const defaultDomain = createDefaultDomainState();
+    const defaultWaterBody = defaultDomain.waterBodies.find(item => item.id === defaultDomain.activeWaterBodyId) ?? defaultDomain.waterBodies[0];
+    const pending: Array<{ ref: (typeof snap.docs)[number]['ref']; data: any }> = [];
+
+    for (const logDoc of snap.docs) {
+      const log = logDoc.data() as any;
+      if (log?.type !== 'water_test' || log?.data?.testMethodId !== 'current-7-way') continue;
+      summary.scanned++;
+
+      const payload = log.data;
+      if (payload.scaleRevision === SEVEN_WAY_SCALE_REVISION || !Array.isArray(payload.readings)) continue;
+
+      const correction = correctLegacySevenWayReadings(payload.readings);
+      if (correction.alreadyCurrent) continue;
+      if (correction.correctedCount === 0 && correction.unresolvedCount === 0) continue;
+
+      const waterBody = defaultDomain.waterBodies.find(item => item.id === payload.waterBodyId) ?? defaultWaterBody;
+      if (!waterBody) continue;
+
+      let newAssessment: any = assessChemistry(waterBody, defaultDomain.products, correction.readings);
+      if (correction.unresolvedCount > 0) {
+        newAssessment = {
+          ...newAssessment,
+          nextAction: {
+            kind: 'retest',
+            measurements: correction.readings.map(reading => reading.measurement),
+            reason: 'Historical 7-in-1 record contains a swatch position that cannot be mapped safely to the verified bottle scale.'
+          }
+        };
+      }
+
+      const oldReady = payload.assessment?.nextAction?.kind === 'none';
+      const newReady = newAssessment?.nextAction?.kind === 'none';
+      if (oldReady && !newReady) summary.readyToNotReady++;
+      if (!oldReady && newReady) summary.notReadyToReady++;
+
+      summary.correctedRecords++;
+      summary.correctedReadings += correction.correctedCount;
+      summary.unresolvedReadings += correction.unresolvedCount;
+
+      pending.push({
+        ref: logDoc.ref,
+        data: {
+          ...payload,
+          readings: correction.readings,
+          assessment: newAssessment,
+          scaleRevision: SEVEN_WAY_SCALE_REVISION,
+          scaleCorrection: {
+            correctedAt: Date.now(),
+            correctedReadings: correction.correctedCount,
+            unresolvedReadings: correction.unresolvedCount,
+            method: 'swatch_position'
+          }
+        }
+      });
+    }
+
+    for (let start = 0; start < pending.length; start += 400) {
+      const batch = writeBatch(firestore);
+      for (const item of pending.slice(start, start + 400)) {
+        batch.update(item.ref, { data: item.data });
+      }
+      await batch.commit();
+    }
+
+    if (summary.correctedRecords > 0) {
+      await addDoc(collection(firestore, 'users', user.uid, 'logs'), {
+        type: 'maintenance',
+        data: {
+          action: 'seven_way_scale_correction',
+          scaleRevision: SEVEN_WAY_SCALE_REVISION,
+          ...summary,
+          note: 'Historical 7-in-1 readings corrected by selected swatch position after the bottle scale transcript was verified.'
+        },
+        timestamp: serverTimestamp()
+      });
+      console.info('7-in-1 Firestore scale correction complete', summary);
+    }
+
+    return summary;
+  } catch (error) {
+    console.error('7-in-1 Firestore scale correction failed', error);
+    throw error;
+  } finally {
+    sevenWayCorrectionInFlight.delete(user.uid);
+  }
+}
+
 export function subscribeToAuthChanges(callback: (user: User | null) => void) {
   if (!auth) {
     callback(null);
     return () => {};
   }
-  return onAuthStateChanged(auth, callback);
+  return onAuthStateChanged(auth, user => {
+    callback(user);
+    if (user) {
+      void correctSevenWayWaterTestLogs(user).catch(() => {
+        // The app remains usable if a one-off history repair cannot complete;
+        // the next authenticated launch will retry because records are only
+        // stamped with the revision after a successful write.
+      });
+    }
+  });
 }
 
 export type LogEventType =
