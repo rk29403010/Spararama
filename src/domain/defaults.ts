@@ -59,6 +59,7 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
       parameters: [
         { measurement: 'free_chlorine', label: 'Free chlorine' },
         { measurement: 'ph', label: 'pH' },
+        { measurement: 'bromine', label: 'Bromine' },
         { measurement: 'total_alkalinity', label: 'Total alkalinity' },
         { measurement: 'total_chlorine', label: 'Total chlorine' },
         { measurement: 'calcium_hardness', label: 'Total hardness' },
@@ -66,7 +67,7 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
       ],
       readAfterSeconds: 15,
       readBeforeSeconds: 60,
-      notes: 'Timing profile is editable because strip brands vary.'
+      notes: 'Bottle order and scales verified from the user transcript on 2026-09-06. Timing remains editable because strip brands vary.'
     }
   ],
   products: [
