@@ -83,6 +83,10 @@ export function signOutUser() {
 
 export interface SevenWayCorrectionSummary {
   scanned: number;
+  originalScaleRecords: number;
+  badScaleRecords: number;
+  ambiguousRecords: number;
+  timestampInferredRecords: number;
   correctedRecords: number;
   correctedReadings: number;
   unresolvedReadings: number;
@@ -92,14 +96,19 @@ export interface SevenWayCorrectionSummary {
 
 /**
  * One-off/idempotent repair of water-test logs created while the 7-in-1 bottle
- * scales were wrong. The original UI wrote the chosen swatch label into each
- * reading note, so the correction is based on swatch position rather than on
- * the bad numeric value. It runs using the signed-in user's own Firestore
- * permissions; no service/admin credentials are required.
+ * scales were wrong. The first visual-entry version (19/20 Aug) actually had
+ * the bottle's numeric values right, so those records are explicitly detected
+ * and left alone. The bad layout was introduced by commit 4039488 on 21 Aug.
+ * The correction uses recorded swatch labels/positions, with record timestamp
+ * only as a fallback where the chosen labels were identical in both layouts.
  */
 export async function correctSevenWayWaterTestLogs(userOverride?: User): Promise<SevenWayCorrectionSummary> {
   const summary: SevenWayCorrectionSummary = {
     scanned: 0,
+    originalScaleRecords: 0,
+    badScaleRecords: 0,
+    ambiguousRecords: 0,
+    timestampInferredRecords: 0,
     correctedRecords: 0,
     correctedReadings: 0,
     unresolvedReadings: 0,
@@ -127,8 +136,22 @@ export async function correctSevenWayWaterTestLogs(userOverride?: User): Promise
       const payload = log.data;
       if (payload.scaleRevision === SEVEN_WAY_SCALE_REVISION || !Array.isArray(payload.readings)) continue;
 
-      const correction = correctLegacySevenWayReadings(payload.readings);
+      const correction = correctLegacySevenWayReadings(payload.readings, { recordedAt: payload.timestamp });
       if (correction.alreadyCurrent) continue;
+      if (correction.inferredFromTimestamp) summary.timestampInferredRecords++;
+
+      if (correction.layout === 'original') {
+        summary.originalScaleRecords++;
+        continue;
+      }
+      if (correction.layout === 'ambiguous') {
+        summary.ambiguousRecords++;
+        summary.unresolvedReadings += correction.unresolvedCount;
+        continue;
+      }
+      if (correction.layout !== 'bad') continue;
+      summary.badScaleRecords++;
+
       if (correction.correctedCount === 0 && correction.unresolvedCount === 0) continue;
 
       const waterBody = defaultDomain.waterBodies.find(item => item.id === payload.waterBodyId) ?? defaultWaterBody;
@@ -166,6 +189,8 @@ export async function correctSevenWayWaterTestLogs(userOverride?: User): Promise
             correctedAt: Date.now(),
             correctedReadings: correction.correctedCount,
             unresolvedReadings: correction.unresolvedCount,
+            sourceLayout: correction.layout,
+            inferredFromTimestamp: correction.inferredFromTimestamp,
             method: 'swatch_position'
           }
         }
@@ -187,7 +212,7 @@ export async function correctSevenWayWaterTestLogs(userOverride?: User): Promise
           action: 'seven_way_scale_correction',
           scaleRevision: SEVEN_WAY_SCALE_REVISION,
           ...summary,
-          note: 'Historical 7-in-1 readings corrected by selected swatch position after the bottle scale transcript was verified.'
+          note: 'Historical bad-layout 7-in-1 readings corrected by selected swatch position; earlier correct-layout records were left unchanged.'
         },
         timestamp: serverTimestamp()
       });
