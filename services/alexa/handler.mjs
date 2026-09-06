@@ -63,8 +63,8 @@ async function validateLwaAccessToken(event, lwaClientId) {
 
 function eventWithoutAccessToken(event) {
   const forwarded = structuredClone(event);
-  if (forwarded?.directive?.endpoint?.scope) delete forwarded.directive.endpoint.scope.token;
-  if (forwarded?.directive?.payload?.scope) delete forwarded.directive.payload.scope.token;
+  if (forwarded?.directive?.endpoint?.scope) delete forwarded.directive.endpoint.scope;
+  if (forwarded?.directive?.payload?.scope) delete forwarded.directive.payload.scope;
   if (forwarded?.context?.System?.user) delete forwarded.context.System.user.accessToken;
   if (forwarded?.session?.user) delete forwarded.session.user.accessToken;
   return forwarded;

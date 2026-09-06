@@ -92,7 +92,7 @@ Smart Home account linking is mandatory. For the private proof, use Login with A
 
 In Developer Console -> Apps & Services -> Login with Amazon:
 
-1. Create a Security Profile named `Spararama Alexa`.
+1. Create a Security Profile named `Spararama Control` (Login with Amazon rejects names containing reserved terms such as `Alexa`).
 2. Description: `Private Spararama hot tub voice control`.
 3. A Consent Privacy Notice URL is mandatory. For development-only testing, Amazon's current Smart Home tutorial uses `https://example.com`; replace this with a real Spararama privacy notice before any public distribution.
 4. Save and copy the LWA **Client ID** and **Client Secret**.

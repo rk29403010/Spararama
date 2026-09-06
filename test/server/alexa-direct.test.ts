@@ -99,6 +99,20 @@ test('Alexa discovery exposes hot tub, bubbles and filter endpoints', async () =
   assert.deepEqual(response.event.payload.endpoints.map((endpoint: any) => endpoint.friendlyName), ['Hot Tub', 'Hot Tub Bubbles', 'Hot Tub Filter']);
 });
 
+test('Alexa ReportState returns a StateReport with the current hot tub temperature', async () => {
+  const adapter = new AlexaTestAdapter();
+  const commands = new AlexaSpaCommandService(adapter, undefined, new HeatingTestScheduler());
+  const response: any = await handleAlexaDirectRequest(
+    smartHome('Alexa', 'ReportState', 'spararama-hot-tub'),
+    commands
+  );
+
+  assert.equal(response.event.header.name, 'StateReport');
+  assert.equal(response.event.header.correlationToken, 'test-correlation');
+  assert.equal(response.context.properties[0].namespace, 'Alexa.TemperatureSensor');
+  assert.deepEqual(response.context.properties[0].value, { value: 35, scale: 'CELSIUS' });
+});
+
 test('Alexa bubbles command goes through BubbleSessionManager', async () => {
   const adapter = new AlexaTestAdapter();
   const bubbles = new BubbleSessionManager(adapter, { runLimitSeconds: 1200, cooldownSeconds: 600 });

@@ -212,11 +212,11 @@ function responseEndpoint(directive: any) {
   };
 }
 
-function smartHomeResponse(directive: any, properties: unknown[]) {
+function smartHomeResponse(directive: any, properties: unknown[], name = 'Response') {
   return {
     context: { properties },
     event: {
-      header: responseHeader(directive),
+      header: responseHeader(directive, name),
       endpoint: responseEndpoint(directive),
       payload: {}
     }
@@ -512,7 +512,8 @@ async function handleSmartHome(event: any, commands: AlexaSpaCommandService) {
       const status = await commands.status();
       return smartHomeResponse(
         directive,
-        endpointId === ALEXA_ENDPOINTS.hotTub ? hotTubProperties(status) : powerProperties(status, endpointId)
+        endpointId === ALEXA_ENDPOINTS.hotTub ? hotTubProperties(status) : powerProperties(status, endpointId),
+        'StateReport'
       );
     }
 

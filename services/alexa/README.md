@@ -9,6 +9,7 @@ Environment variables:
 - `SPARARAMA_ALEXA_URL` - public HTTPS URL ending `/api/alexa/direct`.
 - `SPARARAMA_ALEXA_PROXY_SECRET` - long random secret matching `ALEXA_DIRECT_PROXY_SECRET` on the Spararama backend.
 - `ALEXA_SKILL_ID` - the Alexa skill ID. Recommended for custom-skill request validation and also sent to Spararama for all requests.
+- `LWA_CLIENT_ID` - the Login with Amazon security-profile client ID used to validate the linked-account token audience.
 
 For a Multi-Capability Skill, the same Lambda ARN can be configured as both the Smart Home and Custom model endpoint. The matching UK custom interaction model is in `skill-package/interactionModels/custom/en-GB.json`.
 

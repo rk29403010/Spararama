@@ -52,7 +52,7 @@ test('validates LWA token and strips it before forwarding to Spararama', { concu
     assert.deepEqual(result, { forwarded: true });
     assert.equal(calls.length, 2);
     const forwarded = JSON.parse(calls[1].options.body);
-    assert.equal(forwarded.directive.payload.scope.token, undefined);
+    assert.equal(forwarded.directive.payload.scope, undefined);
     assert.equal(calls[1].options.headers['X-Spararama-Alexa-Proxy-Secret'], 'proxy-secret');
     assert.equal(calls[1].options.headers['X-Spararama-Alexa-Skill-Id'], 'amzn1.ask.skill.test');
   } finally {
