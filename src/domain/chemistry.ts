@@ -140,6 +140,35 @@ export function validateReadings(readings: MeasurementReading[]): ChemistryFindi
       code: 'free_chlorine_above_total_chlorine',
       message: 'Free chlorine cannot be higher than total chlorine. Retest before dosing.'
     });
+  } else if (freeBounds && totalBounds) {
+    // HSE HSG282: combined chlorine (total - free) should ideally be zero,
+    // normally remain below 1 mg/l, and should not exceed half the free chlorine.
+    // With ranged strip readings, block a "ready" result if the range could
+    // plausibly breach either limit rather than choosing an optimistic endpoint.
+    const minimumCombined = Math.max(0, totalBounds.min - freeBounds.max);
+    const maximumCombined = Math.max(0, totalBounds.max - freeBounds.min);
+    const definitelyHigh =
+      minimumCombined >= 1 ||
+      minimumCombined > freeBounds.max / 2;
+    const possiblyHigh =
+      maximumCombined >= 1 ||
+      maximumCombined > freeBounds.min / 2;
+
+    if (definitelyHigh) {
+      findings.push({
+        measurement: 'total_chlorine',
+        severity: 'error',
+        code: 'combined_chlorine_high',
+        message: 'Combined chlorine is too high for the measured free chlorine. Retest and correct the water before bathing.'
+      });
+    } else if (possiblyHigh) {
+      findings.push({
+        measurement: 'total_chlorine',
+        severity: 'error',
+        code: 'combined_chlorine_uncertain',
+        message: 'The free/total chlorine ranges could indicate excessive combined chlorine. Confirm the readings before bathing or dosing.'
+      });
+    }
   }
 
   return findings;
