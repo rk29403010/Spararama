@@ -2,6 +2,7 @@ import type { MeasurementKey, MeasurementReading } from './models';
 
 export const SEVEN_WAY_SCALE_REVISION = '7way-bottle-2026-09-06';
 export const SEVEN_WAY_NOTE_MARKER = '[scale:7way-bottle-2026-09-06]';
+export const BAD_SEVEN_WAY_SCALE_INTRODUCED_AT = Date.parse('2026-08-21T09:02:31Z');
 
 export interface StripSwatchValue {
   label: string;
@@ -113,11 +114,28 @@ interface LegacySwatch {
   max: number;
 }
 
+type LegacyScaleMap = Partial<Record<MeasurementKey, LegacySwatch[]>>;
+export type SevenWayScaleLayout = 'current' | 'original' | 'bad' | 'ambiguous';
+
 const legacy = (label: string, value: number): LegacySwatch => ({ label, min: value, max: value });
 const legacyRange = (label: string, min: number, max: number): LegacySwatch => ({ label, min, max });
 
-// Exact scales that were in the app before the 2026-09-06 bottle transcript correction.
-const LEGACY_SEVEN_WAY: Partial<Record<MeasurementKey, LegacySwatch[]>> = {
+// The first visual-entry implementation (2026-08-19) had the bottle's numeric
+// values right, but omitted the bromine row. Keep this layout so we do NOT
+// corrupt those already-correct historical records.
+const ORIGINAL_SEVEN_WAY: LegacyScaleMap = {
+  free_chlorine: [legacy('0', 0), legacy('0.5', 0.5), legacy('1', 1), legacy('3', 3), legacy('5', 5), legacy('10', 10)],
+  ph: [legacy('6.2', 6.2), legacy('6.8', 6.8), legacy('7.2', 7.2), legacy('7.6', 7.6), legacy('8.4', 8.4), legacy('9.0', 9)],
+  total_alkalinity: [legacy('0', 0), legacy('40', 40), legacy('80', 80), legacy('120', 120), legacy('180', 180), legacy('240', 240)],
+  total_chlorine: [legacy('0', 0), legacy('0.5', 0.5), legacy('1', 1), legacy('3', 3), legacy('5', 5), legacy('10', 10)],
+  calcium_hardness: [legacy('0', 0), legacy('50', 50), legacy('100', 100), legacy('250', 250), legacy('500', 500), legacy('1000', 1000)],
+  cyanuric_acid: [legacy('0', 0), legacyRange('30/50', 30, 50), legacy('100', 100), legacy('150', 150), legacy('240', 240)]
+};
+
+// A UI-compaction commit at 2026-08-21T09:02:31Z accidentally replaced the
+// 7-in-1 scale with values from a different reference chart. This is the only
+// layout that should be remapped by swatch position.
+const BAD_SEVEN_WAY: LegacyScaleMap = {
   free_chlorine: [legacy('0', 0), legacy('0.5/1', 0.5), legacy('1/2', 1), legacy('3/6', 3), legacy('5/11', 5), legacy('10/22', 10)],
   ph: [legacy('6.2', 6.2), legacy('6.8', 6.8), legacy('7.2', 7.2), legacy('7.6', 7.6), legacy('7.8', 7.8), legacy('8.4', 8.4)],
   total_alkalinity: [legacy('0', 0), legacy('40', 40), legacy('80', 80), legacy('120', 120), legacy('180', 180), legacy('240', 240), legacy('400', 400)],
@@ -134,13 +152,13 @@ function normalizeLabel(value: string) {
   return value.trim().replace(/[–—]/g, '-').replace(/\s+/g, '');
 }
 
-function indexFromNote(reading: MeasurementReading, legacyScale: LegacySwatch[]) {
+function selectionFromNoteOnly(reading: MeasurementReading, scale: LegacySwatch[]) {
   const note = reading.note || '';
   const exactPrefix = 'Selected bottle swatch ';
   if (note.startsWith(exactPrefix)) {
     const raw = note.slice(exactPrefix.length).split('.')[0] || '';
     const wanted = normalizeLabel(raw);
-    const index = legacyScale.findIndex(item => normalizeLabel(item.label) === wanted);
+    const index = scale.findIndex(item => normalizeLabel(item.label) === wanted);
     if (index >= 0) return { kind: 'swatch' as const, index };
   }
 
@@ -151,31 +169,79 @@ function indexFromNote(reading: MeasurementReading, legacyScale: LegacySwatch[])
     if (parts.length === 2) {
       const left = normalizeLabel(parts[0]);
       const right = normalizeLabel(parts[1]);
-      const index = legacyScale.findIndex((item, itemIndex) =>
-        itemIndex < legacyScale.length - 1 &&
+      const index = scale.findIndex((item, itemIndex) =>
+        itemIndex < scale.length - 1 &&
         normalizeLabel(item.label) === left &&
-        normalizeLabel(legacyScale[itemIndex + 1].label) === right
+        normalizeLabel(scale[itemIndex + 1].label) === right
       );
       if (index >= 0) return { kind: 'between' as const, index };
     }
   }
 
+  return null;
+}
+
+function selectionFromValue(reading: MeasurementReading, scale: LegacySwatch[]) {
   if (typeof reading.value === 'number') {
-    const index = legacyScale.findIndex(item => item.min === item.max && sameNumber(reading.value, item.min));
+    const index = scale.findIndex(item => item.min === item.max && sameNumber(reading.value, item.min));
     if (index >= 0) return { kind: 'swatch' as const, index };
   }
 
   if (typeof reading.min === 'number' && typeof reading.max === 'number') {
-    const exactRange = legacyScale.findIndex(item => sameNumber(reading.min, item.min) && sameNumber(reading.max, item.max));
+    const exactRange = scale.findIndex(item => sameNumber(reading.min, item.min) && sameNumber(reading.max, item.max));
     if (exactRange >= 0) return { kind: 'swatch' as const, index: exactRange };
-    const between = legacyScale.findIndex((item, index) => {
-      const right = legacyScale[index + 1];
+    const between = scale.findIndex((item, index) => {
+      const right = scale[index + 1];
       return right && sameNumber(reading.min, item.max) && sameNumber(reading.max, right.min);
     });
     if (between >= 0) return { kind: 'between' as const, index: between };
   }
 
   return null;
+}
+
+function selectionFor(reading: MeasurementReading, scale: LegacySwatch[]) {
+  return selectionFromNoteOnly(reading, scale) ?? selectionFromValue(reading, scale);
+}
+
+function noteEvidence(reading: MeasurementReading, scale: LegacyScaleMap) {
+  const measurementScale = scale[reading.measurement];
+  if (!measurementScale || !reading.note) return false;
+  return Boolean(selectionFromNoteOnly(reading, measurementScale));
+}
+
+export function detectLegacySevenWayLayout(
+  readings: MeasurementReading[],
+  recordedAt?: number
+): { layout: SevenWayScaleLayout; inferredFromTimestamp: boolean } {
+  if (readings.some(reading => reading.note?.includes(SEVEN_WAY_NOTE_MARKER))) {
+    return { layout: 'current', inferredFromTimestamp: false };
+  }
+
+  let originalEvidence = 0;
+  let badEvidence = 0;
+  for (const reading of readings) {
+    const originalMatches = noteEvidence(reading, ORIGINAL_SEVEN_WAY);
+    const badMatches = noteEvidence(reading, BAD_SEVEN_WAY);
+    if (originalMatches && !badMatches) originalEvidence++;
+    if (badMatches && !originalMatches) badEvidence++;
+  }
+
+  if (originalEvidence > 0 && badEvidence === 0) return { layout: 'original', inferredFromTimestamp: false };
+  if (badEvidence > 0 && originalEvidence === 0) return { layout: 'bad', inferredFromTimestamp: false };
+  if (originalEvidence > 0 && badEvidence > 0) return { layout: 'ambiguous', inferredFromTimestamp: false };
+
+  // Some swatches have identical labels in both layouts (for example FC=0).
+  // For those records, use the record time only when it is available. The bad
+  // layout did not exist before this exact commit timestamp.
+  if (typeof recordedAt === 'number' && Number.isFinite(recordedAt)) {
+    return {
+      layout: recordedAt < BAD_SEVEN_WAY_SCALE_INTRODUCED_AT ? 'original' : 'bad',
+      inferredFromTimestamp: true
+    };
+  }
+
+  return { layout: 'ambiguous', inferredFromTimestamp: false };
 }
 
 function migrationBase(reading: MeasurementReading) {
@@ -191,11 +257,33 @@ export interface SevenWayReadingCorrection {
   correctedCount: number;
   unresolvedCount: number;
   alreadyCurrent: boolean;
+  layout: SevenWayScaleLayout;
+  inferredFromTimestamp: boolean;
 }
 
-export function correctLegacySevenWayReadings(readings: MeasurementReading[]): SevenWayReadingCorrection {
-  if (readings.some(reading => reading.note?.includes(SEVEN_WAY_NOTE_MARKER))) {
-    return { readings, correctedCount: 0, unresolvedCount: 0, alreadyCurrent: true };
+export function correctLegacySevenWayReadings(
+  readings: MeasurementReading[],
+  options: { recordedAt?: number } = {}
+): SevenWayReadingCorrection {
+  const detected = detectLegacySevenWayLayout(readings, options.recordedAt);
+  if (detected.layout === 'current') {
+    return { readings, correctedCount: 0, unresolvedCount: 0, alreadyCurrent: true, ...detected };
+  }
+
+  // The original 19/20 Aug layout already used the verified numeric values.
+  // Do not rewrite it merely because it predates today's revision marker.
+  if (detected.layout === 'original') {
+    return { readings, correctedCount: 0, unresolvedCount: 0, alreadyCurrent: false, ...detected };
+  }
+
+  if (detected.layout === 'ambiguous') {
+    return {
+      readings,
+      correctedCount: 0,
+      unresolvedCount: readings.filter(reading => BAD_SEVEN_WAY[reading.measurement]).length,
+      alreadyCurrent: false,
+      ...detected
+    };
   }
 
   const newScaleMap = STRIP_SCALES['current-7-way'] || {};
@@ -203,20 +291,19 @@ export function correctLegacySevenWayReadings(readings: MeasurementReading[]): S
   let unresolvedCount = 0;
 
   const corrected = readings.map(reading => {
-    const legacyScale = LEGACY_SEVEN_WAY[reading.measurement];
+    const badScale = BAD_SEVEN_WAY[reading.measurement];
     const newScale = newScaleMap[reading.measurement];
-    if (!legacyScale || !newScale) return reading;
+    if (!badScale || !newScale) return reading;
 
-    const selection = indexFromNote(reading, legacyScale);
+    const selection = selectionFor(reading, badScale);
     if (!selection) {
       unresolvedCount++;
       return reading;
     }
 
     if (selection.kind === 'swatch') {
-      const oldItem = legacyScale[selection.index];
+      const oldItem = badScale[selection.index];
       const nextItem = newScale[selection.index];
-      correctedCount++;
       if (!nextItem) {
         unresolvedCount++;
         return {
@@ -224,16 +311,16 @@ export function correctLegacySevenWayReadings(readings: MeasurementReading[]): S
           note: `Legacy 7-in-1 swatch position ${selection.index + 1} (${oldItem?.label ?? 'unknown'}) has no corresponding swatch on the verified bottle; review required. ${SEVEN_WAY_NOTE_MARKER}`
         };
       }
-      const note = `Selected bottle swatch ${nextItem.label}. Corrected from legacy swatch position ${selection.index + 1} (previously labelled ${oldItem?.label ?? 'unknown'}). ${SEVEN_WAY_NOTE_MARKER}`;
+      correctedCount++;
+      const note = `Selected bottle swatch ${nextItem.label}. Corrected from bad-layout swatch position ${selection.index + 1} (previously labelled ${oldItem?.label ?? 'unknown'}). ${SEVEN_WAY_NOTE_MARKER}`;
       if (nextItem.min === nextItem.max) return { ...migrationBase(reading), value: nextItem.min, note };
       return { ...migrationBase(reading), min: nextItem.min, max: nextItem.max, note };
     }
 
-    const oldLeft = legacyScale[selection.index];
-    const oldRight = legacyScale[selection.index + 1];
+    const oldLeft = badScale[selection.index];
+    const oldRight = badScale[selection.index + 1];
     const newLeft = newScale[selection.index];
     const newRight = newScale[selection.index + 1];
-    correctedCount++;
     if (!newLeft || !newRight) {
       unresolvedCount++;
       return {
@@ -241,13 +328,14 @@ export function correctLegacySevenWayReadings(readings: MeasurementReading[]): S
         note: `Legacy 7-in-1 between-swatch position ${selection.index + 1}/${selection.index + 2} has no verified equivalent; review required. ${SEVEN_WAY_NOTE_MARKER}`
       };
     }
+    correctedCount++;
     return {
       ...migrationBase(reading),
       min: Math.min(newLeft.max, newRight.min),
       max: Math.max(newLeft.max, newRight.min),
-      note: `Colour judged between bottle swatches ${newLeft.label} and ${newRight.label}. Corrected from legacy labels ${oldLeft?.label ?? '?'} and ${oldRight?.label ?? '?'}. ${SEVEN_WAY_NOTE_MARKER}`
+      note: `Colour judged between bottle swatches ${newLeft.label} and ${newRight.label}. Corrected from bad-layout labels ${oldLeft?.label ?? '?'} and ${oldRight?.label ?? '?'}. ${SEVEN_WAY_NOTE_MARKER}`
     };
   });
 
-  return { readings: corrected, correctedCount, unresolvedCount, alreadyCurrent: false };
+  return { readings: corrected, correctedCount, unresolvedCount, alreadyCurrent: false, ...detected };
 }
