@@ -52,12 +52,12 @@ export async function loadState(): Promise<AppState> {
       data.domain.activeWaterBodyId = data.domain.activeWaterBodyId || defaultDomain.activeWaterBodyId;
       data.domain.activeTestMethodId = data.domain.activeTestMethodId || defaultDomain.activeTestMethodId;
 
-      // Correct locally cached 7-in-1 readings by the swatch position the user
-      // selected, not by the incorrect numeric label that was previously stored.
+      // Correct only records made with the bad 21-Aug scale. The earlier visual
+      // test-entry version already had the bottle's numeric values right.
       data.domain.waterTests = data.domain.waterTests.map(record => {
         if (record.testMethodId !== 'current-7-way') return record;
-        const correction = correctLegacySevenWayReadings(record.readings);
-        if (correction.alreadyCurrent || (correction.correctedCount === 0 && correction.unresolvedCount === 0)) return record;
+        const correction = correctLegacySevenWayReadings(record.readings, { recordedAt: record.timestamp });
+        if (correction.correctedCount === 0) return record;
         return { ...record, readings: correction.readings };
       });
 
