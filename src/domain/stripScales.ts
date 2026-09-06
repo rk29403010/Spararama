@@ -152,11 +152,15 @@ function normalizeLabel(value: string) {
   return value.trim().replace(/[–—]/g, '-').replace(/\s+/g, '');
 }
 
+function stripTerminalPeriod(value: string) {
+  return value.replace(/\.\s*$/, '').trim();
+}
+
 function selectionFromNoteOnly(reading: MeasurementReading, scale: LegacySwatch[]) {
   const note = reading.note || '';
   const exactPrefix = 'Selected bottle swatch ';
   if (note.startsWith(exactPrefix)) {
-    const raw = note.slice(exactPrefix.length).split('.')[0] || '';
+    const raw = stripTerminalPeriod(note.slice(exactPrefix.length));
     const wanted = normalizeLabel(raw);
     const index = scale.findIndex(item => normalizeLabel(item.label) === wanted);
     if (index >= 0) return { kind: 'swatch' as const, index };
@@ -164,7 +168,7 @@ function selectionFromNoteOnly(reading: MeasurementReading, scale: LegacySwatch[
 
   const betweenPrefix = 'Colour judged between bottle swatches ';
   if (note.startsWith(betweenPrefix)) {
-    const raw = note.slice(betweenPrefix.length).split('.')[0] || '';
+    const raw = stripTerminalPeriod(note.slice(betweenPrefix.length));
     const parts = raw.split(' and ');
     if (parts.length === 2) {
       const left = normalizeLabel(parts[0]);
