@@ -83,7 +83,9 @@ export function signOutUser() {
 
 export interface SevenWayCorrectionSummary {
   scanned: number;
+  auditedRecords: number;
   originalScaleRecords: number;
+  currentScaleRecords: number;
   badScaleRecords: number;
   ambiguousRecords: number;
   timestampInferredRecords: number;
@@ -95,17 +97,24 @@ export interface SevenWayCorrectionSummary {
 }
 
 /**
- * One-off/idempotent repair of water-test logs created while the 7-in-1 bottle
- * scales were wrong. The first visual-entry version (19/20 Aug) actually had
- * the bottle's numeric values right, so those records are explicitly detected
- * and left alone. The bad layout was introduced by commit 4039488 on 21 Aug.
- * The correction uses recorded swatch labels/positions, with record timestamp
- * only as a fallback where the chosen labels were identical in both layouts.
+ * One-off/idempotent repair and safety re-audit of 7-in-1 water-test logs.
+ *
+ * The first visual-entry version (19/20 Aug) had the bottle's numeric values
+ * right but omitted bromine. Commit 4039488 on 21 Aug introduced a different,
+ * incorrect scale. Bad-layout readings are therefore remapped by the selected
+ * swatch position. Original-layout readings are left numerically unchanged.
+ *
+ * Every historical 7-in-1 assessment is then re-run through the current
+ * chemistry rules, including the free/total chlorine consistency and combined
+ * chlorine safety checks. This is deliberate: correcting the stored number but
+ * leaving stale "ready" advice would not be a complete repair.
  */
 export async function correctSevenWayWaterTestLogs(userOverride?: User): Promise<SevenWayCorrectionSummary> {
   const summary: SevenWayCorrectionSummary = {
     scanned: 0,
+    auditedRecords: 0,
     originalScaleRecords: 0,
+    currentScaleRecords: 0,
     badScaleRecords: 0,
     ambiguousRecords: 0,
     timestampInferredRecords: 0,
@@ -134,37 +143,30 @@ export async function correctSevenWayWaterTestLogs(userOverride?: User): Promise
       summary.scanned++;
 
       const payload = log.data;
-      if (payload.scaleRevision === SEVEN_WAY_SCALE_REVISION || !Array.isArray(payload.readings)) continue;
+      if (!Array.isArray(payload.readings) || payload.scaleAuditRevision === SEVEN_WAY_SCALE_REVISION) continue;
 
       const correction = correctLegacySevenWayReadings(payload.readings, { recordedAt: payload.timestamp });
-      if (correction.alreadyCurrent) continue;
       if (correction.inferredFromTimestamp) summary.timestampInferredRecords++;
 
-      if (correction.layout === 'original') {
-        summary.originalScaleRecords++;
-        continue;
-      }
-      if (correction.layout === 'ambiguous') {
-        summary.ambiguousRecords++;
-        summary.unresolvedReadings += correction.unresolvedCount;
-        continue;
-      }
-      if (correction.layout !== 'bad') continue;
-      summary.badScaleRecords++;
-
-      if (correction.correctedCount === 0 && correction.unresolvedCount === 0) continue;
+      if (correction.layout === 'current') summary.currentScaleRecords++;
+      else if (correction.layout === 'original') summary.originalScaleRecords++;
+      else if (correction.layout === 'bad') summary.badScaleRecords++;
+      else summary.ambiguousRecords++;
 
       const waterBody = defaultDomain.waterBodies.find(item => item.id === payload.waterBodyId) ?? defaultWaterBody;
       if (!waterBody) continue;
 
-      let newAssessment: any = assessChemistry(waterBody, defaultDomain.products, correction.readings);
-      if (correction.unresolvedCount > 0) {
+      const unresolved = correction.layout === 'ambiguous' ? correction.unresolvedCount : correction.unresolvedCount;
+      const effectiveReadings = correction.readings;
+      let newAssessment: any = assessChemistry(waterBody, defaultDomain.products, effectiveReadings);
+
+      if (unresolved > 0 || correction.layout === 'ambiguous') {
         newAssessment = {
           ...newAssessment,
           nextAction: {
             kind: 'retest',
-            measurements: correction.readings.map(reading => reading.measurement),
-            reason: 'Historical 7-in-1 record contains a swatch position that cannot be mapped safely to the verified bottle scale.'
+            measurements: effectiveReadings.map(reading => reading.measurement),
+            reason: 'Historical 7-in-1 record cannot be mapped unambiguously to the verified bottle scale. Treat this old result as unverified.'
           }
         };
       }
@@ -174,24 +176,27 @@ export async function correctSevenWayWaterTestLogs(userOverride?: User): Promise
       if (oldReady && !newReady) summary.readyToNotReady++;
       if (!oldReady && newReady) summary.notReadyToReady++;
 
-      summary.correctedRecords++;
+      summary.auditedRecords++;
       summary.correctedReadings += correction.correctedCount;
-      summary.unresolvedReadings += correction.unresolvedCount;
+      summary.unresolvedReadings += unresolved;
+      if (correction.correctedCount > 0) summary.correctedRecords++;
 
+      const fullyVerified = correction.layout !== 'ambiguous' && unresolved === 0;
       pending.push({
         ref: logDoc.ref,
         data: {
           ...payload,
-          readings: correction.readings,
+          readings: effectiveReadings,
           assessment: newAssessment,
-          scaleRevision: SEVEN_WAY_SCALE_REVISION,
+          ...(fullyVerified ? { scaleRevision: SEVEN_WAY_SCALE_REVISION } : {}),
+          scaleAuditRevision: SEVEN_WAY_SCALE_REVISION,
           scaleCorrection: {
-            correctedAt: Date.now(),
+            auditedAt: Date.now(),
             correctedReadings: correction.correctedCount,
-            unresolvedReadings: correction.unresolvedCount,
+            unresolvedReadings: unresolved,
             sourceLayout: correction.layout,
             inferredFromTimestamp: correction.inferredFromTimestamp,
-            method: 'swatch_position'
+            method: correction.correctedCount > 0 ? 'swatch_position' : 'assessment_reaudit'
           }
         }
       });
@@ -205,18 +210,18 @@ export async function correctSevenWayWaterTestLogs(userOverride?: User): Promise
       await batch.commit();
     }
 
-    if (summary.correctedRecords > 0) {
+    if (summary.auditedRecords > 0) {
       await addDoc(collection(firestore, 'users', user.uid, 'logs'), {
         type: 'maintenance',
         data: {
           action: 'seven_way_scale_correction',
           scaleRevision: SEVEN_WAY_SCALE_REVISION,
           ...summary,
-          note: 'Historical bad-layout 7-in-1 readings corrected by selected swatch position; earlier correct-layout records were left unchanged.'
+          note: 'Historical 7-in-1 readings were version-classified, bad-layout values were corrected by swatch position, and every record was re-assessed with current chlorine safety checks.'
         },
         timestamp: serverTimestamp()
       });
-      console.info('7-in-1 Firestore scale correction complete', summary);
+      console.info('7-in-1 Firestore scale correction and safety audit complete', summary);
     }
 
     return summary;
@@ -238,8 +243,7 @@ export function subscribeToAuthChanges(callback: (user: User | null) => void) {
     if (user) {
       void correctSevenWayWaterTestLogs(user).catch(() => {
         // The app remains usable if a one-off history repair cannot complete;
-        // the next authenticated launch will retry because records are only
-        // stamped with the revision after a successful write.
+        // the next authenticated launch will retry records not yet audit-stamped.
       });
     }
   });
