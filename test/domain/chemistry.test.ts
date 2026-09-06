@@ -56,6 +56,38 @@ test('free chlorine above total chlorine blocks dosing', () => {
   assert.ok(findings.some(f => f.code === 'free_chlorine_above_total_chlorine' && f.severity === 'error'));
 });
 
+test('excess combined chlorine blocks a ready result', () => {
+  const { domain, waterBody } = setup();
+  const readings: MeasurementReading[] = [
+    { measurement: 'total_alkalinity', value: 80, source: 'manual' },
+    { measurement: 'ph', value: 7.4, source: 'manual' },
+    { measurement: 'free_chlorine', value: 3, source: 'manual' },
+    { measurement: 'total_chlorine', value: 5, source: 'manual' },
+    { measurement: 'calcium_hardness', value: 250, source: 'manual' },
+    { measurement: 'cyanuric_acid', min: 30, max: 50, source: 'manual' }
+  ];
+
+  const assessment = assessChemistry(waterBody, domain.products, readings);
+  assert.equal(assessment.nextAction.kind, 'retest');
+  assert.ok(assessment.findings.some(f => f.code === 'combined_chlorine_high' && f.severity === 'error'));
+});
+
+test('ambiguous free/total chlorine that could hide high combined chlorine blocks ready', () => {
+  const findings = validateReadings([
+    { measurement: 'free_chlorine', value: 3, source: 'manual' },
+    { measurement: 'total_chlorine', min: 3, max: 5, source: 'manual' }
+  ]);
+  assert.ok(findings.some(f => f.code === 'combined_chlorine_uncertain' && f.severity === 'error'));
+});
+
+test('matching free and total chlorine does not create a combined chlorine error', () => {
+  const findings = validateReadings([
+    { measurement: 'free_chlorine', value: 3, source: 'manual' },
+    { measurement: 'total_chlorine', value: 3, source: 'manual' }
+  ]);
+  assert.equal(findings.some(f => f.code === 'combined_chlorine_high' || f.code === 'combined_chlorine_uncertain'), false);
+});
+
 test('pH adjustment uses a scaled label dose rather than pretending pH is linear', () => {
   const { domain, waterBody } = setup();
   const readings: MeasurementReading[] = [
