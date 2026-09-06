@@ -23,7 +23,11 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
         { measurement: 'ph', min: 7.2, max: 7.6, preferred: 7.4, unit: 'ph' },
         { measurement: 'total_alkalinity', min: 80, max: 120, preferred: 80, unit: 'ppm' },
         { measurement: 'calcium_hardness', min: 150, max: 500, preferred: 250, unit: 'ppm' },
-        { measurement: 'cyanuric_acid', min: 30, max: 50, preferred: 40, unit: 'ppm' }
+        // Bottle marks 30-50 ppm as OK, but for a spa CYA is an upper-limit
+        // maintenance parameter rather than something that must be >=30 ppm.
+        // HSE HSG282 says cyanuric acid from chloroisocyanurates should remain
+        // below 100 mg/l. 100 ppm therefore falls outside this target.
+        { measurement: 'cyanuric_acid', min: 0, max: 99.9, preferred: 30, unit: 'ppm' }
       ]
     }
   ],
