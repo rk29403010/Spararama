@@ -29,14 +29,12 @@ const STATUS_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [350, 800];
 const DEFAULT_REQUEST_TIMEOUT_MS = 7_000;
 const DEFAULT_CONTROL_TIMEOUT_MS = 15_000;
-// Field behaviour on the live CleverSpa shows that Filter=true can be reported
-// before enough flow is established for the heater interlock to accept Heater=1.
-// A one-minute warm-up is deliberately conservative and can be tuned later from
-// real telemetry without making the scheduler treat normal warm-up as a failure.
-const DEFAULT_HEATER_FLOW_WARMUP_MS = 60_000;
+const DEFAULT_HEATER_FLOW_WARMUP_MS = 2_000;
+const HEATER_START_ATTEMPTS = 2;
+const HEATER_RETRY_DELAY_MS = 3_000;
 
-function delay(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function delay(ms: number): Promise<void> {
+  return new Promise<void>(resolve => setTimeout(resolve, ms));
 }
 
 export class RecoveryBridgeSpaAdapter implements SpaAdapter {
@@ -235,23 +233,41 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
   }
 
   async setHeater(on: boolean): Promise<SpaStatus> {
-    if (on) {
-      const before = await this.getStatus();
-      if (!before.connected || before.transport === 'manual') {
-        throw new Error('Spa is not remotely connected.');
-      }
-      if (!before.filterOn) {
-        const filtering = await this.setFilter(true);
-        if (!filtering.filterOn) throw new Error('Spa did not confirm that filtration started before heating.');
-        if (this.heaterFlowWarmupMs > 0) await this.sleep(this.heaterFlowWarmupMs);
-      }
+    if (!on) {
+      return this.normalize(await this.request<RecoveryStatus>(
+        '/api/control/heater',
+        { method: 'POST', body: JSON.stringify({ enabled: false }) },
+        this.controlTimeoutMs
+      ));
     }
 
-    return this.normalize(await this.request<RecoveryStatus>(
-      '/api/control/heater',
-      { method: 'POST', body: JSON.stringify({ enabled: on }) },
-      this.controlTimeoutMs
-    ));
+    const before = await this.getStatus();
+    if (!before.connected || before.transport === 'manual') throw new Error('Spa is not remotely connected.');
+
+    if (!before.filterOn) {
+      const filtering = await this.setFilter(true);
+      if (!filtering.filterOn) throw new Error('Spa did not confirm that filtration started before heating.');
+      // Do not impose a long fixed delay. Most starts should remain near-immediate;
+      // this short settle covers the physical flow interlock seen on the live tub.
+      if (this.heaterFlowWarmupMs > 0) await this.sleep(this.heaterFlowWarmupMs);
+    }
+
+    let lastError: unknown = new Error('Spa did not confirm that the heater switched on.');
+    for (let attempt = 0; attempt < HEATER_START_ATTEMPTS; attempt += 1) {
+      try {
+        const started = this.normalize(await this.request<RecoveryStatus>(
+          '/api/control/heater',
+          { method: 'POST', body: JSON.stringify({ enabled: true }) },
+          this.controlTimeoutMs
+        ));
+        if (started.heaterOn) return started;
+        lastError = new Error('Spa did not confirm that the heater switched on.');
+      } catch (error) {
+        lastError = error;
+      }
+      if (attempt < HEATER_START_ATTEMPTS - 1) await this.sleep(HEATER_RETRY_DELAY_MS);
+    }
+    throw lastError;
   }
 
   async setFilter(on: boolean): Promise<SpaStatus> {
