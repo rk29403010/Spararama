@@ -44,6 +44,107 @@ test('recovery bridge status is normalized into Spararama spa status', async () 
   }
 });
 
+test('heater start establishes filtration and allows flow warm-up before heater command', async () => {
+  let filter = false;
+  let heater = false;
+  const controls: string[] = [];
+  const warmups: number[] = [];
+
+  const statusBody = () => ({
+    connected: true,
+    transport: 'lan',
+    updatedAt: new Date().toISOString(),
+    currentTemperature: 30,
+    targetTemperature: 39,
+    heater,
+    filter,
+    bubbles: false
+  });
+
+  const server = http.createServer((req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    if (req.url === '/api/status') {
+      res.end(JSON.stringify(statusBody()));
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/api/control/filter') {
+      controls.push('filter');
+      filter = true;
+      res.end(JSON.stringify(statusBody()));
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/api/control/heater') {
+      controls.push('heater');
+      heater = filter;
+      res.end(JSON.stringify(statusBody()));
+      return;
+    }
+    res.writeHead(404).end();
+  });
+
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+
+  try {
+    const adapter = new RecoveryBridgeSpaAdapter(`http://127.0.0.1:${address.port}`, {
+      heaterFlowWarmupMs: 60_000,
+      sleep: async ms => { warmups.push(ms); }
+    });
+    const status = await adapter.setHeater(true);
+    assert.deepEqual(controls, ['filter', 'heater']);
+    assert.deepEqual(warmups, [60_000]);
+    assert.equal(status.filterOn, true);
+    assert.equal(status.heaterOn, true);
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
+
+test('heater start does not delay when filtration is already running', async () => {
+  let heater = false;
+  const warmups: number[] = [];
+  const server = http.createServer((req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    const status = {
+      connected: true,
+      transport: 'lan',
+      updatedAt: new Date().toISOString(),
+      currentTemperature: 30,
+      targetTemperature: 39,
+      heater,
+      filter: true,
+      bubbles: false
+    };
+    if (req.url === '/api/status') {
+      res.end(JSON.stringify(status));
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/api/control/heater') {
+      heater = true;
+      res.end(JSON.stringify({ ...status, heater: true }));
+      return;
+    }
+    res.writeHead(404).end();
+  });
+
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+
+  try {
+    const adapter = new RecoveryBridgeSpaAdapter(`http://127.0.0.1:${address.port}`, {
+      heaterFlowWarmupMs: 60_000,
+      sleep: async ms => { warmups.push(ms); }
+    });
+    const status = await adapter.setHeater(true);
+    assert.deepEqual(warmups, []);
+    assert.equal(status.heaterOn, true);
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
+
 test('temporary disconnect preserves the last real reading and its acquisition time', async () => {
   const acquiredAt = new Date('2026-08-14T06:15:00.000Z');
   let statusRequests = 0;
