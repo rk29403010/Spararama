@@ -44,11 +44,12 @@ test('recovery bridge status is normalized into Spararama spa status', async () 
   }
 });
 
-test('heater start establishes filtration and allows flow warm-up before heater command', async () => {
+test('heater start establishes filtration then retries quickly if the interlock is not ready', async () => {
   let filter = false;
   let heater = false;
+  let heaterAttempts = 0;
   const controls: string[] = [];
-  const warmups: number[] = [];
+  const sleeps: number[] = [];
 
   const statusBody = () => ({
     connected: true,
@@ -75,7 +76,8 @@ test('heater start establishes filtration and allows flow warm-up before heater 
     }
     if (req.method === 'POST' && req.url === '/api/control/heater') {
       controls.push('heater');
-      heater = filter;
+      heaterAttempts += 1;
+      heater = heaterAttempts >= 2;
       res.end(JSON.stringify(statusBody()));
       return;
     }
@@ -88,12 +90,12 @@ test('heater start establishes filtration and allows flow warm-up before heater 
 
   try {
     const adapter = new RecoveryBridgeSpaAdapter(`http://127.0.0.1:${address.port}`, {
-      heaterFlowWarmupMs: 60_000,
-      sleep: async ms => { warmups.push(ms); }
+      heaterFlowWarmupMs: 2_000,
+      sleep: async ms => { sleeps.push(ms); }
     });
     const status = await adapter.setHeater(true);
-    assert.deepEqual(controls, ['filter', 'heater']);
-    assert.deepEqual(warmups, [60_000]);
+    assert.deepEqual(controls, ['filter', 'heater', 'heater']);
+    assert.deepEqual(sleeps, [2_000, 3_000]);
     assert.equal(status.filterOn, true);
     assert.equal(status.heaterOn, true);
   } finally {
@@ -101,9 +103,9 @@ test('heater start establishes filtration and allows flow warm-up before heater 
   }
 });
 
-test('heater start does not delay when filtration is already running', async () => {
+test('heater start remains immediate when filtration is already running', async () => {
   let heater = false;
-  const warmups: number[] = [];
+  const sleeps: number[] = [];
   const server = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const status = {
@@ -134,11 +136,11 @@ test('heater start does not delay when filtration is already running', async () 
 
   try {
     const adapter = new RecoveryBridgeSpaAdapter(`http://127.0.0.1:${address.port}`, {
-      heaterFlowWarmupMs: 60_000,
-      sleep: async ms => { warmups.push(ms); }
+      heaterFlowWarmupMs: 2_000,
+      sleep: async ms => { sleeps.push(ms); }
     });
     const status = await adapter.setHeater(true);
-    assert.deepEqual(warmups, []);
+    assert.deepEqual(sleeps, []);
     assert.equal(status.heaterOn, true);
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));
