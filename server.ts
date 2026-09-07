@@ -16,7 +16,10 @@ import { registerSpaHistoryRoutes } from './server/history/spa-events';
 import { WeatherService } from './server/weather/service';
 import { registerWeatherRoutes } from './server/weather/routes';
 import { HeatingScheduler } from './server/heating/scheduler';
+import { HeatingStore } from './server/heating/store';
 import { registerHeatingRoutes } from './server/heating/routes';
+import { PushService } from './server/push/service';
+import { registerPushRoutes } from './server/push/routes';
 import { AlexaAlertDispatcher } from './server/alerts/alexa-dispatcher';
 import { registerAlertRoutes } from './server/alerts/routes';
 import { AlexaSpaCommandService } from './server/alexa/direct';
@@ -68,11 +71,13 @@ async function startServer() {
 
   const weather = new WeatherService();
   const temperatureResolver = new BestEffortTemperatureResolver(spaAdapter, telemetryStore);
-  const heatingScheduler = new HeatingScheduler(spaAdapter);
+  const pushService = new PushService();
+  const heatingScheduler = new HeatingScheduler(spaAdapter, new HeatingStore(), pushService);
   const alexaDirect = new AlexaSpaCommandService(spaAdapter, bubbles, heatingScheduler, { weatherService: weather });
   registerSpaRoutes(app, spaAdapter, temperatureResolver, bubbles);
   registerWeatherRoutes(app, weather);
   registerHeatingRoutes(app, heatingScheduler);
+  registerPushRoutes(app, pushService);
   registerAlertRoutes(app, alexaAlerts);
   registerDirectAlexaRoutes(app, alexaDirect);
   registerSpaHistoryRoutes(app);
@@ -99,6 +104,7 @@ async function startServer() {
   console.log(`Firebase project: ${telemetryStatus.firebaseProjectId || 'not resolved'}`);
   console.log(`Firestore database: ${telemetryStatus.firestoreDatabaseId || 'not resolved'}`);
   console.log(`Firebase credential source: ${telemetryStatus.firebaseCredentialSource || 'not resolved'}`);
+  console.log(`Background push enabled: ${pushService.enabled}`);
   console.log(`Telemetry collector ID: ${process.env.TELEMETRY_HOST_ID || 'machine hostname'}`);
 
   const combinedTelemetryStatus = () => ({
