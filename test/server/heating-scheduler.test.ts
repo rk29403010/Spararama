@@ -90,6 +90,8 @@ test('remote failure gets two retries then requests manual start', async () => {
     assert.equal(notices.length, 1);
     assert.equal(notices[0].kind, 'manual_start_required');
     assert.equal(notices[0].requiresConfirmation, true);
+    assert.equal(notices[0].title, 'Heating did not start automatically');
+    assert.match(notices[0].message, /Do not rely on the planned ready time/);
   });
 });
 
