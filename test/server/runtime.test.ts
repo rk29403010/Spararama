@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import test from 'node:test';
 import { MockSpaAdapter } from '../../server/spa/mock';
 
@@ -17,4 +19,11 @@ test('runtime counters accumulate while equipment is on', async () => {
   const afterHeating = await spa.getStatus();
   assert.equal(afterHeating.filterRuntimeSeconds, 5400);
   assert.equal(afterHeating.heaterRuntimeSeconds, 1800);
+});
+
+test('main server wires background push registration to the same heating push service', async () => {
+  const source = await fs.readFile(path.join(process.cwd(), 'server.ts'), 'utf8');
+  assert.match(source, /const pushService = new PushService\(\)/);
+  assert.match(source, /new HeatingScheduler\(spaAdapter, new HeatingStore\(\), pushService\)/);
+  assert.match(source, /registerPushRoutes\(app, pushService\)/);
 });
