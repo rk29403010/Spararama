@@ -18,8 +18,22 @@ interface BridgeEventPayload {
   status?: RecoveryStatus;
 }
 
+interface RecoveryBridgeOptions {
+  requestTimeoutMs?: number;
+  controlTimeoutMs?: number;
+  heaterFlowWarmupMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
 const STATUS_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [350, 800];
+const DEFAULT_REQUEST_TIMEOUT_MS = 7_000;
+const DEFAULT_CONTROL_TIMEOUT_MS = 15_000;
+// Field behaviour on the live CleverSpa shows that Filter=true can be reported
+// before enough flow is established for the heater interlock to accept Heater=1.
+// A one-minute warm-up is deliberately conservative and can be tuned later from
+// real telemetry without making the scheduler treat normal warm-up as a failure.
+const DEFAULT_HEATER_FLOW_WARMUP_MS = 60_000;
 
 function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -28,6 +42,10 @@ function delay(ms: number) {
 export class RecoveryBridgeSpaAdapter implements SpaAdapter {
   private readonly baseUrl: string;
   private readonly token: string;
+  private readonly requestTimeoutMs: number;
+  private readonly controlTimeoutMs: number;
+  private readonly heaterFlowWarmupMs: number;
+  private readonly sleep: (ms: number) => Promise<void>;
   private filterRuntimeSeconds = 0;
   private heaterRuntimeSeconds = 0;
   private lastObservedAt = Date.now();
@@ -37,9 +55,13 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
   private lastGoodStatus: SpaStatus | null = null;
   private contactFailureCount = 0;
 
-  constructor(baseUrl = process.env.CLEVERSPA_BRIDGE_URL || 'http://127.0.0.1:8787') {
+  constructor(baseUrl = process.env.CLEVERSPA_BRIDGE_URL || 'http://127.0.0.1:8787', options: RecoveryBridgeOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.token = process.env.CLEVERSPA_BRIDGE_TOKEN || '';
+    this.requestTimeoutMs = Math.max(1, options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
+    this.controlTimeoutMs = Math.max(this.requestTimeoutMs, options.controlTimeoutMs ?? DEFAULT_CONTROL_TIMEOUT_MS);
+    this.heaterFlowWarmupMs = Math.max(0, options.heaterFlowWarmupMs ?? DEFAULT_HEATER_FLOW_WARMUP_MS);
+    this.sleep = options.sleep ?? delay;
   }
 
   private headers() {
@@ -49,9 +71,9 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
     };
   }
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  private async request<T>(path: string, init: RequestInit = {}, timeoutMs = this.requestTimeoutMs): Promise<T> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 7000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
         ...init,
@@ -213,18 +235,46 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
   }
 
   async setHeater(on: boolean): Promise<SpaStatus> {
-    return this.normalize(await this.request<RecoveryStatus>('/api/control/heater', { method: 'POST', body: JSON.stringify({ enabled: on }) }));
+    if (on) {
+      const before = await this.getStatus();
+      if (!before.connected || before.transport === 'manual') {
+        throw new Error('Spa is not remotely connected.');
+      }
+      if (!before.filterOn) {
+        const filtering = await this.setFilter(true);
+        if (!filtering.filterOn) throw new Error('Spa did not confirm that filtration started before heating.');
+        if (this.heaterFlowWarmupMs > 0) await this.sleep(this.heaterFlowWarmupMs);
+      }
+    }
+
+    return this.normalize(await this.request<RecoveryStatus>(
+      '/api/control/heater',
+      { method: 'POST', body: JSON.stringify({ enabled: on }) },
+      this.controlTimeoutMs
+    ));
   }
 
   async setFilter(on: boolean): Promise<SpaStatus> {
-    return this.normalize(await this.request<RecoveryStatus>('/api/control/filter', { method: 'POST', body: JSON.stringify({ enabled: on }) }));
+    return this.normalize(await this.request<RecoveryStatus>(
+      '/api/control/filter',
+      { method: 'POST', body: JSON.stringify({ enabled: on }) },
+      this.controlTimeoutMs
+    ));
   }
 
   async setBubbles(on: boolean): Promise<SpaStatus> {
-    return this.normalize(await this.request<RecoveryStatus>('/api/control/bubbles', { method: 'POST', body: JSON.stringify({ enabled: on }) }));
+    return this.normalize(await this.request<RecoveryStatus>(
+      '/api/control/bubbles',
+      { method: 'POST', body: JSON.stringify({ enabled: on }) },
+      this.controlTimeoutMs
+    ));
   }
 
   async setTargetTemperature(celsius: number): Promise<SpaStatus> {
-    return this.normalize(await this.request<RecoveryStatus>('/api/control/target-temperature', { method: 'POST', body: JSON.stringify({ temperature: Math.round(celsius) }) }));
+    return this.normalize(await this.request<RecoveryStatus>(
+      '/api/control/target-temperature',
+      { method: 'POST', body: JSON.stringify({ temperature: Math.round(celsius) }) },
+      this.controlTimeoutMs
+    ));
   }
 }
