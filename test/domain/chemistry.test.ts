@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assessChemistry, followUpAfterDose, validateReadings } from '../../src/domain/chemistry';
+import {
+  assessChemistry,
+  canIgnoreImpossibleTotalChlorineZero,
+  followUpAfterDose,
+  ignoreImpossibleTotalChlorineZero,
+  validateReadings
+} from '../../src/domain/chemistry';
 import { createDefaultDomainState } from '../../src/domain/defaults';
 import type { MeasurementReading } from '../../src/domain/models';
 
@@ -54,6 +60,53 @@ test('free chlorine above total chlorine blocks dosing', () => {
     { measurement: 'total_chlorine', value: 0, source: 'manual' }
   ]);
   assert.ok(findings.some(f => f.code === 'free_chlorine_above_total_chlorine' && f.severity === 'error'));
+});
+
+test('an impossible TC zero can be explicitly ignored without losing the recorded value', () => {
+  const readings: MeasurementReading[] = [
+    { measurement: 'free_chlorine', value: 1, source: 'manual' },
+    { measurement: 'total_chlorine', value: 0, source: 'manual', note: 'Selected bottle swatch 0.' }
+  ];
+
+  assert.equal(canIgnoreImpossibleTotalChlorineZero(readings), true);
+  const ignored = ignoreImpossibleTotalChlorineZero(readings);
+  const total = ignored.find(reading => reading.measurement === 'total_chlorine');
+  assert.equal(total?.value, 0);
+  assert.equal(total?.ignoredForAdvice, true);
+  assert.match(total?.ignoreReason || '', /conflicts with measurable free chlorine/);
+  const findings = validateReadings(ignored);
+  assert.equal(findings.some(f => f.code === 'free_chlorine_above_total_chlorine'), false);
+  assert.ok(findings.some(f => f.code === 'reading_ignored_for_advice' && f.measurement === 'total_chlorine'));
+});
+
+test('ignoring impossible TC zero lets the other readings drive dosing advice', () => {
+  const { domain, waterBody } = setup();
+  const readings = ignoreImpossibleTotalChlorineZero([
+    { measurement: 'total_alkalinity', value: 80, source: 'manual' },
+    { measurement: 'ph', value: 7.4, source: 'manual' },
+    { measurement: 'free_chlorine', value: 0.5, source: 'manual' },
+    { measurement: 'total_chlorine', value: 0, source: 'manual' },
+    { measurement: 'calcium_hardness', value: 250, source: 'manual' },
+    { measurement: 'cyanuric_acid', min: 30, max: 50, source: 'manual' }
+  ] as MeasurementReading[]);
+
+  const assessment = assessChemistry(waterBody, domain.products, readings);
+  assert.equal(assessment.nextAction.kind, 'dose');
+  if (assessment.nextAction.kind !== 'dose') return;
+  assert.equal(assessment.nextAction.productId, 'cleverspa-chlorine-granules');
+  assert.equal(assessment.nextAction.amount, 6);
+  assert.ok(assessment.findings.some(f => f.code === 'reading_ignored_for_advice'));
+});
+
+test('the TC override is limited to exact zero with definitely positive free chlorine', () => {
+  assert.equal(canIgnoreImpossibleTotalChlorineZero([
+    { measurement: 'free_chlorine', value: 3, source: 'manual' },
+    { measurement: 'total_chlorine', value: 1, source: 'manual' }
+  ]), false);
+  assert.equal(canIgnoreImpossibleTotalChlorineZero([
+    { measurement: 'free_chlorine', min: 0, max: 0.5, source: 'manual' },
+    { measurement: 'total_chlorine', value: 0, source: 'manual' }
+  ]), false);
 });
 
 test('excess combined chlorine blocks a ready result', () => {
