@@ -20,6 +20,8 @@ export interface MeasurementReading {
   source: ReadingSource;
   confidence?: number;
   note?: string;
+  ignoredForAdvice?: boolean;
+  ignoreReason?: string;
 }
 
 export interface InstrumentMeasurement {
