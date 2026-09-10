@@ -29,8 +29,12 @@ function bounds(reading: MeasurementReading): ReadingBounds | null {
   return null;
 }
 
-function findReading(readings: MeasurementReading[], measurement: MeasurementKey) {
+function findRecordedReading(readings: MeasurementReading[], measurement: MeasurementKey) {
   return readings.find(reading => reading.measurement === measurement);
+}
+
+function findReading(readings: MeasurementReading[], measurement: MeasurementKey) {
+  return readings.find(reading => reading.measurement === measurement && !reading.ignoredForAdvice);
 }
 
 function findTarget(waterBody: WaterBodyProfile, measurement: MeasurementKey) {
@@ -44,6 +48,33 @@ function classify(reading: MeasurementReading, target: TargetRange) {
   if (value.min > target.max) return 'high' as const;
   if (value.min >= target.min && value.max <= target.max) return 'in_range' as const;
   return 'uncertain' as const;
+}
+
+export function canIgnoreImpossibleTotalChlorineZero(readings: MeasurementReading[]) {
+  const free = findRecordedReading(readings, 'free_chlorine');
+  const total = findRecordedReading(readings, 'total_chlorine');
+  if (!free || !total || free.ignoredForAdvice || total.ignoredForAdvice) return false;
+
+  const freeBounds = bounds(free);
+  const totalBounds = bounds(total);
+  return Boolean(
+    freeBounds &&
+    totalBounds &&
+    freeBounds.min > 0 &&
+    totalBounds.min === 0 &&
+    totalBounds.max === 0
+  );
+}
+
+export function ignoreImpossibleTotalChlorineZero(readings: MeasurementReading[]) {
+  if (!canIgnoreImpossibleTotalChlorineZero(readings)) return readings;
+  return readings.map(reading => reading.measurement === 'total_chlorine'
+    ? {
+        ...reading,
+        ignoredForAdvice: true,
+        ignoreReason: 'Recorded 0 ppm total chlorine conflicts with measurable free chlorine; user chose to exclude this strip pad from advice.'
+      }
+    : reading);
 }
 
 function roundDose(value: number, increment = 1) {
@@ -102,6 +133,18 @@ export function validateReadings(readings: MeasurementReading[]): ChemistryFindi
   const findings: ChemistryFinding[] = [];
 
   for (const reading of readings) {
+    if (reading.ignoredForAdvice) {
+      findings.push({
+        measurement: reading.measurement,
+        severity: 'warning',
+        code: 'reading_ignored_for_advice',
+        message: reading.measurement === 'total_chlorine'
+          ? 'Total chlorine was recorded but ignored for advice, so combined chlorine could not be checked.'
+          : `${reading.measurement} was recorded but ignored for this assessment.`
+      });
+      continue;
+    }
+
     const readingBounds = bounds(reading);
     if (!readingBounds) {
       findings.push({
@@ -294,7 +337,9 @@ export function assessChemistry(
       findings,
       nextAction: {
         kind: 'retest',
-        measurements: readings.map(reading => reading.measurement),
+        measurements: readings
+          .filter(reading => !reading.ignoredForAdvice)
+          .map(reading => reading.measurement),
         reason: 'One or more readings are inconsistent or insufficiently reliable. Confirm them before dosing.'
       }
     };
