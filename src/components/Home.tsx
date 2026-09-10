@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Flame, Loader2, Minus, Plus, RefreshCw, Thermometer, Waves, Wifi, WifiOff, Wind } from 'lucide-react';
+import { Flame, Loader2, Minus, Plus, RefreshCw, Thermometer, Waves, Wifi, WifiOff, Wind } from 'lucide-react';
 import type { AppState } from '../types';
 import { spaApi, type SpaStatusDto } from '../lib/spaApi';
+import { cacheConnectedSpaStatus, readCachedSpaStatus } from '../lib/spaSnapshotCache';
 import { ManualLogModal } from './ManualLogModal';
 
 interface HomeProps { state: AppState; }
 function finiteNumber(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value); }
 
-const CONCERN_AFTER_MS = 60 * 60 * 1000;
 const BUBBLE_AUTO_RESTART_KEY = 'spararama:bubbles:auto-restart';
 
 function ageText(timestamp: number | undefined, now: number) {
@@ -82,9 +82,12 @@ export function Home({ state }: HomeProps) {
   const waterBody = useMemo(() => state.domain.waterBodies.find(item => item.id === state.domain.activeWaterBodyId) ?? state.domain.waterBodies[0], [state.domain.waterBodies, state.domain.activeWaterBodyId]);
   const connectivity = waterBody?.connectivity ?? 'wifi';
   const liveConnectorAvailable = waterBody?.connectorId === 'cleverspa';
-  const [status, setStatus] = useState<SpaStatusDto | null>(null);
+  const expectedConnectedTub = connectivity === 'wifi' && liveConnectorAvailable;
+  const initialCachedStatus = waterBody ? readCachedSpaStatus(waterBody.id) : null;
+  const [status, setStatus] = useState<SpaStatusDto | null>(initialCachedStatus);
+  const [lastKnownStatus, setLastKnownStatus] = useState<SpaStatusDto | null>(initialCachedStatus);
   const [reachable, setReachable] = useState(false);
-  const [loading, setLoading] = useState(connectivity === 'wifi' && liveConnectorAvailable);
+  const [connectionChecked, setConnectionChecked] = useState(!expectedConnectedTub);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -96,45 +99,73 @@ export function Home({ state }: HomeProps) {
   const refreshInFlight = useRef(false);
 
   const refresh = async (manual = false) => {
-    if (connectivity !== 'wifi' || !liveConnectorAvailable || refreshInFlight.current) return;
+    if (!waterBody || !expectedConnectedTub || refreshInFlight.current) return;
     refreshInFlight.current = true;
-    if (manual) setRefreshing(true);
-    if (!status) setLoading(true);
+    if (manual) {
+      setRefreshing(true);
+      if (!reachable) setConnectionChecked(false);
+    }
     setError('');
     try {
       const next = await spaApi.status();
+      const connected = Boolean(next.connected);
       setStatus(next);
-      setReachable(Boolean(next.connected));
+      setReachable(connected);
+      if (connected) {
+        setLastKnownStatus(next);
+        cacheConnectedSpaStatus(waterBody.id, next);
+      }
     } catch (err: any) {
       setReachable(false);
       setError(err?.message || 'Hot tub unavailable.');
     } finally {
       refreshInFlight.current = false;
-      setLoading(false);
+      setConnectionChecked(true);
       if (manual) setRefreshing(false);
       setNow(Date.now());
     }
   };
 
   useEffect(() => {
-    if (connectivity !== 'wifi' || !liveConnectorAvailable) { setReachable(false); setLoading(false); return; }
+    if (!expectedConnectedTub || !waterBody) {
+      setReachable(false);
+      setConnectionChecked(true);
+      return;
+    }
+
+    const cached = readCachedSpaStatus(waterBody.id);
+    setStatus(cached);
+    setLastKnownStatus(cached);
+    setReachable(false);
+    setConnectionChecked(false);
+    setError('');
     void refresh(false);
+
     const pollTimer = window.setInterval(() => void refresh(false), 15000);
     const clockTimer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => { window.clearInterval(pollTimer); window.clearInterval(clockTimer); };
-  }, [connectivity, liveConnectorAvailable]);
+  }, [waterBody?.id, connectivity, liveConnectorAvailable]);
 
   const command = async (name: string, action: () => Promise<SpaStatusDto>) => {
     setBusy(name);
     setError('');
     try {
       const next = await action();
+      const connected = Boolean(next.connected);
       setStatus(next);
-      setReachable(Boolean(next.connected));
+      setReachable(connected);
+      setConnectionChecked(true);
+      if (connected && waterBody) {
+        setLastKnownStatus(next);
+        cacheConnectedSpaStatus(waterBody.id, next);
+      }
       setNow(Date.now());
     } catch (err: any) {
       setError(err?.message || 'Command failed.');
-      if (!String(err?.message || '').toLowerCase().includes('cooling down')) setReachable(false);
+      if (!String(err?.message || '').toLowerCase().includes('cooling down')) {
+        setReachable(false);
+        setConnectionChecked(true);
+      }
     } finally {
       setBusy(null);
     }
@@ -179,70 +210,72 @@ export function Home({ state }: HomeProps) {
     </div>{manualModal}
   </>;
 
-  const hasLastReading = Boolean(status && status.updatedAt > 0 && finiteNumber(status.waterTemperatureC));
-  const lastContactAt = status?.lastContactAt || status?.updatedAt;
-  const contactAgeMs = lastContactAt ? Math.max(0, now - lastContactAt) : Number.POSITIVE_INFINITY;
-  const longOutage = !reachable && contactAgeMs >= CONCERN_AFTER_MS;
+  const connectionRefreshing = expectedConnectedTub && !connectionChecked;
+  const displayedStatus = reachable ? status : (lastKnownStatus ?? status);
+  const lastContactAt = displayedStatus?.lastContactAt || displayedStatus?.updatedAt;
+  const current = finiteNumber(displayedStatus?.waterTemperatureC) ? displayedStatus.waterTemperatureC : null;
+  const statusTarget = finiteNumber(displayedStatus?.targetTemperatureC) ? displayedStatus.targetTemperatureC : null;
+  const fallbackTarget = finiteNumber(state.config.defaultHeatingTarget) ? state.config.defaultHeatingTarget : 40;
+  const target = statusTarget ?? fallbackTarget;
+  const dataAge = ageText(displayedStatus?.updatedAt, now);
+  const contactAge = ageText(lastContactAt, now);
 
-  if (!reachable && !hasLastReading) return <>
+  if (connectionChecked && !reachable) return <>
     <div className="p-4 max-w-xl mx-auto">
       <section className="rounded-3xl bg-white border border-slate-200 p-6">
         <div className="flex items-center gap-3 text-slate-700"><WifiOff className="w-6 h-6" aria-hidden="true" /><span className="font-black">Not connected</span></div>
         <h2 className="text-3xl font-black text-slate-950 mt-3">{waterBody.name}</h2>
-        <p role="status" className="mt-3 text-base font-bold text-slate-600">{loading ? 'Checking…' : 'No live reading yet'}</p>
+        {current !== null
+          ? <p role="status" className="mt-3 text-base font-bold text-slate-600">Last water {Math.round(current)}° · {dataAge}</p>
+          : <p role="status" className="mt-3 text-base font-bold text-slate-600">No live reading yet</p>}
+        {lastContactAt && <p className="mt-1 text-sm font-bold text-slate-500">Last contact {contactAge}</p>}
         {error && <p role="alert" className="mt-3 text-sm font-bold text-slate-800 bg-slate-100 rounded-xl p-3">{error}</p>}
         <div className="mt-5 flex flex-wrap gap-3">
-          <RefreshButton refreshing={refreshing} acquiredAt={status?.updatedAt} onClick={() => void refresh(true)} dark={false} label="Try again" />
+          <RefreshButton refreshing={refreshing} acquiredAt={displayedStatus?.updatedAt} onClick={() => void refresh(true)} dark={false} label="Try again" />
           <ManualReadingButton onClick={() => setShowManualLog(true)} />
         </div>
       </section>
     </div>{manualModal}
   </>;
 
-  const current = finiteNumber(status?.waterTemperatureC) ? status.waterTemperatureC : null;
-  const statusTarget = finiteNumber(status?.targetTemperatureC) ? status.targetTemperatureC : null;
-  const fallbackTarget = finiteNumber(state.config.defaultHeatingTarget) ? state.config.defaultHeatingTarget : 40;
-  const target = statusTarget ?? fallbackTarget;
-  const disabled = !status || !reachable || busy !== null;
-  const dataAge = ageText(status?.updatedAt, now);
-  const contactAge = ageText(lastContactAt, now);
+  const disabled = connectionRefreshing || !status || !reachable || busy !== null;
   const setTarget = (value: number) => {
     const max = state.config.maxTemp || 40;
     void command('target', () => spaApi.setTargetTemperature(Math.max(5, Math.min(max, value))));
   };
 
-  const bubblePhase = status?.bubblePhase ?? (status?.bubblesOn ? 'running' : 'idle');
-  const bubbleRunCountdown = countdownText(status?.bubbleRunEndsAt, now);
-  const bubbleCooldownCountdown = countdownText(status?.bubbleCooldownEndsAt, now);
-  const bubbleStatusText = bubblePhase === 'cooldown'
-    ? `${bubbleCooldownCountdown ?? '—'} wait`
-    : status?.bubblesOn && status?.bubbleTimingKnown && bubbleRunCountdown
-      ? `${bubbleRunCountdown} left`
-      : status?.bubblesOn ? 'On' : 'Off';
+  const bubblePhase = displayedStatus?.bubblePhase ?? (displayedStatus?.bubblesOn ? 'running' : 'idle');
+  const bubbleRunCountdown = countdownText(displayedStatus?.bubbleRunEndsAt, now);
+  const bubbleCooldownCountdown = countdownText(displayedStatus?.bubbleCooldownEndsAt, now);
+  const bubbleStatusText = !displayedStatus
+    ? '—'
+    : bubblePhase === 'cooldown'
+      ? `${bubbleCooldownCountdown ?? '—'} wait`
+      : displayedStatus.bubblesOn && displayedStatus.bubbleTimingKnown && bubbleRunCountdown
+        ? `${bubbleRunCountdown} left`
+        : displayedStatus.bubblesOn ? 'On' : 'Off';
   const bubbleCooling = bubblePhase === 'cooldown';
-  const bubbleHasCooldown = finiteNumber(status?.bubbleCooldownSeconds) && status.bubbleCooldownSeconds > 0;
-  const bubbleRestartUsed = Boolean(status?.bubbleAutoRestartUsed);
-  const bubbleRestartChecked = bubblePhase === 'idle' ? bubbleAutoRestartPreference : Boolean(status?.bubbleAutoRestartEnabled);
+  const bubbleHasCooldown = finiteNumber(displayedStatus?.bubbleCooldownSeconds) && displayedStatus.bubbleCooldownSeconds > 0;
+  const bubbleRestartUsed = Boolean(displayedStatus?.bubbleAutoRestartUsed);
+  const bubbleRestartChecked = bubblePhase === 'idle' ? bubbleAutoRestartPreference : Boolean(displayedStatus?.bubbleAutoRestartEnabled);
 
   return <>
     <div className="p-4 max-w-xl mx-auto space-y-5">
       <section className="rounded-3xl bg-slate-950 text-white p-5 sm:p-6 overflow-hidden">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className={`flex items-center gap-2 ${reachable ? 'text-emerald-300' : longOutage ? 'text-amber-300' : 'text-slate-300'}`}>
-              {reachable ? <Wifi className="w-5 h-5" aria-hidden="true" /> : <WifiOff className="w-5 h-5" aria-hidden="true" />}
-              <span className="font-black text-sm">
-                {reachable ? 'Live' : longOutage ? `Stale - ${contactAge}` : `Offline - ${contactAge}`}
-              </span>
+            <div className={`flex items-center gap-2 ${connectionRefreshing ? 'text-slate-300' : 'text-emerald-300'}`}>
+              {connectionRefreshing ? <RefreshCw className="w-5 h-5 animate-spin" aria-hidden="true" /> : <Wifi className="w-5 h-5" aria-hidden="true" />}
+              <span className="font-black text-sm">{connectionRefreshing ? 'Refreshing…' : 'Live'}</span>
             </div>
             <h2 className="text-lg font-black mt-2 text-white">{waterBody.name}</h2>
           </div>
-          <RefreshButton refreshing={refreshing} acquiredAt={status?.updatedAt} onClick={() => void refresh(true)} />
+          <RefreshButton refreshing={refreshing || connectionRefreshing} acquiredAt={displayedStatus?.updatedAt} onClick={() => void refresh(true)} />
         </div>
 
         <div className="mt-5 grid grid-cols-[1fr_auto] items-end gap-5">
           <div>
-            <p className="text-sm font-black text-slate-400">{reachable ? 'Water' : 'Last water'}</p>
+            <p className="text-sm font-black text-slate-400">{connectionRefreshing && current !== null ? 'Last water' : 'Water'}</p>
             <p className="text-7xl font-black tabular-nums tracking-tight mt-1">{current === null ? '—' : `${Math.round(current)}°`}</p>
           </div>
 
@@ -256,23 +289,23 @@ export function Home({ state }: HomeProps) {
           </div>
         </div>
 
-        {!reachable && !longOutage && <p className="mt-4 text-sm font-bold text-slate-300">Last reading {dataAge}. Controls paused.</p>}
-        {!reachable && longOutage && <div className="mt-4 rounded-xl bg-amber-400/10 border border-amber-300/20 p-3 text-sm font-bold text-amber-100 flex gap-2"><AlertTriangle className="w-5 h-5 shrink-0" aria-hidden="true" /><span>Last contact {contactAge}. Temperature may be out of date.</span></div>}
-        {current === null && <p className="mt-3 text-sm font-bold text-amber-200">No usable water temperature.</p>}
+        {connectionRefreshing && displayedStatus && <p className="mt-4 text-sm font-bold text-slate-300">Last reading {dataAge}. Controls paused while refreshing.</p>}
+        {connectionRefreshing && !displayedStatus && <p className="mt-4 text-sm font-bold text-slate-300">Waiting for the first live reading.</p>}
+        {current === null && !connectionRefreshing && <p className="mt-3 text-sm font-bold text-amber-200">No usable water temperature.</p>}
       </section>
 
       <section>
         <div className="flex items-center justify-between gap-3 mb-3 px-1">
           <h3 className="text-xl font-black text-slate-950">Equipment</h3>
-          {!reachable && <span className="text-sm font-black text-amber-900">Last known</span>}
+          {connectionRefreshing && <span className="text-sm font-black text-slate-600">{displayedStatus ? 'Last known' : 'Refreshing'}</span>}
         </div>
         <div className="grid grid-cols-3 gap-3">
-          <EquipmentButton label="Filter" icon={<Waves className="w-7 h-7" aria-hidden="true" />} on={Boolean(status?.filterOn)} busy={busy === 'filter'} disabled={disabled} onToggle={() => status && void command('filter', () => spaApi.setFilter(!status.filterOn))} />
-          <EquipmentButton label="Heater" icon={<Flame className="w-7 h-7" aria-hidden="true" />} on={Boolean(status?.heaterOn)} busy={busy === 'heater'} disabled={disabled} onToggle={() => status && void command('heater', () => spaApi.setHeater(!status.heaterOn))} />
+          <EquipmentButton label="Filter" icon={<Waves className="w-7 h-7" aria-hidden="true" />} on={Boolean(displayedStatus?.filterOn)} busy={busy === 'filter'} disabled={disabled} statusText={displayedStatus ? undefined : '—'} onToggle={() => status && void command('filter', () => spaApi.setFilter(!status.filterOn))} />
+          <EquipmentButton label="Heater" icon={<Flame className="w-7 h-7" aria-hidden="true" />} on={Boolean(displayedStatus?.heaterOn)} busy={busy === 'heater'} disabled={disabled} statusText={displayedStatus ? undefined : '—'} onToggle={() => status && void command('heater', () => spaApi.setHeater(!status.heaterOn))} />
           <EquipmentButton
             label="Bubbles"
             icon={<Wind className="w-7 h-7" aria-hidden="true" />}
-            on={Boolean(status?.bubblesOn)}
+            on={Boolean(displayedStatus?.bubblesOn)}
             highlighted={bubbleCooling}
             busy={busy === 'bubbles'}
             disabled={disabled || bubbleCooling}
@@ -293,7 +326,7 @@ export function Home({ state }: HomeProps) {
         </label>}
       </section>
 
-      {error && <div role="alert" className={`rounded-2xl p-4 text-sm font-bold ${longOutage ? 'bg-amber-50 text-amber-950 border border-amber-200' : 'bg-white text-slate-800 border border-slate-200'}`}>{error}</div>}
+      {error && <div role="alert" className="rounded-2xl p-4 text-sm font-bold bg-white text-slate-800 border border-slate-200">{error}</div>}
     </div>{manualModal}
   </>;
 }
