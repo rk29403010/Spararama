@@ -3,6 +3,7 @@ import { AppState, HeatingSession } from '../types';
 import { addDays, format } from 'date-fns';
 import { estimateHeatingPlan } from '../domain/heating';
 import { spaApi } from '../lib/spaApi';
+import { cacheSpaTemperature, readCachedWaterTemperature } from '../lib/spaSnapshotCache';
 import { weatherApi, type WeatherForecastDto } from '../lib/weatherApi';
 import { heatingApi } from '../lib/heatingApi';
 import { Cloud, Save, Sun, Wind } from 'lucide-react';
@@ -20,8 +21,16 @@ function displayTemperature(celsius: number, scale: 'C' | 'F') {
 }
 
 export function Heating({ state, updateState }: HeatingProps) {
-  const [currentTemp, setCurrentTemp] = useState<number | null>(null);
+  const scale = state.config.temperatureScale;
+  const timeFormat = state.config.timeFormat;
+  const activeWaterBody = state.domain.waterBodies.find(item => item.id === state.domain.activeWaterBodyId) || state.domain.waterBodies[0];
+  const waterVolumeLiters = activeWaterBody?.volumeLiters || state.config.waterCapacityLiters || 800;
+  const autoStartPreferred = activeWaterBody?.connectivity === 'wifi' && Boolean(activeWaterBody?.connectorId);
+  const initialCachedTemperature = activeWaterBody && autoStartPreferred ? readCachedWaterTemperature(activeWaterBody.id) : null;
+
+  const [currentTemp, setCurrentTemp] = useState<number | null>(() => initialCachedTemperature ? displayTemperature(initialCachedTemperature.valueC, scale) : null);
   const [currentReadingLive, setCurrentReadingLive] = useState(false);
+  const [currentTempRefreshing, setCurrentTempRefreshing] = useState(autoStartPreferred);
   const [temperatureLookupError, setTemperatureLookupError] = useState('');
   const [targetTemp, setTargetTemp] = useState(state.config.defaultHeatingTarget || 40);
   const [readyMode, setReadyMode] = useState<ReadyMode>('by-time');
@@ -35,11 +44,6 @@ export function Heating({ state, updateState }: HeatingProps) {
   const [weatherData, setWeatherData] = useState<WeatherForecastDto | null>(null);
   const [weatherError, setWeatherError] = useState('');
 
-  const scale = state.config.temperatureScale;
-  const timeFormat = state.config.timeFormat;
-  const activeWaterBody = state.domain.waterBodies.find(item => item.id === state.domain.activeWaterBodyId) || state.domain.waterBodies[0];
-  const waterVolumeLiters = activeWaterBody?.volumeLiters || state.config.waterCapacityLiters || 800;
-  const autoStartPreferred = activeWaterBody?.connectivity === 'wifi' && Boolean(activeWaterBody?.connectorId);
   const minC = 10;
   const maxC = 42;
   const minTemp = scale === 'F' ? Math.round((minC * 9 / 5) + 32) : minC;
@@ -47,19 +51,35 @@ export function Heating({ state, updateState }: HeatingProps) {
 
   useEffect(() => {
     let cancelled = false;
-    setCurrentTemp(null);
+    if (!activeWaterBody) {
+      setCurrentTemp(null);
+      setCurrentReadingLive(false);
+      setCurrentTempRefreshing(false);
+      setTemperatureLookupError('Current temperature unavailable.');
+      return;
+    }
+
+    const cached = autoStartPreferred ? readCachedWaterTemperature(activeWaterBody.id) : null;
+    setCurrentTemp(cached ? displayTemperature(cached.valueC, state.config.temperatureScale) : null);
     setCurrentReadingLive(false);
+    setCurrentTempRefreshing(autoStartPreferred);
     setTemperatureLookupError('');
+
     spaApi.currentTemperature()
       .then(estimate => {
         if (cancelled) return;
+        cacheSpaTemperature(activeWaterBody.id, estimate);
         setCurrentReadingLive(estimate.source === 'live-spa');
         setCurrentTemp(displayTemperature(estimate.valueC, state.config.temperatureScale));
       })
       .catch((err: any) => {
         if (cancelled) return;
         setCurrentReadingLive(false);
-        setTemperatureLookupError(err?.message || 'Current temperature unavailable.');
+        const message = err?.message || 'Current temperature unavailable.';
+        setTemperatureLookupError(cached ? `${message} Showing last known temperature.` : message);
+      })
+      .finally(() => {
+        if (!cancelled) setCurrentTempRefreshing(false);
       });
     return () => { cancelled = true; };
   }, [activeWaterBody?.id]);
@@ -101,13 +121,13 @@ export function Heating({ state, updateState }: HeatingProps) {
   }, [readyMode]);
 
   useEffect(() => {
-    if (currentTemp === null) {
+    if (currentTemp === null || currentTempRefreshing) {
       setCalculation(null);
       return;
     }
     const timer = setTimeout(() => { calculateHeating(); setSaveSuccess(false); }, 300);
     return () => clearTimeout(timer);
-  }, [currentTemp, targetTemp, readyMode, readyDay, readyHour, asapClock, scale, weatherData, waterVolumeLiters, state.config.heatingRateReferenceVolumeLiters, state.config.heatSoakMinutes]);
+  }, [currentTemp, currentTempRefreshing, targetTemp, readyMode, readyDay, readyHour, asapClock, scale, weatherData, waterVolumeLiters, state.config.heatingRateReferenceVolumeLiters, state.config.heatSoakMinutes]);
 
   const handleScheduleHeating = async () => {
     if (!calculation) return;
@@ -212,7 +232,9 @@ export function Heating({ state, updateState }: HeatingProps) {
   };
 
   const displayedCurrentTemp = currentTemp ?? minTemp;
-  const currentDetail = temperatureLookupError || undefined;
+  const currentDetail = currentTempRefreshing
+    ? (currentTemp !== null ? 'Refreshing live reading…' : 'Refreshing…')
+    : temperatureLookupError || undefined;
   const resultTimestamp = calculation ? (readyMode === 'asap' ? calculation.targetTime : calculation.startTime) : null;
   const resultLabel = readyMode === 'asap' ? 'Ready around' : 'Start heating';
 
@@ -225,7 +247,7 @@ export function Heating({ state, updateState }: HeatingProps) {
           min={minTemp}
           max={maxTemp}
           scale={scale}
-          disabled={currentTemp === null}
+          disabled={currentTemp === null || currentTempRefreshing}
           liveReading={currentReadingLive}
           onChange={value => {
             setCurrentReadingLive(false);
