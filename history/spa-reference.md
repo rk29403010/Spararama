@@ -90,5 +90,5 @@ Persistent event log: `history/spa-events.jsonl`.
 - Persistent apparently-low FC occurred on the previous fill and again after a flush, empty/manual clean, clean refill and chlorine shock.
 - Current new 7-way strips have shown low FC while a noticeable chlorine smell is present.
 - A 1:1 dilution test on 11 Aug 2026 behaved normally: undiluted FC about 1 ppm, diluted FC about 0.5 ppm. This does not support high-chlorine bleaching as the explanation.
-- Total-chlorine strip readings of 0 while FC is non-zero are internally inconsistent and should be treated cautiously.
+- The current 7-in-1 strip's total-chlorine pad repeatedly reads 0 even when free chlorine reads 0.5 ppm or higher. That combination is chemically impossible, so preserve the raw TC result but allow it to be explicitly excluded from dosing/readiness advice; never auto-correct or auto-ignore it.
 - Filter/filtration area was reported rattling after only around 1-2 days of operation on the current fill; exact source is not yet identified.
