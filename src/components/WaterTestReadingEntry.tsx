@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Minus, Plus } from 'lucide-react';
 import type { MeasurementKey, MeasurementReading, TestMethodProfile } from '../domain/models';
+import { canIgnoreImpossibleTotalChlorineZero, ignoreImpossibleTotalChlorineZero } from '../domain/chemistry';
 import { SEVEN_WAY_NOTE_MARKER, STRIP_SCALES, type StripSwatchValue } from '../domain/stripScales';
 
 interface WaterTestReadingEntryProps {
@@ -199,12 +200,28 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
   const scales = STRIP_SCALES[method.id] ?? {};
   const [stripSelections, setStripSelections] = useState<Partial<Record<MeasurementKey, StripSelection>>>({});
   const [electronicValues, setElectronicValues] = useState<Partial<Record<MeasurementKey, number>>>({});
+  const [ignoreTotalChlorineZero, setIgnoreTotalChlorineZero] = useState(false);
   const [error, setError] = useState('');
 
   const selectedCount = useMemo(() => {
     if (electronic) return Object.values(electronicValues).filter(value => typeof value === 'number').length;
     return Object.keys(stripSelections).length;
   }, [electronic, electronicValues, stripSelections]);
+
+  const stripReadings = useMemo(() => {
+    if (electronic) return [];
+    return method.parameters
+      .map((parameter): MeasurementReading | null => {
+        const scale = scales[parameter.measurement];
+        const selection = stripSelections[parameter.measurement];
+        if (!scale || !selection) return null;
+        return selectionToReading(method.id, parameter.measurement, scale, selection);
+      })
+      .filter((reading): reading is MeasurementReading => Boolean(reading));
+  }, [electronic, method, scales, stripSelections]);
+
+  const canIgnoreTotalChlorineZero = method.id === 'current-7-way'
+    && canIgnoreImpossibleTotalChlorineZero(stripReadings);
 
   const submit = () => {
     let readings: MeasurementReading[];
@@ -218,14 +235,9 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
         })
         .filter((reading): reading is MeasurementReading => Boolean(reading));
     } else {
-      readings = method.parameters
-        .map((parameter): MeasurementReading | null => {
-          const scale = scales[parameter.measurement];
-          const selection = stripSelections[parameter.measurement];
-          if (!scale || !selection) return null;
-          return selectionToReading(method.id, parameter.measurement, scale, selection);
-        })
-        .filter((reading): reading is MeasurementReading => Boolean(reading));
+      readings = ignoreTotalChlorineZero
+        ? ignoreImpossibleTotalChlorineZero(stripReadings)
+        : stripReadings;
     }
 
     if (readings.length === 0) {
@@ -277,11 +289,30 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
               measurement={parameter.measurement}
               scale={scale}
               selection={stripSelections[parameter.measurement]}
-              onSelect={selection => setStripSelections(current => ({ ...current, [parameter.measurement]: selection }))}
+              onSelect={selection => {
+                setStripSelections(current => ({ ...current, [parameter.measurement]: selection }));
+                if (parameter.measurement === 'free_chlorine' || parameter.measurement === 'total_chlorine') {
+                  setIgnoreTotalChlorineZero(false);
+                }
+              }}
             />
           );
         })}
       </div>
+
+      {canIgnoreTotalChlorineZero && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-950">
+          <span className="text-sm font-black leading-tight">TC 0 conflicts with free chlorine.</span>
+          <button
+            type="button"
+            aria-pressed={ignoreTotalChlorineZero}
+            onClick={() => setIgnoreTotalChlorineZero(current => !current)}
+            className={`min-h-11 shrink-0 rounded-xl px-3 text-sm font-black ${ignoreTotalChlorineZero ? 'bg-amber-900 text-white' : 'bg-white text-amber-950 ring-1 ring-amber-300'}`}
+          >
+            {ignoreTotalChlorineZero ? 'TC ignored' : 'Ignore TC'}
+          </button>
+        </div>
+      )}
 
       {error && <div aria-live="polite" className="rounded-xl bg-amber-50 border border-amber-200 text-amber-950 px-3 py-2 text-sm font-bold">{error}</div>}
       <button type="button" onClick={submit} className="w-full min-h-12 shrink-0 rounded-xl bg-indigo-700 hover:bg-indigo-800 active:bg-indigo-900 text-white text-lg font-black">
