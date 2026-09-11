@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { addWaterTrend } from '../../src/lib/temperatureChart';
+import { addWaterTrend, findWaterTrendGaps } from '../../src/lib/temperatureChart';
 
 test('water trend interpolates through repeated quantised buckets without changing raw readings', () => {
   const points = [30, 30, 30, 31, 31, 31, 32].map((water, index) => ({
@@ -30,14 +30,29 @@ test('water trend removes an isolated one-reading reversal', () => {
   assert.ok(result.every(point => point.waterTrend === 30));
 });
 
-test('water trend preserves a sustained peak', () => {
+test('water trend preserves a sustained peak away from target hold', () => {
   const result = addWaterTrend([38, 39, 39, 38].map((water, index) => ({
     timestamp: index * 10 * 60_000,
     water,
-    connected: true
+    connected: true,
+    target: 42
   })));
 
   assert.equal(Math.max(...result.map(point => point.waterTrend as number)), 39);
+});
+
+test('near-target thermostat chatter is rendered as a narrow hold trend', () => {
+  const values = [39, 40, 39, 40, 39, 40, 39];
+  const result = addWaterTrend(values.map((water, index) => ({
+    timestamp: index * 5 * 60_000,
+    water,
+    connected: true,
+    target: 39
+  })));
+
+  assert.deepEqual(result.map(point => point.water), values);
+  const trend = result.map(point => point.waterTrend as number);
+  assert.ok(Math.max(...trend) - Math.min(...trend) < 0.6);
 });
 
 test('non-water events inside a connected run inherit the trend instead of breaking the line', () => {
@@ -50,7 +65,7 @@ test('non-water events inside a connected run inherit the trend instead of break
   assert.equal(result[1].waterTrend, 30.5);
 });
 
-test('water trend does not bridge a disconnected sample', () => {
+test('water trend remains broken at a disconnected sample while exposing a dashed bridge', () => {
   const result = addWaterTrend([
     { timestamp: 0, water: 30, connected: true },
     { timestamp: 60_000, water: 30, connected: true },
@@ -62,9 +77,15 @@ test('water trend does not bridge a disconnected sample', () => {
   assert.equal(result[2].waterTrend, null);
   assert.equal(result[1].waterTrend, 30);
   assert.equal(result[3].waterTrend, 40);
+  assert.deepEqual(findWaterTrendGaps(result), [{
+    startTimestamp: 60_000,
+    endTimestamp: 180_000,
+    startValue: 30,
+    endValue: 40
+  }]);
 });
 
-test('water trend does not smooth across an unusually large telemetry gap', () => {
+test('a large telemetry gap is exposed as a dashed bridge', () => {
   const result = addWaterTrend([
     { timestamp: 0, water: 30, connected: true },
     { timestamp: 60_000, water: 30, connected: true },
@@ -76,4 +97,7 @@ test('water trend does not smooth across an unusually large telemetry gap', () =
 
   assert.equal(result[2].waterTrend, 30);
   assert.equal(result[3].waterTrend, 40);
+  assert.equal(findWaterTrendGaps(result).length, 1);
+  assert.equal(findWaterTrendGaps(result)[0].startTimestamp, 120_000);
+  assert.equal(findWaterTrendGaps(result)[0].endTimestamp, 3_600_000);
 });
