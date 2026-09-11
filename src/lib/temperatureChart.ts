@@ -49,6 +49,7 @@ interface Anchor {
   index: number;
   timestamp: number;
   value: number;
+  samples: number;
 }
 
 /**
@@ -57,8 +58,8 @@ interface Anchor {
  * steps; the underlying temperature rose continuously through those buckets.
  *
  * Build display anchors only when the reported bucket changes, retain the end
- * of a plateau, remove very short one-reading reversals, then interpolate by
- * elapsed time. Raw telemetry is never modified.
+ * of the final plateau, remove isolated one-reading reversals, then interpolate
+ * by elapsed time. Raw telemetry is never modified.
  */
 function trendForRun<T extends TemperatureChartPoint>(points: T[], run: number[], output: Array<T & { waterTrend: number | null }>) {
   if (!run.length) return;
@@ -68,8 +69,10 @@ function trendForRun<T extends TemperatureChartPoint>(points: T[], run: number[]
     const value = points[index].water;
     if (!finiteNumber(value)) continue;
     const previous = anchors[anchors.length - 1];
-    if (!previous || !nearlyEqual(previous.value, value)) {
-      anchors.push({ index, timestamp: points[index].timestamp, value });
+    if (previous && nearlyEqual(previous.value, value)) {
+      previous.samples += 1;
+    } else {
+      anchors.push({ index, timestamp: points[index].timestamp, value, samples: 1 });
     }
   }
 
@@ -78,14 +81,17 @@ function trendForRun<T extends TemperatureChartPoint>(points: T[], run: number[]
   if (finiteNumber(lastValue)) {
     const lastAnchor = anchors[anchors.length - 1];
     if (!lastAnchor || lastAnchor.index !== lastIndex) {
-      anchors.push({ index: lastIndex, timestamp: points[lastIndex].timestamp, value: lastValue });
+      anchors.push({
+        index: lastIndex,
+        timestamp: points[lastIndex].timestamp,
+        value: lastValue,
+        samples: lastAnchor && nearlyEqual(lastAnchor.value, lastValue) ? lastAnchor.samples : 1
+      });
     }
   }
 
-  // Remove a brief one-bucket wobble such as 34 -> 33 -> 34. This is the
-  // characteristic CleverSpa chatter visible as tiny teeth on an otherwise
-  // smooth heating/cooling curve. Genuine sustained peaks still retain two or
-  // more anchors and therefore survive this filter.
+  // Remove only an isolated one-reading wobble such as 34 -> 33 -> 34. A real
+  // plateau/peak survives because it has more than one telemetry observation.
   for (let index = 1; index < anchors.length - 1; index += 1) {
     const before = anchors[index - 1];
     const current = anchors[index];
@@ -93,7 +99,7 @@ function trendForRun<T extends TemperatureChartPoint>(points: T[], run: number[]
     const reversal = (current.value - before.value) * (after.value - current.value) < 0;
     const neighboursAgree = Math.abs(before.value - after.value) <= 0.25;
     const brief = after.timestamp - before.timestamp <= 45 * 60 * 1000;
-    if (reversal && neighboursAgree && brief) {
+    if (current.samples === 1 && reversal && neighboursAgree && brief) {
       current.value = (before.value + after.value) / 2;
     }
   }
