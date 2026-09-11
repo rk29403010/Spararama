@@ -107,7 +107,7 @@ async function updateTelemetry<T>(path: string, body: unknown): Promise<T> {
 
 export const telemetryApi = {
   history: (limit = 200) => requestTelemetry<TelemetryHistoryDto>(`/api/telemetry/samples?limit=${limit}`),
-  chart: (since: number, maxPoints = 500) => requestTelemetry<TelemetryChartDto>(`/api/telemetry/chart?since=${Math.floor(since)}&maxPoints=${Math.floor(maxPoints)}`),
+  chart: (since: number, maxPoints = 500, until = Date.now()) => requestTelemetry<TelemetryChartDto>(`/api/telemetry/chart?since=${Math.floor(since)}&until=${Math.floor(until)}&maxPoints=${Math.floor(maxPoints)}`),
   status: () => requestTelemetry<TelemetryStatusDto>('/api/telemetry/status'),
   config: () => requestTelemetry<TelemetryConfigDto>('/api/telemetry/config'),
   updateConfig: (intervalSeconds: number) => updateTelemetry<TelemetryConfigDto>('/api/telemetry/config', { intervalSeconds })
