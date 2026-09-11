@@ -23,10 +23,11 @@ function waterGapThreshold(points: TemperatureChartPoint[]) {
   let previous: TemperatureChartPoint | null = null;
 
   for (const point of points) {
-    if (point.connected === false || !finiteNumber(point.water)) {
+    if (point.connected === false) {
       previous = null;
       continue;
     }
+    if (!finiteNumber(point.water)) continue;
     if (previous) {
       const gap = point.timestamp - previous.timestamp;
       if (gap > 0 && Number.isFinite(gap)) gaps.push(gap);
@@ -35,65 +36,139 @@ function waterGapThreshold(points: TemperatureChartPoint[]) {
   }
 
   const typicalGap = median(gaps);
-  // Four missed samples is enough to treat the line as a separate run. The
-  // five-minute floor keeps short-lived LAN polling jitter from splitting it.
-  return Math.max(5 * 60 * 1000, (typicalGap ?? 0) * 5);
+  // A long telemetry silence should remain visible as a gap, but ordinary sparse
+  // event logging must not split an otherwise continuous water-temperature run.
+  return Math.max(30 * 60 * 1000, (typicalGap ?? 0) * 6);
+}
+
+function nearlyEqual(a: number, b: number, tolerance = 0.05) {
+  return Math.abs(a - b) <= tolerance;
+}
+
+interface Anchor {
+  index: number;
+  timestamp: number;
+  value: number;
 }
 
 /**
- * Add a display-only water-temperature trend while preserving every raw value.
+ * CleverSpa reports a quantised temperature. If the stored sequence is
+ * 30,30,30,31,31,31,32, the water did not physically jump in whole-degree
+ * steps; the underlying temperature rose continuously through those buckets.
  *
- * CleverSpa temperature reports are quantised and can chatter between adjacent
- * values. A centred five-sample triangular moving average removes that display
- * jitter without changing stored telemetry. Runs are kept separate across a
- * disconnect, missing reading, or unusually large time gap.
+ * Build display anchors only when the reported bucket changes, retain the end
+ * of a plateau, remove very short one-reading reversals, then interpolate by
+ * elapsed time. Raw telemetry is never modified.
+ */
+function trendForRun<T extends TemperatureChartPoint>(points: T[], run: number[], output: Array<T & { waterTrend: number | null }>) {
+  if (!run.length) return;
+
+  const anchors: Anchor[] = [];
+  for (const index of run) {
+    const value = points[index].water;
+    if (!finiteNumber(value)) continue;
+    const previous = anchors[anchors.length - 1];
+    if (!previous || !nearlyEqual(previous.value, value)) {
+      anchors.push({ index, timestamp: points[index].timestamp, value });
+    }
+  }
+
+  const lastIndex = run[run.length - 1];
+  const lastValue = points[lastIndex].water;
+  if (finiteNumber(lastValue)) {
+    const lastAnchor = anchors[anchors.length - 1];
+    if (!lastAnchor || lastAnchor.index !== lastIndex) {
+      anchors.push({ index: lastIndex, timestamp: points[lastIndex].timestamp, value: lastValue });
+    }
+  }
+
+  // Remove a brief one-bucket wobble such as 34 -> 33 -> 34. This is the
+  // characteristic CleverSpa chatter visible as tiny teeth on an otherwise
+  // smooth heating/cooling curve. Genuine sustained peaks still retain two or
+  // more anchors and therefore survive this filter.
+  for (let index = 1; index < anchors.length - 1; index += 1) {
+    const before = anchors[index - 1];
+    const current = anchors[index];
+    const after = anchors[index + 1];
+    const reversal = (current.value - before.value) * (after.value - current.value) < 0;
+    const neighboursAgree = Math.abs(before.value - after.value) <= 0.25;
+    const brief = after.timestamp - before.timestamp <= 45 * 60 * 1000;
+    if (reversal && neighboursAgree && brief) {
+      current.value = (before.value + after.value) / 2;
+    }
+  }
+
+  if (anchors.length === 1) {
+    const start = run[0];
+    const end = run[run.length - 1];
+    for (let index = start; index <= end; index += 1) {
+      if (points[index].connected === false) continue;
+      output[index].waterTrend = anchors[0].value;
+    }
+    return;
+  }
+
+  let anchorIndex = 0;
+  const start = run[0];
+  const end = run[run.length - 1];
+  for (let pointIndex = start; pointIndex <= end; pointIndex += 1) {
+    if (points[pointIndex].connected === false) continue;
+    const timestamp = points[pointIndex].timestamp;
+
+    while (anchorIndex < anchors.length - 2 && timestamp > anchors[anchorIndex + 1].timestamp) {
+      anchorIndex += 1;
+    }
+
+    const before = anchors[anchorIndex];
+    const after = anchors[Math.min(anchorIndex + 1, anchors.length - 1)];
+    if (timestamp <= before.timestamp || before.timestamp === after.timestamp) {
+      output[pointIndex].waterTrend = before.value;
+      continue;
+    }
+    if (timestamp >= after.timestamp) {
+      output[pointIndex].waterTrend = after.value;
+      continue;
+    }
+
+    const fraction = (timestamp - before.timestamp) / (after.timestamp - before.timestamp);
+    output[pointIndex].waterTrend = before.value + (after.value - before.value) * fraction;
+  }
+}
+
+/**
+ * Add a display-only continuous water-temperature trend while preserving every
+ * raw value. Runs stay separate across an explicit disconnect or a substantial
+ * telemetry gap. Non-water events inside a run inherit the interpolated trend
+ * rather than creating artificial breaks in the graph.
  */
 export function addWaterTrend<T extends TemperatureChartPoint>(points: T[]): Array<T & { waterTrend: number | null }> {
   const output = points.map(point => ({ ...point, waterTrend: null as number | null }));
   const gapThreshold = waterGapThreshold(points);
   let run: number[] = [];
+  let previousWaterIndex: number | null = null;
 
-  const smoothRun = () => {
-    if (!run.length) return;
-    const weights = [1, 2, 3, 2, 1];
-    const offsets = [-2, -1, 0, 1, 2];
-
-    for (let runIndex = 0; runIndex < run.length; runIndex += 1) {
-      const outputIndex = run[runIndex];
-      let weighted = 0;
-      let totalWeight = 0;
-
-      for (let offsetIndex = 0; offsetIndex < offsets.length; offsetIndex += 1) {
-        const neighbourRunIndex = runIndex + offsets[offsetIndex];
-        if (neighbourRunIndex < 0 || neighbourRunIndex >= run.length) continue;
-        const neighbour = points[run[neighbourRunIndex]];
-        if (!finiteNumber(neighbour.water)) continue;
-        const weight = weights[offsetIndex];
-        weighted += neighbour.water * weight;
-        totalWeight += weight;
-      }
-
-      output[outputIndex].waterTrend = totalWeight ? weighted / totalWeight : null;
-    }
+  const flush = () => {
+    trendForRun(points, run, output);
     run = [];
+    previousWaterIndex = null;
   };
 
-  let previousIndex: number | null = null;
   for (let index = 0; index < points.length; index += 1) {
     const point = points[index];
-    const valid = point.connected !== false && finiteNumber(point.water);
-    const gapTooLarge = previousIndex !== null && point.timestamp - points[previousIndex].timestamp > gapThreshold;
+    if (point.connected === false) {
+      flush();
+      continue;
+    }
+    if (!finiteNumber(point.water)) continue;
 
-    if (!valid || gapTooLarge) {
-      smoothRun();
-      previousIndex = null;
-      if (!valid) continue;
+    if (previousWaterIndex !== null && point.timestamp - points[previousWaterIndex].timestamp > gapThreshold) {
+      flush();
     }
 
     run.push(index);
-    previousIndex = index;
+    previousWaterIndex = index;
   }
-  smoothRun();
+  flush();
 
   return output;
 }
