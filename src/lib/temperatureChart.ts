@@ -1,8 +1,16 @@
 export interface TemperatureChartPoint {
   timestamp: number;
   water?: number | null;
+  target?: number | null;
   connected?: boolean;
   [key: string]: unknown;
+}
+
+export interface WaterTrendGap {
+  startTimestamp: number;
+  endTimestamp: number;
+  startValue: number;
+  endValue: number;
 }
 
 function finiteNumber(value: unknown): value is number {
@@ -50,6 +58,48 @@ interface Anchor {
   timestamp: number;
   value: number;
   samples: number;
+}
+
+function targetAt<T extends TemperatureChartPoint>(points: T[], anchor: Anchor) {
+  const target = points[anchor.index].target;
+  return finiteNumber(target) ? target : null;
+}
+
+/**
+ * A CleverSpa at target commonly chatters between adjacent integer readings
+ * while its thermostat cycles. That is not useful as a thick zig-zag on the
+ * history chart. Smooth only those near-target anchors over a short centred
+ * time window; the raw readings remain available to the tooltip and telemetry.
+ */
+function stabiliseTargetHold<T extends TemperatureChartPoint>(points: T[], anchors: Anchor[]) {
+  const original = anchors.map(anchor => anchor.value);
+  const radiusMs = 30 * 60 * 1000;
+
+  for (let index = 0; index < anchors.length; index += 1) {
+    const anchor = anchors[index];
+    const target = targetAt(points, anchor);
+    if (target === null || Math.abs(original[index] - target) > 1.1) continue;
+
+    let weighted = 0;
+    let weightTotal = 0;
+    let candidates = 0;
+    for (let neighbourIndex = 0; neighbourIndex < anchors.length; neighbourIndex += 1) {
+      const neighbour = anchors[neighbourIndex];
+      const neighbourTarget = targetAt(points, neighbour);
+      const distance = Math.abs(neighbour.timestamp - anchor.timestamp);
+      if (distance > radiusMs || neighbourTarget === null || Math.abs(neighbourTarget - target) > 0.1) continue;
+      if (Math.abs(original[neighbourIndex] - target) > 1.1) continue;
+
+      // The centre point matters most, but nearby thermostat cycles contribute
+      // enough to turn 39/40/39/40 chatter into a stable ~39.5°C hold line.
+      const weight = 1 + (radiusMs - distance) / radiusMs;
+      weighted += original[neighbourIndex] * weight;
+      weightTotal += weight;
+      candidates += 1;
+    }
+
+    if (candidates >= 3 && weightTotal > 0) anchor.value = weighted / weightTotal;
+  }
 }
 
 /**
@@ -103,6 +153,8 @@ function trendForRun<T extends TemperatureChartPoint>(points: T[], run: number[]
       current.value = (before.value + after.value) / 2;
     }
   }
+
+  stabiliseTargetHold(points, anchors);
 
   if (anchors.length === 1) {
     const start = run[0];
@@ -177,4 +229,41 @@ export function addWaterTrend<T extends TemperatureChartPoint>(points: T[]): Arr
   flush();
 
   return output;
+}
+
+/**
+ * Return straight endpoints for gaps in the display trend. The UI draws these
+ * with a dashed line so continuity is visually suggested without implying that
+ * Spararama actually observed temperatures inside the missing period.
+ */
+export function findWaterTrendGaps<T extends TemperatureChartPoint & { waterTrend?: number | null }>(points: T[]): WaterTrendGap[] {
+  const gaps: WaterTrendGap[] = [];
+  const gapThreshold = waterGapThreshold(points);
+  let previousKnown: T | null = null;
+  let sawBreak = false;
+
+  for (const point of points) {
+    const known = finiteNumber(point.waterTrend);
+    if (!known) {
+      if (point.connected === false) sawBreak = true;
+      continue;
+    }
+
+    if (previousKnown) {
+      const elapsed = point.timestamp - previousKnown.timestamp;
+      if (sawBreak || elapsed > gapThreshold) {
+        gaps.push({
+          startTimestamp: previousKnown.timestamp,
+          endTimestamp: point.timestamp,
+          startValue: previousKnown.waterTrend as number,
+          endValue: point.waterTrend as number
+        });
+      }
+    }
+
+    previousKnown = point;
+    sawBreak = false;
+  }
+
+  return gaps;
 }
