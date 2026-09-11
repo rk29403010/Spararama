@@ -4,6 +4,7 @@ import { telemetryApi, type TelemetryChartDto } from '../lib/telemetryApi';
 import { fetchSpaHistory, type SpaHistoryEventDto } from '../lib/historyApi';
 import type { AppState } from '../types';
 import { formatLogDateTime } from '../lib/dateTime';
+import { addWaterTrend } from '../lib/temperatureChart';
 import { Beaker, Droplets, Thermometer, UserRound, Wrench } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -153,6 +154,21 @@ function usualTubMarkers(since: number, end: number, readyTime: string, enabled:
   return markers;
 }
 
+function HeatTooltip({ active, payload, label, timeFormat = '24h' }: any) {
+  if (!active || !payload?.length) return null;
+  const point = payload.find((item: any) => item?.payload)?.payload;
+  if (!point) return null;
+  return (
+    <div className="rounded-xl bg-white px-3 py-3 border border-slate-200 text-sm font-bold">
+      <p className="font-black text-slate-900 mb-1">{formatLogDateTime(Number(label), timeFormat)}</p>
+      {finiteNumber(point.water) && <p className="text-indigo-800">Water {point.water}°C</p>}
+      {finiteNumber(point.target) && <p className="text-orange-700">Target {point.target}°C</p>}
+      {finiteNumber(point.ambient) && <p className="text-slate-700">Outside {point.ambient}°C</p>}
+      {finiteNumber(point.manualWater) && <p className="text-indigo-800">Manual {point.manualWater}°C</p>}
+    </div>
+  );
+}
+
 function ChemistryTooltip({ active, payload, label, timeFormat = '24h' }: any) {
   if (!active || !payload?.length) return null;
   const point = payload[0]?.payload;
@@ -255,7 +271,8 @@ export function Logs({ state }: LogsProps) {
       point.manualWater = temp;
       points.set(timestamp, point);
     }
-    return Array.from(points.values()).sort((a, b) => a.timestamp - b.timestamp);
+    const sorted = Array.from(points.values()).sort((a, b) => a.timestamp - b.timestamp);
+    return addWaterTrend(sorted);
   }, [telemetry.samples, logs, heatWindow]);
 
   const heatPeriods = useMemo(() => heaterPeriods(telemetry.samples), [telemetry.samples]);
@@ -350,13 +367,13 @@ export function Logs({ state }: LogsProps) {
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis type="number" dataKey="timestamp" domain={[heatWindow.since, heatWindow.end]} scale="time" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700, fill: '#64748b' }} minTickGap={32} tickFormatter={value => tickLabel(Number(value), heatRange)} />
                     <YAxis yAxisId="temp" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700, fill: '#64748b' }} domain={['dataMin - 1', 'dataMax + 1']} tickFormatter={value => `${value}°`} />
-                    <Tooltip labelFormatter={value => formatLogDateTime(Number(value), state.config.timeFormat)} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '14px', fontWeight: 700 }} />
+                    <Tooltip content={<HeatTooltip timeFormat={state.config.timeFormat} />} />
                     {heatPeriods.map((period, index) => <ReferenceArea key={`${period.start}-${index}`} yAxisId="temp" x1={period.start} x2={period.end} fill="#f59e0b" fillOpacity={0.10} strokeOpacity={0} />)}
                     {usualMarkers.map((timestamp, index) => <ReferenceLine key={`usual-${timestamp}`} yAxisId="temp" x={timestamp} stroke="#059669" strokeOpacity={0.55} strokeDasharray="4 4" label={index === usualMarkers.length - 1 ? { value: 'usual time', position: 'insideTopRight', fill: '#047857', fontSize: 12, fontWeight: 700 } : undefined} />)}
                     {bathingMarkers.map(marker => <ReferenceLine key={`${marker.timestamp}-${marker.action}`} yAxisId="temp" x={marker.timestamp} stroke="#047857" strokeOpacity={0.9} strokeDasharray="2 3" />)}
-                    <Line yAxisId="temp" type="natural" dataKey="water" name="Water °C" stroke="#4338ca" strokeWidth={3} dot={false} connectNulls={false} isAnimationActive={false} />
+                    <Line yAxisId="temp" type="monotoneX" dataKey="waterTrend" name="Water °C" stroke="#4338ca" strokeWidth={3} dot={false} connectNulls={false} isAnimationActive={false} />
                     <Line yAxisId="temp" type="stepAfter" dataKey="target" name="Target °C" stroke="#ea580c" strokeWidth={2.5} strokeDasharray="6 4" dot={false} connectNulls={false} isAnimationActive={false} />
-                    {hasWeather && <Line yAxisId="temp" type="natural" dataKey="ambient" name="Outside °C" stroke="#475569" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />}
+                    {hasWeather && <Line yAxisId="temp" type="monotoneX" dataKey="ambient" name="Outside °C" stroke="#475569" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />}
                     <Line yAxisId="temp" type="linear" dataKey="manualWater" name="Manual reading" stroke="transparent" strokeWidth={0} dot={{ r: 5, fill: '#c7d2fe', stroke: '#3730a3', strokeWidth: 2 }} activeDot={{ r: 7 }} connectNulls={false} legendType="none" isAnimationActive={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
