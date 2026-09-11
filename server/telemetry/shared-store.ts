@@ -171,11 +171,11 @@ export class SharedTelemetryStore {
     };
   }
 
-  async readChartRange(since: number, maxPoints = 500) {
+  async readChartRange(since: number, maxPoints = 500, until = Number.POSITIVE_INFINITY) {
     // Materialize all known state first so events inside the requested range can
     // inherit their collector's snapshot from before the requested window.
     const samples = materializeTelemetryRecords(await this.mergedRecords())
-      .filter(sample => Number.isFinite(sample.timestamp) && sample.timestamp >= since)
+      .filter(sample => Number.isFinite(sample.timestamp) && sample.timestamp >= since && sample.timestamp <= until)
       .sort((a, b) => a.timestamp - b.timestamp || a.hostId.localeCompare(b.hostId));
     const safeMax = Math.max(50, Math.min(1200, Math.floor(maxPoints) || 500));
     const rolled = rollUpTelemetry(samples, safeMax);
