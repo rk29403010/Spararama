@@ -7,6 +7,7 @@ import './domain/ble-c600.test';
 import './domain/heating.test';
 import './domain/strip-scales.test';
 import './lib/spa-snapshot-cache.test';
+import './lib/temperature-chart.test';
 import './server/mock-spa.test';
 import './server/manual-spa.test';
 import './server/bubbles.test';
