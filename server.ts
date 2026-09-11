@@ -150,12 +150,13 @@ async function startServer() {
   app.get('/api/telemetry/chart', async (req, res) => {
     try {
       const since = Number(req.query.since || Date.now() - 48 * 60 * 60 * 1000);
+      const until = Number(req.query.until || Date.now());
       const maxPoints = Number(req.query.maxPoints || 500);
-      if (!Number.isFinite(since)) {
-        res.status(400).json({ error: 'Expected numeric query parameter: since' });
+      if (!Number.isFinite(since) || !Number.isFinite(until) || until < since) {
+        res.status(400).json({ error: 'Expected numeric chart range with until >= since' });
         return;
       }
-      res.json(await sharedTelemetry.readChartRange(since, maxPoints));
+      res.json(await sharedTelemetry.readChartRange(since, maxPoints, until));
     } catch (error: any) {
       res.status(500).json({ error: error?.message || 'Unable to prepare shared telemetry chart history' });
     }
