@@ -72,6 +72,9 @@ Because the water is hard, avoid unnecessarily high pH/alkalinity.
 - Free chlorine before bathing: approximately 3-5 ppm
 - pH: approximately 7.2-7.6, preferably towards the lower-middle of the range
 - TA: avoid chasing ambiguous strip colours once approximately within a workable range
+- For a strip result selected **between two adjacent swatches**, preserve the two printed endpoints in the stored reading but use their numeric midpoint as the working estimate for chemistry advice and dosing. Example: between 50 and 100 ppm is treated as about 75 ppm. This automatically respects non-linear printed scales because the midpoint is taken only between the actual adjacent values, not from a global linear scale.
+- A swatch that itself represents a printed range (for example 30-50 ppm CYA) is likewise treated by its midpoint for ordinary target assessment while the original range remains stored.
+- Do not require another strip test solely because a reading lies between two swatches; strip testing is inherently approximate.
 - Remove floating tablet dispenser while bathing
 
 ## Logging rules
