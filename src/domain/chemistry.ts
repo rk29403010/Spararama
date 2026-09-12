@@ -27,12 +27,6 @@ const MEASUREMENT_LABELS: Record<MeasurementKey, string> = {
   cyanuric_acid: 'Cyanuric acid'
 };
 
-const DEFER_AMBIGUOUS_MAINTENANCE = new Set<MeasurementKey>([
-  'total_alkalinity',
-  'calcium_hardness',
-  'cyanuric_acid'
-]);
-
 export function measurementLabel(measurement: MeasurementKey) {
   return MEASUREMENT_LABELS[measurement];
 }
@@ -49,6 +43,29 @@ function bounds(reading: MeasurementReading): ReadingBounds | null {
   return null;
 }
 
+export function estimatedReadingValue(reading: MeasurementReading) {
+  const value = bounds(reading);
+  if (!value) return null;
+  return (value.min + value.max) / 2;
+}
+
+function isRangeReading(reading: MeasurementReading) {
+  const value = bounds(reading);
+  return Boolean(value && value.min !== value.max);
+}
+
+function formatEstimate(value: number) {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
+}
+
+function estimateSuffix(reading: MeasurementReading, target: TargetRange) {
+  if (!isRangeReading(reading)) return '';
+  const estimate = estimatedReadingValue(reading);
+  if (estimate === null) return '';
+  const unit = target.unit === 'ph' ? '' : ` ${target.unit}`;
+  return ` (about ${formatEstimate(estimate)}${unit})`;
+}
+
 function findRecordedReading(readings: MeasurementReading[], measurement: MeasurementKey) {
   return readings.find(reading => reading.measurement === measurement);
 }
@@ -62,18 +79,11 @@ function findTarget(waterBody: WaterBodyProfile, measurement: MeasurementKey) {
 }
 
 function classify(reading: MeasurementReading, target: TargetRange) {
-  const value = bounds(reading);
-  if (!value) return 'unknown' as const;
-  if (value.max < target.min) return 'low' as const;
-  if (value.min > target.max) return 'high' as const;
-  if (value.min >= target.min && value.max <= target.max) return 'in_range' as const;
-  return 'uncertain' as const;
-}
-
-function targetRangeText(target: TargetRange) {
-  return target.unit === 'ph'
-    ? `${target.min}-${target.max}`
-    : `${target.min}-${target.max} ${target.unit}`;
+  const value = estimatedReadingValue(reading);
+  if (value === null) return 'unknown' as const;
+  if (value < target.min) return 'low' as const;
+  if (value > target.max) return 'high' as const;
+  return 'in_range' as const;
 }
 
 export function canIgnoreImpossibleTotalChlorineZero(readings: MeasurementReading[]) {
@@ -130,15 +140,14 @@ function calculateDose(
   reading: MeasurementReading,
   target: TargetRange
 ): number | null {
-  const readingBounds = bounds(reading);
-  if (!readingBounds) return null;
+  const current = estimatedReadingValue(reading);
+  if (current === null) return null;
 
   if (model.kind === 'fixed_label') {
     const scaled = model.amount * (waterBody.volumeLiters / model.referenceVolumeLiters);
     return roundDose(scaled, waterBody.doseRounding ?? 1);
   }
 
-  const current = model.direction === 'raise' ? readingBounds.max : readingBounds.min;
   const preferred = target.preferred ?? (model.direction === 'raise' ? target.min : target.max);
   const changeNeeded = model.direction === 'raise' ? preferred - current : current - preferred;
   if (changeNeeded <= 0) return null;
@@ -211,10 +220,10 @@ export function validateReadings(readings: MeasurementReading[]): ChemistryFindi
       message: 'Free chlorine cannot be higher than Total chlorine. Retest before dosing.'
     });
   } else if (freeBounds && totalBounds) {
-    // HSE HSG282: combined chlorine (total - free) should ideally be zero,
-    // normally remain below 1 mg/l, and should not exceed half the free chlorine.
-    // With ranged strip readings, block a "ready" result if the range could
-    // plausibly breach either limit rather than choosing an optimistic endpoint.
+    // Keep the free/total chlorine consistency check conservative. Ordinary
+    // target classification and dosing use the midpoint of strip ranges, but
+    // combined chlorine can be safety-relevant, so do not hide a possible high
+    // combined-chlorine result behind the midpoint estimate.
     const minimumCombined = Math.max(0, totalBounds.min - freeBounds.max);
     const maximumCombined = Math.max(0, totalBounds.max - freeBounds.min);
     const definitelyHigh =
@@ -300,41 +309,14 @@ function assessmentForMeasurement(
     };
   }
 
-  if (status === 'uncertain') {
-    const targetText = targetRangeText(target);
-    if (DEFER_AMBIGUOUS_MAINTENANCE.has(measurement)) {
-      return {
-        finding: {
-          measurement,
-          severity: 'info',
-          code: 'reading_overlaps_target',
-          message: `${label} straddles the ${targetText} target. Leave it unchanged for now; do not chase an ambiguous strip reading.`
-        }
-      };
-    }
-
-    return {
-      finding: {
-        measurement,
-        severity: 'info',
-        code: 'reading_overlaps_target',
-        message: `${label} sits on the edge of the ${targetText} target. Do not dose from this ambiguous reading.`
-      },
-      action: {
-        kind: 'retest',
-        measurements: [measurement],
-        reason: `${label} sits on the target boundary. If another strip gives the same ambiguous result, use a more precise test rather than repeating strips.`
-      }
-    };
-  }
-
+  const suffix = estimateSuffix(reading, target);
   if (status === 'in_range') {
     return {
       finding: {
         measurement,
         severity: 'info',
         code: 'in_range',
-        message: `${label} is within the target range.`
+        message: `${label}${suffix} is within the target range.`
       }
     };
   }
@@ -344,7 +326,7 @@ function assessmentForMeasurement(
     measurement,
     severity: 'warning',
     code: status,
-    message: `${label} is ${status}.`
+    message: `${label} is ${status}${suffix}.`
   };
   const action = doseActionFor(
     waterBody,
@@ -352,7 +334,7 @@ function assessmentForMeasurement(
     reading,
     target,
     direction,
-    `${label} is ${status}.`
+    `${label} is ${status}${suffix}.`
   );
 
   return {
@@ -360,7 +342,7 @@ function assessmentForMeasurement(
     action: action ?? {
       kind: 'retest',
       measurements: [measurement],
-      reason: `${label} is ${status}, but no configured product can safely ${direction} it.`
+      reason: `${label} is ${status}${suffix}, but no configured product can safely ${direction} it.`
     }
   };
 }
@@ -374,11 +356,10 @@ function findingWithPlanContext(
     return finding;
   }
 
-  const label = finding.measurement ? measurementLabel(finding.measurement) : 'This reading';
   if (!earlierAction) {
     return {
       ...finding,
-      message: `${label} is ${finding.code}. Correct it now: add ${action.amount} ${action.unit} ${action.productName}.`
+      message: `${finding.message} Correct it now: add ${action.amount} ${action.unit} ${action.productName}.`
     };
   }
 
@@ -391,7 +372,7 @@ function findingWithPlanContext(
 
   return {
     ...finding,
-    message: `${label} is ${finding.code}. Deal with this after ${earlierLabel}; retest it then so the dose uses a fresh reading.`
+    message: `${finding.message} Deal with this after ${earlierLabel}; retest it then so the dose uses a fresh reading.`
   };
 }
 
