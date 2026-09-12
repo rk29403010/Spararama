@@ -91,4 +91,5 @@ Persistent event log: `history/spa-events.jsonl`.
 - Current new 7-way strips have shown low FC while a noticeable chlorine smell is present.
 - A 1:1 dilution test on 11 Aug 2026 behaved normally: undiluted FC about 1 ppm, diluted FC about 0.5 ppm. This does not support high-chlorine bleaching as the explanation.
 - The current 7-in-1 strip's total-chlorine pad repeatedly reads 0 even when free chlorine reads 0.5 ppm or higher. That combination is chemically impossible, so preserve the raw TC result but allow it to be explicitly excluded from dosing/readiness advice; never auto-correct or auto-ignore it.
+- On 12 Sep 2026 Robin confirmed that this batch's Total chlorine pad has never shown anything other than 0 across many strips. Once the user explicitly excludes that pad from advice, treat the exclusion as informational rather than asking for repeated tests with the same faulty pad. Combined chlorine remains unavailable from that batch; Free chlorine still drives chlorine dosing.
 - Filter/filtration area was reported rattling after only around 1-2 days of operation on the current fill; exact source is not yet identified.
