@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   assessChemistry,
   canIgnoreImpossibleTotalChlorineZero,
+  estimatedReadingValue,
   followUpAfterDose,
   ignoreImpossibleTotalChlorineZero,
   validateReadings
@@ -15,6 +16,15 @@ function setup() {
   const waterBody = domain.waterBodies[0];
   return { domain, waterBody };
 }
+
+test('strip ranges use their numeric midpoint as the working estimate', () => {
+  assert.equal(estimatedReadingValue({
+    measurement: 'calcium_hardness', min: 50, max: 100, source: 'manual'
+  }), 75);
+  assert.equal(estimatedReadingValue({
+    measurement: 'free_chlorine', min: 1, max: 3, source: 'manual'
+  }), 2);
+});
 
 test('TA dose scales by vessel volume and configured product strength', () => {
   const { domain, waterBody } = setup();
@@ -40,7 +50,7 @@ test('TA dose scales by vessel volume and configured product strength', () => {
   assert.deepEqual(followUp.retest, ['total_alkalinity', 'ph']);
 });
 
-test('an ambiguous reading overlapping the target does not trigger a dose', () => {
+test('range readings are assessed from midpoint instead of forcing a retest', () => {
   const { domain, waterBody } = setup();
   const readings: MeasurementReading[] = [
     { measurement: 'total_alkalinity', min: 80, max: 120, source: 'manual' },
@@ -49,9 +59,13 @@ test('an ambiguous reading overlapping the target does not trigger a dose', () =
   ];
 
   const assessment = assessChemistry(waterBody, domain.products, readings);
-  assert.equal(assessment.nextAction.kind, 'retest');
-  if (assessment.nextAction.kind !== 'retest') return;
-  assert.deepEqual(assessment.nextAction.measurements, ['ph']);
+  assert.equal(assessment.nextAction.kind, 'dose');
+  if (assessment.nextAction.kind !== 'dose') return;
+  assert.equal(assessment.nextAction.productId, 'cleverspa-ph-plus');
+  assert.equal(assessment.nextAction.amount, 9);
+  const phFinding = assessment.findings.find(f => f.measurement === 'ph' && f.code === 'low');
+  assert.ok(phFinding);
+  assert.match(phFinding.message, /pH is low \(about 7\)/);
 });
 
 test('free chlorine above total chlorine blocks dosing', () => {
@@ -175,7 +189,7 @@ test('chlorine is handled after alkalinity and pH are acceptable', () => {
   assert.equal(assessment.nextAction.amount, 6);
 });
 
-test('ambiguous TA is deferred instead of blocking a definite pH correction', () => {
+test('TA between 40 and 80 is treated as about 60 and corrected before pH', () => {
   const { domain, waterBody } = setup();
   const readings = ignoreImpossibleTotalChlorineZero([
     { measurement: 'total_alkalinity', min: 40, max: 80, source: 'manual' },
@@ -187,21 +201,20 @@ test('ambiguous TA is deferred instead of blocking a definite pH correction', ()
   const assessment = assessChemistry(waterBody, domain.products, readings);
   assert.equal(assessment.nextAction.kind, 'dose');
   if (assessment.nextAction.kind !== 'dose') return;
-  assert.equal(assessment.nextAction.productId, 'cleverspa-ph-plus');
-  assert.equal(assessment.nextAction.amount, 9);
+  assert.equal(assessment.nextAction.productId, 'cleverspa-ta-plus');
+  assert.equal(assessment.nextAction.amount, 26);
 
-  const taFinding = assessment.findings.find(f => f.measurement === 'total_alkalinity' && f.code === 'reading_overlaps_target');
+  const taFinding = assessment.findings.find(f => f.measurement === 'total_alkalinity' && f.code === 'low');
   assert.ok(taFinding);
-  assert.match(taFinding.message, /Total alkalinity straddles the 80-120 ppm target/);
-  assert.match(taFinding.message, /Leave it unchanged for now/);
+  assert.match(taFinding.message, /Total alkalinity is low \(about 60 ppm\)\. Correct it now: add 26 g Total Alkalinity Increaser/);
   assert.doesNotMatch(taFinding.message, /total_alkalinity|active water-body profile/);
 
   const phFinding = assessment.findings.find(f => f.measurement === 'ph' && f.code === 'low');
   assert.ok(phFinding);
-  assert.match(phFinding.message, /pH is low\. Correct it now: add 9 g pH Plus/);
+  assert.match(phFinding.message, /pH is low\. Deal with this after Total alkalinity/);
 
   const chlorineFinding = assessment.findings.find(f => f.measurement === 'free_chlorine' && f.code === 'low');
   assert.ok(chlorineFinding);
-  assert.match(chlorineFinding.message, /Free chlorine is low\. Deal with this after pH/);
+  assert.match(chlorineFinding.message, /Free chlorine is low\. Deal with this after Total alkalinity/);
   assert.doesNotMatch(chlorineFinding.message, /free_chlorine|active water-body profile/);
 });
