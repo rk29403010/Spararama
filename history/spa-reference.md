@@ -87,6 +87,7 @@ Persistent event log: `history/spa-events.jsonl`.
 - Record filter/cartridge changes, rinses, flushes, refills, bathing/use, cover state when relevant, faults/noises, and other maintenance observations.
 - Preserve uncertain strip readings as ranges/approximate values rather than forcing a single number.
 - Do not invent missing historical times, quantities, or maintenance events.
+- Treat dose response as diagnostic evidence. If a confirmed dose is followed by a fresh reading with no detectable movement in the expected direction, do not simply repeat the same dose indefinitely. Record the apparent non-response, consider test-method reliability and product/dose assumptions, and prefer an independent or fresh test before escalating.
 
 ## Current diagnostic context
 
@@ -95,4 +96,5 @@ Persistent event log: `history/spa-events.jsonl`.
 - A 1:1 dilution test on 11 Aug 2026 behaved normally: undiluted FC about 1 ppm, diluted FC about 0.5 ppm. This does not support high-chlorine bleaching as the explanation.
 - The current 7-in-1 strip's total-chlorine pad repeatedly reads 0 even when free chlorine reads 0.5 ppm or higher. That combination is chemically impossible, so preserve the raw TC result but allow it to be explicitly excluded from dosing/readiness advice; never auto-correct or auto-ignore it.
 - On 12 Sep 2026 Robin confirmed that this batch's Total chlorine pad has never shown anything other than 0 across many strips. Once the user explicitly excludes that pad from advice, treat the exclusion as informational rather than asking for repeated tests with the same faulty pad. Combined chlorine remains unavailable from that batch; Free chlorine still drives chlorine dosing.
-- Filter/filtration area was reported rattling after only around 1-2 days of operation on the current fill; exact source is not yet identified.
+- On 12 Sep 2026 Robin reported that the most recent full recommended Total Alkalinity Increaser dose appeared to produce no visible change on the strip, similar to the recurring apparent lack of response to chlorine additions. Because the current strips are themselves suspect, this is evidence of a dose/test-response mismatch rather than proof that the chemicals failed to work.
+- The current filter cartridge developed a layer of light grey deposit/gunk and began rattling after only around two days of use. The deposit is not identified; possibilities such as precipitated mineral material or trapped organic/biofilm material remain unconfirmed.
