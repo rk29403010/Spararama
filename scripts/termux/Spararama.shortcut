@@ -1,4 +1,31 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # Installed by scripts/termux/install.sh as ~/.shortcuts/Spararama.
-# Running this is deliberately identical to typing `spar`.
-exec "$PREFIX/bin/spar"
+# The launcher is intentionally idempotent: Android/Termux can occasionally
+# re-deliver a foreground shortcut when Termux is brought back to the front.
+# Re-entry must never restart an already-running Spararama instance.
+
+set -o pipefail
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/spararama-phone"
+LAST_LAUNCH_FILE="$STATE_DIR/shortcut-last-launch"
+mkdir -p "$STATE_DIR"
+
+# Suppress immediate duplicate launcher delivery. This is deliberately short:
+# an intentional later tap still opens Spararama, while the common
+# browser -> Termux bounce does nothing.
+now="$(date +%s)"
+last=0
+if [ -f "$LAST_LAUNCH_FILE" ]; then
+  last="$(cat "$LAST_LAUNCH_FILE" 2>/dev/null || printf '0')"
+fi
+case "$last" in ''|*[!0-9]*) last=0 ;; esac
+if [ $((now - last)) -lt 20 ]; then
+  exit 0
+fi
+printf '%s\n' "$now" > "$LAST_LAUNCH_FILE"
+
+# `spar start` reuses a healthy running server instead of update/restarting it.
+# Filter terminal BEL characters so a launcher run cannot vibrate the phone even
+# on Termux builds that ignore bell-character=ignore until a full app restart.
+"$PREFIX/bin/spar" start 2>&1 | tr -d '\007'
+exit "${PIPESTATUS[0]}"
