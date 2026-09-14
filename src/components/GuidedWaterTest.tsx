@@ -95,7 +95,10 @@ function isDigital(methodId: string) {
 }
 
 function padCountForMethod(methodId: string) {
-  return methodId === 'current-3-way' ? 3 : methodId === 'current-7-way' ? 7 : 0;
+  if (methodId === 'current-3-way') return 3;
+  if (methodId === 'current-7-way') return 7;
+  if (methodId === 'lamotte-insta-test-5-plus') return 5;
+  return 0;
 }
 
 function displayNameForMethod(methodId: string, fallback: string) {
@@ -156,6 +159,16 @@ function guideStepsForMethod(method: TestMethodProfile): GuideStep[] {
       { id: 'move', label: 'MOVE', detail: 'Keep it moving for 2 seconds.', durationMs: 2000, visual: 'move', spokenText: 'Keep moving.' },
       { id: 'remove', label: 'REMOVE', detail: 'Keep it level.', durationMs: 1500, visual: 'remove', spokenText: 'Remove strip.', cueAtEnd: true },
       { id: 'hold', label: 'Hold level', detail: 'Pads facing up.', durationMs: waitSeconds * 1000, visual: 'hold', spokenText: 'Hold the strip level.', showCountdown: true, cueAtEnd: true }
+    ];
+  }
+
+  if (method.id === 'lamotte-insta-test-5-plus') {
+    return [
+      { id: 'ready', label: 'Get ready to dip', detail: 'Strip ready. Phone down.', durationMs: 4000, visual: 'ready', spokenText: 'Get ready.', showCountdown: true },
+      { id: 'dip', label: 'DIP NOW', detail: 'Pads under water.', durationMs: 1500, visual: 'enter', spokenText: 'Dip now.' },
+      { id: 'immerse', label: '2 SECONDS', detail: 'Keep the pads submerged.', durationMs: 2000, visual: 'move', spokenText: 'Two seconds.', showCountdown: true },
+      { id: 'remove', label: 'REMOVE', detail: 'Pads facing up.', durationMs: 1500, visual: 'remove', spokenText: 'Remove with the pads facing up.' },
+      { id: 'shake', label: 'SHAKE ONCE', detail: 'Remove excess water.', durationMs: 2200, visual: 'hold', spokenText: 'Shake once.', cueAtEnd: true }
     ];
   }
 
@@ -293,7 +306,7 @@ function playCue() {
 
 export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTestProps) {
   const availableMethods = useMemo(() => {
-    const knownStrips = ['current-3-way', 'current-7-way']
+    const knownStrips = ['current-3-way', 'current-7-way', 'lamotte-insta-test-5-plus']
       .map(id => state.domain.testMethods.find(item => item.id === id))
       .filter((item): item is TestMethodProfile => Boolean(item));
     return [BLE_C600_METHOD, ...knownStrips, ELECTRONIC_METHOD];
@@ -496,7 +509,7 @@ export function GuidedWaterTest({ state, updateState, onClose }: GuidedWaterTest
             <div className="flex-1 flex flex-col items-center justify-center text-center py-4">
               <WaterStage padCount={padCount} visual={currentStep.visual} />
               <div className="mt-5 min-h-28 flex flex-col items-center">
-                <h3 className={`leading-none font-black tracking-tight ${['dip', 'move', 'remove'].includes(currentStep.id) ? 'text-5xl text-indigo-800' : 'text-4xl text-slate-950'}`}>{currentStep.label}</h3>
+                <h3 className={`leading-none font-black tracking-tight ${['dip', 'move', 'remove', 'immerse', 'shake'].includes(currentStep.id) ? 'text-5xl text-indigo-800' : 'text-4xl text-slate-950'}`}>{currentStep.label}</h3>
                 {currentStep.detail && <p className="mt-3 text-xl text-slate-700 font-black">{currentStep.detail}</p>}
                 {currentStep.showCountdown && <div className="mt-4 text-6xl font-black tabular-nums text-indigo-800">{secondsLeft}</div>}
               </div>

@@ -98,6 +98,50 @@ export const STRIP_SCALE_ROWS: Record<string, StripScaleRow[]> = {
         swatch('150', 150, '#d49b52'), swatch('240', 240, '#c7a347')
       ]
     }
+  ],
+  'lamotte-insta-test-5-plus': [
+    {
+      measurement: 'free_chlorine', label: 'Free chlorine', unit: 'ppm',
+      swatches: [
+        swatch('0', 0, '#f7f4d7'), swatch('0.5', 0.5, '#f2e6df'), swatch('1', 1, '#e8dce7'),
+        swatch('3', 3, '#d8bddf'), swatch('5', 5, '#ca9ad1'), swatch('10', 10, '#bd75c6')
+      ]
+    },
+    {
+      measurement: 'bromine', label: 'Bromine (same pad)', unit: 'ppm',
+      swatches: [
+        swatch('0', 0, '#f7f4d7'), swatch('1', 1, '#f2e6df'), swatch('2', 2, '#e8dce7'),
+        swatch('6', 6, '#d8bddf'), swatch('10', 10, '#ca9ad1'), swatch('20', 20, '#bd75c6')
+      ]
+    },
+    {
+      measurement: 'total_chlorine', label: 'Total chlorine', unit: 'ppm',
+      swatches: [
+        swatch('0', 0, '#e9eeab'), swatch('0.5', 0.5, '#dce8a7'), swatch('1', 1, '#c7dfb2'),
+        swatch('3', 3, '#a7d7c3'), swatch('5', 5, '#75c8c3'), swatch('10', 10, '#45b5bd')
+      ]
+    },
+    {
+      measurement: 'total_alkalinity', label: 'Total alkalinity', unit: 'ppm',
+      swatches: [
+        swatch('0', 0, '#dfc45d'), swatch('40', 40, '#c7c75f'), swatch('80', 80, '#a6c49a'),
+        swatch('120', 120, '#72b6a9'), swatch('180', 180, '#55aabe'), swatch('240', 240, '#4597ba')
+      ]
+    },
+    {
+      measurement: 'ph', label: 'pH',
+      swatches: [
+        swatch('6.2', 6.2, '#eab04a'), swatch('6.8', 6.8, '#ef8b64'), swatch('7.2', 7.2, '#ee765c'),
+        swatch('7.8', 7.8, '#ec6659'), swatch('8.4', 8.4, '#e85b61'), swatch('9.0', 9, '#e64b72')
+      ]
+    },
+    {
+      measurement: 'calcium_hardness', label: 'Total hardness', unit: 'ppm',
+      swatches: [
+        swatch('0', 0, '#67c1ce'), swatch('100', 100, '#55b2cf'), swatch('250', 250, '#3b9cd1'),
+        swatch('450', 450, '#4f70c5'), swatch('800+', 800, '#6b52bb')
+      ]
+    }
   ]
 };
 

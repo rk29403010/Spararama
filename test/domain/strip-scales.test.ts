@@ -29,6 +29,24 @@ test('verified 7-in-1 scale matches bottle transcript and order', () => {
   assert.deepEqual(rows[6].swatches.map(item => item.label), ['0', '30–50', '100', '150', '240']);
 });
 
+test('LaMotte Insta-TEST 5 Plus scale matches bottle values', () => {
+  const rows = STRIP_SCALE_ROWS['lamotte-insta-test-5-plus'];
+  assert.deepEqual(rows.map(row => row.measurement), [
+    'free_chlorine',
+    'bromine',
+    'total_chlorine',
+    'total_alkalinity',
+    'ph',
+    'calcium_hardness'
+  ]);
+  assert.deepEqual(rows[0].swatches.map(item => item.label), ['0', '0.5', '1', '3', '5', '10']);
+  assert.deepEqual(rows[1].swatches.map(item => item.label), ['0', '1', '2', '6', '10', '20']);
+  assert.deepEqual(rows[2].swatches.map(item => item.label), ['0', '0.5', '1', '3', '5', '10']);
+  assert.deepEqual(rows[3].swatches.map(item => item.label), ['0', '40', '80', '120', '180', '240']);
+  assert.deepEqual(rows[4].swatches.map(item => item.label), ['6.2', '6.8', '7.2', '7.8', '8.4', '9.0']);
+  assert.deepEqual(rows[5].swatches.map(item => item.label), ['0', '100', '250', '450', '800+']);
+});
+
 test('19/20 Aug original layout is detected and left unchanged', () => {
   const readings: MeasurementReading[] = [
     { measurement: 'free_chlorine', value: 3, source: 'manual', note: 'Selected bottle swatch 3.' },

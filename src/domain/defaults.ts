@@ -72,6 +72,25 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
       readAfterSeconds: 15,
       readBeforeSeconds: 60,
       notes: 'Bottle order and scales verified from the user transcript on 2026-09-06. Timing remains editable because strip brands vary.'
+    },
+    {
+      id: 'lamotte-insta-test-5-plus',
+      name: 'LaMotte Insta-TEST 5 Plus',
+      description: 'LaMotte Insta-TEST 5 Plus pool & spa strips (order code 2977).',
+      instructions: [
+        { id: 'dip', label: 'Immerse the strip for 2 seconds.', durationSeconds: 2, cueAtEnd: true, spokenText: 'Immerse for two seconds.' },
+        { id: 'remove', label: 'Remove with the pads facing up.', cueAtEnd: true, spokenText: 'Remove with the pads facing up.' },
+        { id: 'shake', label: 'Shake once to remove excess water.', cueAtEnd: true, spokenText: 'Shake once.' },
+        { id: 'read', label: 'Read immediately: free chlorine, total chlorine, alkalinity, pH, then total hardness.', spokenText: 'Read the strip now.' }
+      ],
+      parameters: [
+        { measurement: 'free_chlorine', label: 'Free chlorine' },
+        { measurement: 'total_chlorine', label: 'Total chlorine' },
+        { measurement: 'total_alkalinity', label: 'Total alkalinity' },
+        { measurement: 'ph', label: 'pH' },
+        { measurement: 'calcium_hardness', label: 'Total hardness' }
+      ],
+      notes: 'Bottle scales and instructions verified 2026-09-14. The free-chlorine pad also carries the alternative bromine scale 0, 1, 2, 6, 10, 20 ppm; the current chlorine-spa workflow records free chlorine rather than bromine.'
     }
   ],
   products: [

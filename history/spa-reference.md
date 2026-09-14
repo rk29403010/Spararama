@@ -57,6 +57,16 @@
 - Direct Web Bluetooth support is implemented in Spararama on `chatgpt-dev`; see `docs/ble-c600.md`.
 - First physical BLE read and high-range EC/TDS/salinity scaling are not yet validated against this individual unit.
 
+### LaMotte Insta-TEST 5 Plus
+
+- Pool & spa test strips, LaMotte order code **2977**, added 14 Sep 2026.
+- The five-pad strip reports Free Chlorine/Bromine from a shared pad, Total Chlorine, Total Alkalinity, pH and Total Hardness.
+- Bottle scales: FC 0/0.5/1/3/5/10 ppm; Bromine 0/1/2/6/10/20 ppm; TC 0/0.5/1/3/5/10 ppm; TA 0/40/80/120/180/240 ppm; pH 6.2/6.8/7.2/7.8/8.4/9.0; TH 0/100/250/450/800+ ppm.
+- Bottle instructions: immerse for 2 seconds, remove with pads face up, shake once to remove excess water, then read immediately in the order FC > TC > TA > pH > TH.
+- Spararama records the FC scale for the current chlorine spa; the alternate bromine scale is retained in the strip reference.
+- On-screen swatch colours are approximate representations of the photographed bottle. Numeric values/order are authoritative; compare the wet strip to the physical bottle.
+- LaMotte WaterLink Home supports camera photo-scanning of Insta-TEST strips. A same-strip comparison between manual bottle matching, Spararama entry and WaterLink camera analysis is pending.
+
 ## Baseline tap-water strip readings
 
 - Free chlorine: 0 ppm
