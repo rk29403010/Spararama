@@ -88,11 +88,11 @@ async function startServer() {
   telemetry.setIntervalSeconds(telemetrySettings.intervalSeconds);
   telemetry.start();
 
-  // Event-capable adapters can ask for an immediate observation. This is optional:
-  // polling-only Wi-Fi adapters, cloud adapters and manual-only spas remain valid.
-  // The collector's system-owned watchdog continues even when push events exist.
-  const unsubscribeSpaEvents = spaAdapter.subscribe?.(() => {
-    void telemetry.collectNow();
+  // Event-capable adapters can provide an immediate observation. Feed that exact
+  // status into telemetry instead of re-reading the spa, otherwise a status event
+  // would trigger another status request and recursively generate more events.
+  const unsubscribeSpaEvents = spaAdapter.subscribe?.((event) => {
+    if (event.kind === 'status') void telemetry.collectNow(event.status);
   });
 
   heatingScheduler.start();
