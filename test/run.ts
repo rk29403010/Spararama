@@ -16,6 +16,7 @@ import './server/alexa-direct.test';
 import './server/runtime.test';
 import './server/recovery-bridge.test';
 import './server/telemetry.test';
+import './server/telemetry-push.test';
 import './server/shared-telemetry.test';
 import './server/telemetry-rollup.test';
 import './server/temperature-resolver.test';
