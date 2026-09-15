@@ -52,6 +52,7 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
   private lastDiscoveryAttemptAt = 0;
   private lastGoodStatus: SpaStatus | null = null;
   private contactFailureCount = 0;
+  private statusRefreshesInFlight = 0;
 
   constructor(baseUrl = process.env.CLEVERSPA_BRIDGE_URL || 'http://127.0.0.1:8787', options: RecoveryBridgeOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -83,6 +84,15 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
       return body as T;
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  private async refreshStatus(): Promise<RecoveryStatus> {
+    this.statusRefreshesInFlight += 1;
+    try {
+      return await this.request<RecoveryStatus>('/api/status');
+    } finally {
+      this.statusRefreshesInFlight = Math.max(0, this.statusRefreshesInFlight - 1);
     }
   }
 
@@ -191,7 +201,14 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
                 const payload = JSON.parse(data) as BridgeEventPayload;
                 const observedAt = Number(payload.observedAt) || Date.now();
                 if (eventName === 'status' && payload.status) {
-                  await listener({ kind: 'status', observedAt, status: this.normalize(payload.status), source: 'bridge-event' });
+                  const status = this.normalize(payload.status);
+                  // A GET /api/status causes the CleverSpa service to query the tub,
+                  // which itself emits a status event. Do not feed that read-back into
+                  // subscribers: telemetry would immediately call getStatus() again and
+                  // create a self-sustaining poll/event loop on the Gizwits socket.
+                  if (this.statusRefreshesInFlight === 0) {
+                    await listener({ kind: 'status', observedAt, status, source: 'bridge-event' });
+                  }
                 } else if (eventName === 'connection' && typeof payload.connected === 'boolean') {
                   await listener({ kind: 'connection', observedAt, connected: payload.connected, source: 'bridge-event' });
                 }
@@ -212,7 +229,7 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
   async getStatus(): Promise<SpaStatus> {
     for (let attempt = 0; attempt < STATUS_ATTEMPTS; attempt += 1) {
       try {
-        const raw = await this.request<RecoveryStatus>('/api/status');
+        const raw = await this.refreshStatus();
         if (raw.connected) return this.normalize(raw);
         if (attempt === 0) {
           try { await this.discoverIfNeeded(); } catch {}
