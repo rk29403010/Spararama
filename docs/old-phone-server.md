@@ -3,7 +3,7 @@
 This guide turns a spare Android phone into a small always-on Spararama home server.
 
 The example below uses a **Samsung Galaxy A17** and names the telemetry host
-`sparorama-a17`. The same approach works on many recent Android phones; Samsung menu
+`spararama-a17`. The same approach works on many recent Android phones; Samsung menu
 names vary slightly by One UI version.
 
 The resulting layout is:
