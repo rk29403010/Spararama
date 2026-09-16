@@ -1,17 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { Minus, Plus } from 'lucide-react';
 import type { MeasurementKey, MeasurementReading, TestMethodProfile } from '../domain/models';
+import { canIgnoreImpossibleTotalChlorineZero, ignoreImpossibleTotalChlorineZero } from '../domain/chemistry';
+import { SEVEN_WAY_NOTE_MARKER, STRIP_SCALES, type StripSwatchValue } from '../domain/stripScales';
 
 interface WaterTestReadingEntryProps {
   method: TestMethodProfile;
   onSubmit: (readings: MeasurementReading[]) => void;
-}
-
-interface SwatchValue {
-  label: string;
-  min: number;
-  max: number;
-  color: string;
 }
 
 type StripSelection =
@@ -27,60 +22,10 @@ interface SliderDefinition {
   unit: string;
 }
 
-const swatch = (label: string, value: number, color: string): SwatchValue => ({ label, min: value, max: value, color });
-const rangeSwatch = (label: string, min: number, max: number, color: string): SwatchValue => ({ label, min, max, color });
-
-// Approximate screen colours only. The bottle remains the colour reference.
-// The 7-way values below are transcribed from the user's reference chart; that
-// chart is not the exact strip model, so these are deliberately provisional.
-const STRIP_SCALES: Record<string, Partial<Record<MeasurementKey, SwatchValue[]>>> = {
-  'current-3-way': {
-    free_chlorine: [
-      swatch('0', 0, '#f4f1d2'), swatch('1', 1, '#eeeeea'), swatch('2', 2, '#deddea'),
-      swatch('3', 3, '#c8bfdd'), swatch('5', 5, '#ab95ce'), swatch('10', 10, '#8067af')
-    ],
-    ph: [
-      swatch('6.4', 6.4, '#d6b45f'), swatch('6.8', 6.8, '#dca44e'), swatch('7.2', 7.2, '#d99558'),
-      swatch('7.6', 7.6, '#cf8069'), swatch('7.8', 7.8, '#cd6f60'), swatch('8.4', 8.4, '#c3526d')
-    ],
-    total_alkalinity: [
-      swatch('0', 0, '#b47e33'), swatch('40', 40, '#697730'), swatch('80', 80, '#465f25'),
-      swatch('120', 120, '#355126'), swatch('180', 180, '#1d6971'), swatch('240', 240, '#174c65')
-    ]
-  },
-  'current-7-way': {
-    total_chlorine: [
-      swatch('0', 0, '#f5f4f5'), swatch('0.25', 0.25, '#e7b6df'), swatch('0.5', 0.5, '#cf96c3'),
-      swatch('1', 1, '#a86e9f'), swatch('2.5', 2.5, '#7d4778'), swatch('5', 5, '#53234d')
-    ],
-    free_chlorine: [
-      swatch('0', 0, '#f6f6f1'), swatch('0.5/1', 0.5, '#dcebf0'), swatch('1/2', 1, '#b8dde7'),
-      swatch('3/6', 3, '#70c0d7'), swatch('5/11', 5, '#3196b7'), swatch('10/22', 10, '#17667d')
-    ],
-    ph: [
-      swatch('6.2', 6.2, '#f0c463'), swatch('6.8', 6.8, '#f3a16a'), swatch('7.2', 7.2, '#ef836f'),
-      swatch('7.6', 7.6, '#eb6576'), swatch('7.8', 7.8, '#e6507c'), swatch('8.4', 8.4, '#d43f83')
-    ],
-    total_alkalinity: [
-      swatch('0', 0, '#efc74e'), swatch('40', 40, '#d6c66f'), swatch('80', 80, '#a5b37c'),
-      swatch('120', 120, '#7ea397'), swatch('180', 180, '#57869d'), swatch('240', 240, '#376fa8'),
-      swatch('400', 400, '#2476b8')
-    ],
-    calcium_hardness: [
-      swatch('0', 0, '#65b9dc'), swatch('100', 100, '#78add4'), swatch('250', 250, '#9291d8'),
-      swatch('500', 500, '#8076c7'), swatch('1000', 1000, '#6658ad')
-    ],
-    cyanuric_acid: [
-      swatch('0', 0, '#bf2758'), rangeSwatch('30–50', 30, 50, '#ca4459'), swatch('100', 100, '#d47b5d'),
-      swatch('150', 150, '#d49b52'), swatch('240', 240, '#c7a347')
-    ]
-  }
-};
-
 const ELECTRONIC_SLIDERS: Record<MeasurementKey, SliderDefinition> = {
   free_chlorine: { min: 0, max: 20, step: 0.1, initial: 3, unit: 'ppm' },
   total_chlorine: { min: 0, max: 20, step: 0.1, initial: 3, unit: 'ppm' },
-  bromine: { min: 0, max: 20, step: 0.1, initial: 4, unit: 'ppm' },
+  bromine: { min: 0, max: 25, step: 0.1, initial: 4, unit: 'ppm' },
   ph: { min: 5.5, max: 9.5, step: 0.01, initial: 7.4, unit: 'pH' },
   total_alkalinity: { min: 0, max: 300, step: 1, initial: 80, unit: 'ppm' },
   calcium_hardness: { min: 0, max: 1000, step: 10, initial: 250, unit: 'ppm' },
@@ -91,18 +36,30 @@ function formatNumber(value: number) {
   return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
 }
 
-function selectionToReading(measurement: MeasurementKey, scale: SwatchValue[], selection: StripSelection): MeasurementReading | null {
+function selectionToReading(
+  methodId: string,
+  measurement: MeasurementKey,
+  scale: StripSwatchValue[],
+  selection: StripSelection
+): MeasurementReading | null {
+  const revisionMarker = methodId === 'current-7-way' ? ` ${SEVEN_WAY_NOTE_MARKER}` : '';
+
   if (selection.kind === 'unknown') {
-    return { measurement, source: 'manual', note: "User selected don't know / no matching colour swatch." };
+    return {
+      measurement,
+      source: 'manual',
+      note: `User selected don't know / no matching colour swatch.${revisionMarker}`
+    };
   }
 
   if (selection.kind === 'swatch') {
     const chosen = scale[selection.index];
     if (!chosen) return null;
+    const note = `Selected bottle swatch ${chosen.label}.${revisionMarker}`;
     if (chosen.min === chosen.max) {
-      return { measurement, value: chosen.min, source: 'manual', note: `Selected bottle swatch ${chosen.label}.` };
+      return { measurement, value: chosen.min, source: 'manual', note };
     }
-    return { measurement, min: chosen.min, max: chosen.max, source: 'manual', note: `Selected bottle swatch ${chosen.label}.` };
+    return { measurement, min: chosen.min, max: chosen.max, source: 'manual', note };
   }
 
   const left = scale[selection.leftIndex];
@@ -113,14 +70,14 @@ function selectionToReading(measurement: MeasurementKey, scale: SwatchValue[], s
     min: Math.min(left.max, right.min),
     max: Math.max(left.max, right.min),
     source: 'manual',
-    note: `Colour judged between bottle swatches ${left.label} and ${right.label}.`
+    note: `Colour judged between bottle swatches ${left.label} and ${right.label}.${revisionMarker}`
   };
 }
 
 function SwatchReadingRow({ label, measurement, scale, selection, onSelect }: {
   label: string;
   measurement: MeasurementKey;
-  scale: SwatchValue[];
+  scale: StripSwatchValue[];
   selection?: StripSelection;
   onSelect: (selection: StripSelection) => void;
 }) {
@@ -243,12 +200,28 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
   const scales = STRIP_SCALES[method.id] ?? {};
   const [stripSelections, setStripSelections] = useState<Partial<Record<MeasurementKey, StripSelection>>>({});
   const [electronicValues, setElectronicValues] = useState<Partial<Record<MeasurementKey, number>>>({});
+  const [ignoreTotalChlorineZero, setIgnoreTotalChlorineZero] = useState(false);
   const [error, setError] = useState('');
 
   const selectedCount = useMemo(() => {
     if (electronic) return Object.values(electronicValues).filter(value => typeof value === 'number').length;
     return Object.keys(stripSelections).length;
   }, [electronic, electronicValues, stripSelections]);
+
+  const stripReadings = useMemo(() => {
+    if (electronic) return [];
+    return method.parameters
+      .map((parameter): MeasurementReading | null => {
+        const scale = scales[parameter.measurement];
+        const selection = stripSelections[parameter.measurement];
+        if (!scale || !selection) return null;
+        return selectionToReading(method.id, parameter.measurement, scale, selection);
+      })
+      .filter((reading): reading is MeasurementReading => Boolean(reading));
+  }, [electronic, method, scales, stripSelections]);
+
+  const canIgnoreTotalChlorineZero = method.id === 'current-7-way'
+    && canIgnoreImpossibleTotalChlorineZero(stripReadings);
 
   const submit = () => {
     let readings: MeasurementReading[];
@@ -262,14 +235,9 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
         })
         .filter((reading): reading is MeasurementReading => Boolean(reading));
     } else {
-      readings = method.parameters
-        .map((parameter): MeasurementReading | null => {
-          const scale = scales[parameter.measurement];
-          const selection = stripSelections[parameter.measurement];
-          if (!scale || !selection) return null;
-          return selectionToReading(parameter.measurement, scale, selection);
-        })
-        .filter((reading): reading is MeasurementReading => Boolean(reading));
+      readings = ignoreTotalChlorineZero
+        ? ignoreImpossibleTotalChlorineZero(stripReadings)
+        : stripReadings;
     }
 
     if (readings.length === 0) {
@@ -321,11 +289,30 @@ export function WaterTestReadingEntry({ method, onSubmit }: WaterTestReadingEntr
               measurement={parameter.measurement}
               scale={scale}
               selection={stripSelections[parameter.measurement]}
-              onSelect={selection => setStripSelections(current => ({ ...current, [parameter.measurement]: selection }))}
+              onSelect={selection => {
+                setStripSelections(current => ({ ...current, [parameter.measurement]: selection }));
+                if (parameter.measurement === 'free_chlorine' || parameter.measurement === 'total_chlorine') {
+                  setIgnoreTotalChlorineZero(false);
+                }
+              }}
             />
           );
         })}
       </div>
+
+      {canIgnoreTotalChlorineZero && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-950">
+          <span className="text-sm font-black leading-tight">TC 0 conflicts with free chlorine.</span>
+          <button
+            type="button"
+            aria-pressed={ignoreTotalChlorineZero}
+            onClick={() => setIgnoreTotalChlorineZero(current => !current)}
+            className={`min-h-11 shrink-0 rounded-xl px-3 text-sm font-black ${ignoreTotalChlorineZero ? 'bg-amber-900 text-white' : 'bg-white text-amber-950 ring-1 ring-amber-300'}`}
+          >
+            {ignoreTotalChlorineZero ? 'TC ignored' : 'Ignore TC'}
+          </button>
+        </div>
+      )}
 
       {error && <div aria-live="polite" className="rounded-xl bg-amber-50 border border-amber-200 text-amber-950 px-3 py-2 text-sm font-bold">{error}</div>}
       <button type="button" onClick={submit} className="w-full min-h-12 shrink-0 rounded-xl bg-indigo-700 hover:bg-indigo-800 active:bg-indigo-900 text-white text-lg font-black">

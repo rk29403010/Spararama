@@ -23,7 +23,11 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
         { measurement: 'ph', min: 7.2, max: 7.6, preferred: 7.4, unit: 'ph' },
         { measurement: 'total_alkalinity', min: 80, max: 120, preferred: 80, unit: 'ppm' },
         { measurement: 'calcium_hardness', min: 150, max: 500, preferred: 250, unit: 'ppm' },
-        { measurement: 'cyanuric_acid', min: 30, max: 50, preferred: 40, unit: 'ppm' }
+        // Bottle marks 30-50 ppm as OK, but for a spa CYA is an upper-limit
+        // maintenance parameter rather than something that must be >=30 ppm.
+        // HSE HSG282 says cyanuric acid from chloroisocyanurates should remain
+        // below 100 mg/l. 100 ppm therefore falls outside this target.
+        { measurement: 'cyanuric_acid', min: 0, max: 99.9, preferred: 30, unit: 'ppm' }
       ]
     }
   ],
@@ -59,6 +63,7 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
       parameters: [
         { measurement: 'free_chlorine', label: 'Free chlorine' },
         { measurement: 'ph', label: 'pH' },
+        { measurement: 'bromine', label: 'Bromine' },
         { measurement: 'total_alkalinity', label: 'Total alkalinity' },
         { measurement: 'total_chlorine', label: 'Total chlorine' },
         { measurement: 'calcium_hardness', label: 'Total hardness' },
@@ -66,7 +71,26 @@ export const DEFAULT_DOMAIN_STATE: SpaDomainState = {
       ],
       readAfterSeconds: 15,
       readBeforeSeconds: 60,
-      notes: 'Timing profile is editable because strip brands vary.'
+      notes: 'Bottle order and scales verified from the user transcript on 2026-09-06. Timing remains editable because strip brands vary.'
+    },
+    {
+      id: 'lamotte-insta-test-5-plus',
+      name: 'LaMotte Insta-TEST 5 Plus',
+      description: 'LaMotte Insta-TEST 5 Plus pool & spa strips (order code 2977).',
+      instructions: [
+        { id: 'dip', label: 'Immerse the strip for 2 seconds.', durationSeconds: 2, cueAtEnd: true, spokenText: 'Immerse for two seconds.' },
+        { id: 'remove', label: 'Remove with the pads facing up.', cueAtEnd: true, spokenText: 'Remove with the pads facing up.' },
+        { id: 'shake', label: 'Shake once to remove excess water.', cueAtEnd: true, spokenText: 'Shake once.' },
+        { id: 'read', label: 'Read immediately: free chlorine, total chlorine, alkalinity, pH, then total hardness.', spokenText: 'Read the strip now.' }
+      ],
+      parameters: [
+        { measurement: 'free_chlorine', label: 'Free chlorine' },
+        { measurement: 'total_chlorine', label: 'Total chlorine' },
+        { measurement: 'total_alkalinity', label: 'Total alkalinity' },
+        { measurement: 'ph', label: 'pH' },
+        { measurement: 'calcium_hardness', label: 'Total hardness' }
+      ],
+      notes: 'Bottle scales and instructions verified 2026-09-14. The free-chlorine pad also carries the alternative bromine scale 0, 1, 2, 6, 10, 20 ppm; the current chlorine-spa workflow records free chlorine rather than bromine.'
     }
   ],
   products: [

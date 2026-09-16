@@ -17,6 +17,20 @@ interface ReadingBounds {
   max: number;
 }
 
+const MEASUREMENT_LABELS: Record<MeasurementKey, string> = {
+  free_chlorine: 'Free chlorine',
+  total_chlorine: 'Total chlorine',
+  bromine: 'Bromine',
+  ph: 'pH',
+  total_alkalinity: 'Total alkalinity',
+  calcium_hardness: 'Total hardness',
+  cyanuric_acid: 'Cyanuric acid'
+};
+
+export function measurementLabel(measurement: MeasurementKey) {
+  return MEASUREMENT_LABELS[measurement];
+}
+
 function bounds(reading: MeasurementReading): ReadingBounds | null {
   if (typeof reading.value === 'number') {
     return { min: reading.value, max: reading.value };
@@ -29,8 +43,35 @@ function bounds(reading: MeasurementReading): ReadingBounds | null {
   return null;
 }
 
-function findReading(readings: MeasurementReading[], measurement: MeasurementKey) {
+export function estimatedReadingValue(reading: MeasurementReading) {
+  const value = bounds(reading);
+  if (!value) return null;
+  return (value.min + value.max) / 2;
+}
+
+function isRangeReading(reading: MeasurementReading) {
+  const value = bounds(reading);
+  return Boolean(value && value.min !== value.max);
+}
+
+function formatEstimate(value: number) {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
+}
+
+function estimateSuffix(reading: MeasurementReading, target: TargetRange) {
+  if (!isRangeReading(reading)) return '';
+  const estimate = estimatedReadingValue(reading);
+  if (estimate === null) return '';
+  const unit = target.unit === 'ph' ? '' : ` ${target.unit}`;
+  return ` (about ${formatEstimate(estimate)}${unit})`;
+}
+
+function findRecordedReading(readings: MeasurementReading[], measurement: MeasurementKey) {
   return readings.find(reading => reading.measurement === measurement);
+}
+
+function findReading(readings: MeasurementReading[], measurement: MeasurementKey) {
+  return readings.find(reading => reading.measurement === measurement && !reading.ignoredForAdvice);
 }
 
 function findTarget(waterBody: WaterBodyProfile, measurement: MeasurementKey) {
@@ -38,12 +79,38 @@ function findTarget(waterBody: WaterBodyProfile, measurement: MeasurementKey) {
 }
 
 function classify(reading: MeasurementReading, target: TargetRange) {
-  const value = bounds(reading);
-  if (!value) return 'unknown' as const;
-  if (value.max < target.min) return 'low' as const;
-  if (value.min > target.max) return 'high' as const;
-  if (value.min >= target.min && value.max <= target.max) return 'in_range' as const;
-  return 'uncertain' as const;
+  const value = estimatedReadingValue(reading);
+  if (value === null) return 'unknown' as const;
+  if (value < target.min) return 'low' as const;
+  if (value > target.max) return 'high' as const;
+  return 'in_range' as const;
+}
+
+export function canIgnoreImpossibleTotalChlorineZero(readings: MeasurementReading[]) {
+  const free = findRecordedReading(readings, 'free_chlorine');
+  const total = findRecordedReading(readings, 'total_chlorine');
+  if (!free || !total || free.ignoredForAdvice || total.ignoredForAdvice) return false;
+
+  const freeBounds = bounds(free);
+  const totalBounds = bounds(total);
+  return Boolean(
+    freeBounds &&
+    totalBounds &&
+    freeBounds.min > 0 &&
+    totalBounds.min === 0 &&
+    totalBounds.max === 0
+  );
+}
+
+export function ignoreImpossibleTotalChlorineZero(readings: MeasurementReading[]) {
+  if (!canIgnoreImpossibleTotalChlorineZero(readings)) return readings;
+  return readings.map(reading => reading.measurement === 'total_chlorine'
+    ? {
+        ...reading,
+        ignoredForAdvice: true,
+        ignoreReason: 'Recorded 0 ppm total chlorine conflicts with measurable free chlorine; user chose to exclude this strip pad from advice.'
+      }
+    : reading);
 }
 
 function roundDose(value: number, increment = 1) {
@@ -73,15 +140,14 @@ function calculateDose(
   reading: MeasurementReading,
   target: TargetRange
 ): number | null {
-  const readingBounds = bounds(reading);
-  if (!readingBounds) return null;
+  const current = estimatedReadingValue(reading);
+  if (current === null) return null;
 
   if (model.kind === 'fixed_label') {
     const scaled = model.amount * (waterBody.volumeLiters / model.referenceVolumeLiters);
     return roundDose(scaled, waterBody.doseRounding ?? 1);
   }
 
-  const current = model.direction === 'raise' ? readingBounds.max : readingBounds.min;
   const preferred = target.preferred ?? (model.direction === 'raise' ? target.min : target.max);
   const changeNeeded = model.direction === 'raise' ? preferred - current : current - preferred;
   if (changeNeeded <= 0) return null;
@@ -102,13 +168,26 @@ export function validateReadings(readings: MeasurementReading[]): ChemistryFindi
   const findings: ChemistryFinding[] = [];
 
   for (const reading of readings) {
+    const label = measurementLabel(reading.measurement);
+    if (reading.ignoredForAdvice) {
+      findings.push({
+        measurement: reading.measurement,
+        severity: 'info',
+        code: 'reading_ignored_for_advice',
+        message: reading.measurement === 'total_chlorine'
+          ? 'Total chlorine is recorded but not used for advice because this strip pad was marked unreliable. Free chlorine still drives chlorine dosing; combined chlorine cannot be checked from this reading.'
+          : `${label} was recorded but is not being used for this advice.`
+      });
+      continue;
+    }
+
     const readingBounds = bounds(reading);
     if (!readingBounds) {
       findings.push({
         measurement: reading.measurement,
         severity: 'warning',
         code: 'reading_missing_value',
-        message: `No usable value was supplied for ${reading.measurement}.`
+        message: `No usable ${label} value was supplied.`
       });
       continue;
     }
@@ -117,7 +196,7 @@ export function validateReadings(readings: MeasurementReading[]): ChemistryFindi
         measurement: reading.measurement,
         severity: 'error',
         code: 'reading_negative',
-        message: `${reading.measurement} cannot be negative.`
+        message: `${label} cannot be negative.`
       });
     }
     if (typeof reading.confidence === 'number' && reading.confidence < 0.55) {
@@ -125,7 +204,7 @@ export function validateReadings(readings: MeasurementReading[]): ChemistryFindi
         measurement: reading.measurement,
         severity: 'error',
         code: 'reading_low_confidence',
-        message: `${reading.measurement} has low confidence and must be confirmed before dosing.`
+        message: `${label} has low confidence and must be confirmed before dosing.`
       });
     }
   }
@@ -138,8 +217,37 @@ export function validateReadings(readings: MeasurementReading[]): ChemistryFindi
     findings.push({
       severity: 'error',
       code: 'free_chlorine_above_total_chlorine',
-      message: 'Free chlorine cannot be higher than total chlorine. Retest before dosing.'
+      message: 'Free chlorine cannot be higher than Total chlorine. Retest before dosing.'
     });
+  } else if (freeBounds && totalBounds) {
+    // Keep the free/total chlorine consistency check conservative. Ordinary
+    // target classification and dosing use the midpoint of strip ranges, but
+    // combined chlorine can be safety-relevant, so do not hide a possible high
+    // combined-chlorine result behind the midpoint estimate.
+    const minimumCombined = Math.max(0, totalBounds.min - freeBounds.max);
+    const maximumCombined = Math.max(0, totalBounds.max - freeBounds.min);
+    const definitelyHigh =
+      minimumCombined >= 1 ||
+      minimumCombined > freeBounds.max / 2;
+    const possiblyHigh =
+      maximumCombined >= 1 ||
+      maximumCombined > freeBounds.min / 2;
+
+    if (definitelyHigh) {
+      findings.push({
+        measurement: 'total_chlorine',
+        severity: 'error',
+        code: 'combined_chlorine_high',
+        message: 'Combined chlorine is too high for the measured Free chlorine. Retest and correct the water before bathing.'
+      });
+    } else if (possiblyHigh) {
+      findings.push({
+        measurement: 'total_chlorine',
+        severity: 'error',
+        code: 'combined_chlorine_uncertain',
+        message: 'The Free chlorine and Total chlorine ranges could indicate excessive combined chlorine. Use a clearer test before bathing or dosing.'
+      });
+    }
   }
 
   return findings;
@@ -189,40 +297,26 @@ function assessmentForMeasurement(
   const target = findTarget(waterBody, measurement);
   if (!reading || !target) return {};
 
+  const label = measurementLabel(measurement);
   const status = classify(reading, target);
   if (status === 'unknown') {
     return {
       action: {
         kind: 'retest',
         measurements: [measurement],
-        reason: `The ${measurement} reading is incomplete.`
+        reason: `${label} has no usable value. Use a fresh or more precise test before changing it.`
       }
     };
   }
 
-  if (status === 'uncertain') {
-    return {
-      finding: {
-        measurement,
-        severity: 'info',
-        code: 'reading_overlaps_target',
-        message: `${measurement} overlaps the target range; avoid dosing from an ambiguous reading.`
-      },
-      action: {
-        kind: 'retest',
-        measurements: [measurement],
-        reason: `Confirm ${measurement} before changing it.`
-      }
-    };
-  }
-
+  const suffix = estimateSuffix(reading, target);
   if (status === 'in_range') {
     return {
       finding: {
         measurement,
         severity: 'info',
         code: 'in_range',
-        message: `${measurement} is within its configured target range.`
+        message: `${label}${suffix} is within the target range.`
       }
     };
   }
@@ -232,7 +326,7 @@ function assessmentForMeasurement(
     measurement,
     severity: 'warning',
     code: status,
-    message: `${measurement} is ${status} for the active water-body profile.`
+    message: `${label} is ${status}${suffix}.`
   };
   const action = doseActionFor(
     waterBody,
@@ -240,7 +334,7 @@ function assessmentForMeasurement(
     reading,
     target,
     direction,
-    `${measurement} is ${status}; move it toward ${target.preferred ?? `${target.min}-${target.max}`}.`
+    `${label} is ${status}${suffix}.`
   );
 
   return {
@@ -248,8 +342,37 @@ function assessmentForMeasurement(
     action: action ?? {
       kind: 'retest',
       measurements: [measurement],
-      reason: `No configured product can safely ${direction} ${measurement}.`
+      reason: `${label} is ${status}${suffix}, but no configured product can safely ${direction} it.`
     }
+  };
+}
+
+function findingWithPlanContext(
+  finding: ChemistryFinding,
+  action: ChemistryNextAction | undefined,
+  earlierAction: ChemistryNextAction | undefined
+): ChemistryFinding {
+  if (!action || action.kind !== 'dose' || (finding.code !== 'low' && finding.code !== 'high')) {
+    return finding;
+  }
+
+  if (!earlierAction) {
+    return {
+      ...finding,
+      message: `${finding.message} Correct it now: add ${action.amount} ${action.unit} ${action.productName}.`
+    };
+  }
+
+  let earlierLabel = 'the current issue';
+  if (earlierAction.kind === 'dose') {
+    earlierLabel = measurementLabel(earlierAction.measurement);
+  } else if (earlierAction.kind === 'retest' && earlierAction.measurements.length === 1) {
+    earlierLabel = measurementLabel(earlierAction.measurements[0]);
+  }
+
+  return {
+    ...finding,
+    message: `${finding.message} Deal with this after ${earlierLabel}; retest it then so the dose uses a fresh reading.`
   };
 }
 
@@ -265,8 +388,10 @@ export function assessChemistry(
       findings,
       nextAction: {
         kind: 'retest',
-        measurements: readings.map(reading => reading.measurement),
-        reason: 'One or more readings are inconsistent or insufficiently reliable. Confirm them before dosing.'
+        measurements: readings
+          .filter(reading => !reading.ignoredForAdvice)
+          .map(reading => reading.measurement),
+        reason: 'One or more readings conflict or are not reliable enough to dose from. Check the highlighted readings before dosing.'
       }
     };
   }
@@ -279,7 +404,9 @@ export function assessChemistry(
   let nextAction: ChemistryNextAction | undefined;
   for (const measurement of order) {
     const result = assessmentForMeasurement(waterBody, products, readings, measurement);
-    if (result.finding) findings.push(result.finding);
+    if (result.finding) {
+      findings.push(findingWithPlanContext(result.finding, result.action, nextAction));
+    }
     if (!nextAction && result.action) nextAction = result.action;
   }
 
@@ -287,7 +414,7 @@ export function assessChemistry(
     findings,
     nextAction: nextAction ?? {
       kind: 'none',
-      reason: 'No configured chemistry adjustment is currently required.'
+      reason: 'No chemistry adjustment is currently required.'
     }
   };
 }

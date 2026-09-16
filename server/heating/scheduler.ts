@@ -156,7 +156,7 @@ export class HeatingScheduler {
       if (schedule.nextAttemptAt && now < schedule.nextAttemptAt) continue;
 
       if (!schedule.autoStartPreferred) {
-        changed = this.queueManualNotification(state.notifications, schedule, now, 'This heating event is set for manual start.') || changed;
+        changed = this.queueManualNotification(state.notifications, schedule, now, 'manual') || changed;
         schedule.status = 'awaiting-manual-confirmation';
         schedule.updatedAt = now;
         changed = true;
@@ -198,7 +198,7 @@ export class HeatingScheduler {
         } else {
           schedule.status = 'awaiting-manual-confirmation';
           schedule.nextAttemptAt = undefined;
-          changed = this.queueManualNotification(state.notifications, schedule, now, `Remote start failed after ${MAX_ATTEMPTS} attempts.`) || changed;
+          changed = this.queueManualNotification(state.notifications, schedule, now, 'automatic-failed') || changed;
           await this.store.appendEvent({ id: crypto.randomUUID(), scheduleId: schedule.id, timestamp: now, type: 'manual_start_requested', details: { reason: 'remote_start_failed', attempts: schedule.attempts, error: schedule.lastError } });
         }
       }
@@ -341,13 +341,21 @@ export class HeatingScheduler {
     return state.schedules;
   }
 
-  private queueManualNotification(notifications: HeatingNotification[], schedule: HeatingSchedule, now: number, reason: string) {
+  private queueManualNotification(
+    notifications: HeatingNotification[],
+    schedule: HeatingSchedule,
+    now: number,
+    reason: 'manual' | 'automatic-failed'
+  ) {
+    const automaticFailure = reason === 'automatic-failed';
     return this.queueNotification(notifications, {
       scheduleId: schedule.id,
       kind: 'manual_start_required',
       createdAt: now,
-      title: 'Turn the spa heater on',
-      message: `${reason} Please switch the heater on manually, then confirm in Spararama. ${schedule.targetTemperatureC.toFixed(0)}°C target; estimated ready by ${readyTimeText(schedule.targetTime)}.`,
+      title: automaticFailure ? 'Heating did not start automatically' : 'Turn the spa heater on',
+      message: automaticFailure
+        ? `Spararama could not confirm that the heater started after ${MAX_ATTEMPTS} attempts. Check the heater now and turn it on if needed. Do not rely on the planned ready time of ${readyTimeText(schedule.targetTime)} until heating is running.`
+        : `This heating event needs a manual start. Turn the heater on now, then confirm in Spararama. ${schedule.targetTemperatureC.toFixed(0)}°C target; planned ready by ${readyTimeText(schedule.targetTime)}.`,
       requiresConfirmation: true
     });
   }

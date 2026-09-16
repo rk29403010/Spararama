@@ -37,6 +37,13 @@ chmod 700 "$SHORTCUT_DIR"
 SPAR_BRANCH="chatgpt-dev"
 SPAR_ADAPTER="mock"
 SPAR_PORT="3000"
+SPAR_BIND_HOST="0.0.0.0"
+SPAR_HTTPS_ENABLED="0"
+SPAR_HTTPS_HOST=""
+SPAR_HTTPS_PORT="8443"
+SPAR_HTTPS_MODE="internal"
+SPAR_TLS_CERT_FILE=""
+SPAR_TLS_KEY_FILE=""
 CLEVERSPA_IP=""
 CLEVERSPA_PASSCODE=""
 CLEVERSPA_SERVICE_PORT="8787"
@@ -52,6 +59,13 @@ fi
   printf 'SPAR_BRANCH=%q\n' "$SPAR_BRANCH"
   printf 'SPAR_ADAPTER=%q\n' "$SPAR_ADAPTER"
   printf 'SPAR_PORT=%q\n' "$SPAR_PORT"
+  printf 'SPAR_BIND_HOST=%q\n' "$SPAR_BIND_HOST"
+  printf 'SPAR_HTTPS_ENABLED=%q\n' "$SPAR_HTTPS_ENABLED"
+  printf 'SPAR_HTTPS_HOST=%q\n' "$SPAR_HTTPS_HOST"
+  printf 'SPAR_HTTPS_PORT=%q\n' "$SPAR_HTTPS_PORT"
+  printf 'SPAR_HTTPS_MODE=%q\n' "$SPAR_HTTPS_MODE"
+  printf 'SPAR_TLS_CERT_FILE=%q\n' "$SPAR_TLS_CERT_FILE"
+  printf 'SPAR_TLS_KEY_FILE=%q\n' "$SPAR_TLS_KEY_FILE"
   printf 'CLEVERSPA_IP=%q\n' "$CLEVERSPA_IP"
   printf 'CLEVERSPA_PASSCODE=%q\n' "$CLEVERSPA_PASSCODE"
   printf 'CLEVERSPA_SERVICE_PORT=%q\n' "$CLEVERSPA_SERVICE_PORT"
@@ -105,6 +119,9 @@ Useful extras:
   spar stop
   spar log
   spar adapter-log
+  spar https-setup internal HOST [PORT]
+  spar https-setup external HOST CERT_FILE KEY_FILE [PORT]
+  spar https-off
 
 A Termux home-screen shortcut named "Spararama" has also been installed.
 Add a Termux shortcut/widget to the Android home screen and select Spararama.

@@ -1,6 +1,4 @@
 import type { Express, Request, Response } from 'express';
-import { AlexaAlertDispatcher } from '../alerts/alexa-dispatcher';
-import { registerAlertRoutes } from '../alerts/routes';
 import { registerPushRoutes } from '../push/routes';
 import { PushService } from '../push/service';
 import type { HeatingScheduler } from './scheduler';
@@ -16,9 +14,6 @@ function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) {
 
 export function registerHeatingRoutes(app: Express, scheduler: HeatingScheduler) {
   registerPushRoutes(app, new PushService());
-  const alexaAlerts = new AlexaAlertDispatcher();
-  alexaAlerts.start();
-  registerAlertRoutes(app, alexaAlerts);
 
   app.get('/api/heating/schedules', asyncRoute(async (_req, res) => {
     res.json({ schedules: await scheduler.listSchedules() });

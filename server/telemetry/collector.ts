@@ -276,8 +276,8 @@ export class TelemetryCollector {
   readRecentSamples(limit?: number) { return this.store.readRecent(limit); }
   readChartRange(since: number, maxPoints?: number) { return this.store.readChartRange(since, maxPoints); }
 
-  collectNow() {
-    const result = this.operation.then(() => this.collectAndFlush(), () => this.collectAndFlush());
+  collectNow(spaStatus?: SpaStatus) {
+    const result = this.operation.then(() => this.collectAndFlush(spaStatus), () => this.collectAndFlush(spaStatus));
     this.operation = result.then(() => undefined, () => undefined);
     return result;
   }
@@ -335,11 +335,12 @@ export class TelemetryCollector {
     }
   }
 
-  private async collectAndFlush() {
+  private async collectAndFlush(spaStatus?: SpaStatus) {
     try {
       const now = Date.now();
       const [spa, weather, sensors, forecast] = await Promise.all([
-        this.spa.getStatus(), this.readWeather(), this.readSensors(), this.readForecastChanges(now)
+        spaStatus ? Promise.resolve(spaStatus) : this.spa.getStatus(),
+        this.readWeather(), this.readSensors(), this.readForecastChanges(now)
       ]);
       const snapshot = this.lastSnapshotAt === 0 || now - this.lastSnapshotAt >= this.snapshotIntervalMs;
       const spaResult = spaChanges(this.previousSpa, spa);

@@ -4,7 +4,9 @@ import { telemetryApi, type TelemetryChartDto } from '../lib/telemetryApi';
 import { fetchSpaHistory, type SpaHistoryEventDto } from '../lib/historyApi';
 import type { AppState } from '../types';
 import { formatLogDateTime } from '../lib/dateTime';
-import { Beaker, Droplets, Thermometer, UserRound, Wrench } from 'lucide-react';
+import { addWaterTrend, findWaterTrendGaps } from '../lib/temperatureChart';
+import { temperatureWindow, temperatureWindowLabel, type TemperatureHistoryRange } from '../lib/temperatureWindow';
+import { Beaker, ChevronLeft, ChevronRight, Droplets, Thermometer, UserRound, Wrench } from 'lucide-react';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -17,12 +19,11 @@ import {
   ReferenceLine
 } from 'recharts';
 
-type HeatRange = 'today' | '48h' | '7d' | '30d' | '1y';
 type ChemistryRange = '7d' | '30d' | '1y';
 const HISTORY_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
-const HEAT_RANGES: Array<{ key: HeatRange; label: string }> = [
-  { key: 'today', label: 'Today' },
+const HEAT_RANGES: Array<{ key: TemperatureHistoryRange; label: string }> = [
+  { key: 'daily', label: 'Daily' },
   { key: '48h', label: '2 days' },
   { key: '7d', label: 'Week' },
   { key: '30d', label: 'Month' },
@@ -52,24 +53,14 @@ function ambientWeatherPoint(weather: TelemetryChartDto['samples'][number]['weat
   };
 }
 
-function heatRangeStart(range: HeatRange, now = Date.now()) {
-  if (range === 'today') {
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-    return start.getTime();
-  }
-  const hours = range === '48h' ? 48 : range === '7d' ? 24 * 7 : range === '30d' ? 24 * 30 : 24 * 365;
-  return now - hours * 60 * 60 * 1000;
-}
-
 function chemistryRangeStart(range: ChemistryRange, now = Date.now()) {
   const days = range === '7d' ? 7 : range === '30d' ? 30 : 365;
   return now - days * 24 * 60 * 60 * 1000;
 }
 
-function tickLabel(timestamp: number, range: HeatRange | ChemistryRange) {
+function tickLabel(timestamp: number, range: TemperatureHistoryRange | ChemistryRange) {
   const date = new Date(timestamp);
-  if (range === 'today' || range === '48h') return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (range === 'daily' || range === '48h') return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   if (range === '7d') return date.toLocaleDateString([], { weekday: 'short', day: 'numeric' });
   if (range === '30d') return date.toLocaleDateString([], { day: 'numeric', month: 'short' });
   return date.toLocaleDateString([], { month: 'short', year: '2-digit' });
@@ -154,6 +145,21 @@ function usualTubMarkers(since: number, end: number, readyTime: string, enabled:
   return markers;
 }
 
+function HeatTooltip({ active, payload, label, timeFormat = '24h' }: any) {
+  if (!active || !payload?.length) return null;
+  const point = payload.find((item: any) => item?.payload)?.payload;
+  if (!point) return null;
+  return (
+    <div className="rounded-xl bg-white px-3 py-3 border border-slate-200 text-sm font-bold">
+      <p className="font-black text-slate-900 mb-1">{formatLogDateTime(Number(label), timeFormat)}</p>
+      {finiteNumber(point.water) && <p className="text-indigo-800">Water {point.water}°C</p>}
+      {finiteNumber(point.target) && <p className="text-orange-700">Target {point.target}°C</p>}
+      {finiteNumber(point.ambient) && <p className="text-slate-700">Outside {point.ambient}°C</p>}
+      {finiteNumber(point.manualWater) && <p className="text-indigo-800">Manual {point.manualWater}°C</p>}
+    </div>
+  );
+}
+
 function ChemistryTooltip({ active, payload, label, timeFormat = '24h' }: any) {
   if (!active || !payload?.length) return null;
   const point = payload[0]?.payload;
@@ -172,13 +178,21 @@ interface LogsProps { state: AppState; }
 export function Logs({ state }: LogsProps) {
   const [user, setUser] = useState<any>(null);
   const [logs, setLogs] = useState<any[]>([]);
-  const [heatRange, setHeatRange] = useState<HeatRange>('48h');
+  const [heatRange, setHeatRange] = useState<TemperatureHistoryRange>('48h');
+  const [heatPage, setHeatPage] = useState(0);
+  const [heatAnchorNow, setHeatAnchorNow] = useState(() => Date.now());
   const [chemistryRange, setChemistryRange] = useState<ChemistryRange>('30d');
   const [telemetry, setTelemetry] = useState<TelemetryChartDto>({ samples: [], rawTotal: 0, rolledUp: false });
   const [historyEvents, setHistoryEvents] = useState<SpaHistoryEventDto[]>([]);
   const [telemetryLoading, setTelemetryLoading] = useState(true);
   const [telemetryError, setTelemetryError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
+
+  const heatWindow = useMemo(
+    () => temperatureWindow(heatRange, heatPage, heatAnchorNow, state.config.defaultReadyTime),
+    [heatRange, heatPage, heatAnchorNow, state.config.defaultReadyTime]
+  );
+  const heatWindowTitle = useMemo(() => temperatureWindowLabel(heatRange, heatWindow), [heatRange, heatWindow]);
 
   useEffect(() => {
     const unsubscribe = subscribeToAuthChanges(userValue => {
@@ -193,13 +207,9 @@ export function Logs({ state }: LogsProps) {
     let active = true;
     const load = () => {
       if (document.visibilityState !== 'visible') return;
-      void getLogs(500)
-        .then(result => { if (active) setLogs(result); })
-        .catch(() => { if (active) setLogs([]); });
+      void getLogs(500).then(result => { if (active) setLogs(result); }).catch(() => { if (active) setLogs([]); });
     };
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') load();
-    };
+    const handleVisibilityChange = () => { if (document.visibilityState === 'visible') load(); };
     load();
     const timer = window.setInterval(load, HISTORY_REFRESH_INTERVAL_MS);
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -212,17 +222,34 @@ export function Logs({ state }: LogsProps) {
 
   useEffect(() => {
     let active = true;
-    void fetchSpaHistory()
-      .then(result => { if (active) { setHistoryEvents(result.events); setHistoryError(null); } })
-      .catch((error: any) => { if (active) setHistoryError(error?.message || 'Spa history could not be loaded.'); });
-    return () => { active = false; };
+    const load = () => {
+      if (document.visibilityState !== 'visible') return;
+      void fetchSpaHistory()
+        .then(result => { if (active) { setHistoryEvents(result.events); setHistoryError(null); } })
+        .catch((error: any) => { if (active) setHistoryError(error?.message || 'Spa history could not be loaded.'); });
+    };
+    const handleVisibilityChange = () => { if (document.visibilityState === 'visible') load(); };
+    load();
+    const timer = window.setInterval(load, HISTORY_REFRESH_INTERVAL_MS);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
+
+  useEffect(() => {
+    if (heatPage !== 0) return;
+    const timer = window.setInterval(() => setHeatAnchorNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [heatPage]);
 
   useEffect(() => {
     let active = true;
     const load = async () => {
       try {
-        const result = await telemetryApi.chart(heatRangeStart(heatRange), 500);
+        const result = await telemetryApi.chart(heatWindow.since, 500, heatWindow.end);
         if (!active) return;
         setTelemetry(result);
         setTelemetryError(null);
@@ -233,12 +260,8 @@ export function Logs({ state }: LogsProps) {
       }
     };
     setTelemetryLoading(true);
-    const loadIfVisible = () => {
-      if (document.visibilityState === 'visible') void load();
-    };
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') void load();
-    };
+    const loadIfVisible = () => { if (document.visibilityState === 'visible') void load(); };
+    const handleVisibilityChange = () => { if (document.visibilityState === 'visible') void load(); };
     loadIfVisible();
     const timer = window.setInterval(loadIfVisible, HISTORY_REFRESH_INTERVAL_MS);
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -247,25 +270,13 @@ export function Logs({ state }: LogsProps) {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [heatRange]);
-
-  const heatWindow = useMemo(() => {
-    const now = Date.now();
-    const since = heatRangeStart(heatRange, now);
-    let end = now;
-    if (heatRange === 'today' || heatRange === '48h') {
-      const [hourRaw, minuteRaw] = state.config.defaultReadyTime.split(':').map(Number);
-      const usual = new Date(now);
-      usual.setHours(Number.isFinite(hourRaw) ? hourRaw : 17, Number.isFinite(minuteRaw) ? minuteRaw : 0, 0, 0);
-      end = Math.max(end, usual.getTime());
-    }
-    return { since, end };
-  }, [heatRange, state.config.defaultReadyTime, telemetry.samples.length]);
+  }, [heatWindow.since, heatWindow.end]);
 
   const heatData = useMemo(() => {
     const points = new Map<number, any>();
     const plottedWeatherObservations = new Set<number>();
     for (const sample of telemetry.samples) {
+      if (sample.timestamp < heatWindow.since || sample.timestamp > heatWindow.end) continue;
       const ambient = ambientWeatherPoint(sample.weather);
       const ambientObservation = ambient?.observedAt ?? sample.timestamp;
       const plotAmbient = Boolean(ambient && !plottedWeatherObservations.has(ambientObservation));
@@ -288,12 +299,17 @@ export function Logs({ state }: LogsProps) {
       point.manualWater = temp;
       points.set(timestamp, point);
     }
-    return Array.from(points.values()).sort((a, b) => a.timestamp - b.timestamp);
+    const sorted = Array.from(points.values()).sort((a, b) => a.timestamp - b.timestamp);
+    return addWaterTrend(sorted);
   }, [telemetry.samples, logs, heatWindow]);
 
+  const waterGaps = useMemo(() => findWaterTrendGaps(heatData), [heatData]);
   const heatPeriods = useMemo(() => heaterPeriods(telemetry.samples), [telemetry.samples]);
   const hasWeather = heatData.some(point => finiteNumber(point.ambient));
-  const usualMarkers = useMemo(() => usualTubMarkers(heatWindow.since, heatWindow.end, state.config.defaultReadyTime, heatRange === 'today' || heatRange === '48h'), [heatWindow, state.config.defaultReadyTime, heatRange]);
+  const usualMarkers = useMemo(
+    () => usualTubMarkers(heatWindow.since, heatWindow.end, state.config.defaultReadyTime, heatRange === 'daily' || heatRange === '48h'),
+    [heatWindow, state.config.defaultReadyTime, heatRange]
+  );
   const bathingMarkers = useMemo(() => logs
     .filter(log => log?.type === 'manual_log' && (log?.data?.action === 'entered_tub' || log?.data?.action === 'exited_tub'))
     .map(log => ({ timestamp: logTimestamp(log), action: log.data.action }))
@@ -356,6 +372,11 @@ export function Logs({ state }: LogsProps) {
         : 'bg-amber-600';
 
   const rangeButton = (selected: boolean) => `min-h-12 min-w-fit flex-1 px-3 rounded-xl text-base font-black ${selected ? 'bg-white text-slate-950 border border-slate-200' : 'text-slate-700'}`;
+  const selectHeatRange = (range: TemperatureHistoryRange) => {
+    setHeatRange(range);
+    setHeatPage(0);
+    setHeatAnchorNow(Date.now());
+  };
 
   return (
     <div className="p-4 max-w-4xl mx-auto space-y-8 pb-10">
@@ -364,8 +385,29 @@ export function Logs({ state }: LogsProps) {
 
         <div className="flex gap-1 rounded-2xl bg-slate-100 p-1 overflow-x-auto">
           {HEAT_RANGES.map(option => (
-            <button key={option.key} type="button" aria-pressed={heatRange === option.key} onClick={() => setHeatRange(option.key)} className={rangeButton(heatRange === option.key)}>{option.label}</button>
+            <button key={option.key} type="button" aria-pressed={heatRange === option.key} onClick={() => selectHeatRange(option.key)} className={rangeButton(heatRange === option.key)}>{option.label}</button>
           ))}
+        </div>
+
+        <div className="flex items-center gap-2 px-1">
+          <button
+            type="button"
+            aria-label="Previous temperature period"
+            onClick={() => { setHeatPage(page => page + 1); setHeatAnchorNow(Date.now()); }}
+            className="w-12 h-12 shrink-0 rounded-xl border border-slate-200 bg-white flex items-center justify-center text-slate-800"
+          >
+            <ChevronLeft className="w-6 h-6" aria-hidden="true" />
+          </button>
+          <p className="flex-1 text-center text-base font-black text-slate-800 leading-tight" aria-live="polite">{heatWindowTitle}</p>
+          <button
+            type="button"
+            aria-label="Next temperature period"
+            disabled={heatPage === 0}
+            onClick={() => { setHeatPage(page => Math.max(0, page - 1)); setHeatAnchorNow(Date.now()); }}
+            className="w-12 h-12 shrink-0 rounded-xl border border-slate-200 bg-white flex items-center justify-center text-slate-800 disabled:opacity-30"
+          >
+            <ChevronRight className="w-6 h-6" aria-hidden="true" />
+          </button>
         </div>
 
         <div className="bg-white p-3 sm:p-5 rounded-3xl border border-slate-200">
@@ -383,13 +425,24 @@ export function Logs({ state }: LogsProps) {
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis type="number" dataKey="timestamp" domain={[heatWindow.since, heatWindow.end]} scale="time" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700, fill: '#64748b' }} minTickGap={32} tickFormatter={value => tickLabel(Number(value), heatRange)} />
                     <YAxis yAxisId="temp" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700, fill: '#64748b' }} domain={['dataMin - 1', 'dataMax + 1']} tickFormatter={value => `${value}°`} />
-                    <Tooltip labelFormatter={value => formatLogDateTime(Number(value), state.config.timeFormat)} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '14px', fontWeight: 700 }} />
+                    <Tooltip content={<HeatTooltip timeFormat={state.config.timeFormat} />} />
                     {heatPeriods.map((period, index) => <ReferenceArea key={`${period.start}-${index}`} yAxisId="temp" x1={period.start} x2={period.end} fill="#f59e0b" fillOpacity={0.10} strokeOpacity={0} />)}
                     {usualMarkers.map((timestamp, index) => <ReferenceLine key={`usual-${timestamp}`} yAxisId="temp" x={timestamp} stroke="#059669" strokeOpacity={0.55} strokeDasharray="4 4" label={index === usualMarkers.length - 1 ? { value: 'usual time', position: 'insideTopRight', fill: '#047857', fontSize: 12, fontWeight: 700 } : undefined} />)}
                     {bathingMarkers.map(marker => <ReferenceLine key={`${marker.timestamp}-${marker.action}`} yAxisId="temp" x={marker.timestamp} stroke="#047857" strokeOpacity={0.9} strokeDasharray="2 3" />)}
-                    <Line yAxisId="temp" type="natural" dataKey="water" name="Water °C" stroke="#4338ca" strokeWidth={3} dot={false} connectNulls={false} isAnimationActive={false} />
+                    {waterGaps.map((gap, index) => (
+                      <ReferenceLine
+                        key={`water-gap-${gap.startTimestamp}-${index}`}
+                        yAxisId="temp"
+                        segment={[{ x: gap.startTimestamp, y: gap.startValue }, { x: gap.endTimestamp, y: gap.endValue }]}
+                        stroke="#4338ca"
+                        strokeWidth={2}
+                        strokeOpacity={0.55}
+                        strokeDasharray="5 5"
+                      />
+                    ))}
+                    <Line yAxisId="temp" type="monotoneX" dataKey="waterTrend" name="Water °C" stroke="#4338ca" strokeWidth={2.5} dot={false} connectNulls={false} isAnimationActive={false} />
                     <Line yAxisId="temp" type="stepAfter" dataKey="target" name="Target °C" stroke="#ea580c" strokeWidth={2.5} strokeDasharray="6 4" dot={false} connectNulls={false} isAnimationActive={false} />
-                    {hasWeather && <Line yAxisId="temp" type="natural" dataKey="ambient" name="Outside °C" stroke="#475569" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />}
+                    {hasWeather && <Line yAxisId="temp" type="monotoneX" dataKey="ambient" name="Outside °C" stroke="#475569" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />}
                     <Line yAxisId="temp" type="linear" dataKey="manualWater" name="Manual reading" stroke="transparent" strokeWidth={0} dot={{ r: 5, fill: '#c7d2fe', stroke: '#3730a3', strokeWidth: 2 }} activeDot={{ r: 7 }} connectNulls={false} legendType="none" isAnimationActive={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
@@ -401,11 +454,12 @@ export function Logs({ state }: LogsProps) {
                 {user && <span className="flex items-center gap-2"><span className="w-4 h-4 rounded-full bg-indigo-200 border-2 border-indigo-800" aria-hidden="true" />Manual</span>}
                 {hasWeather && <span className="flex items-center gap-2"><span className="w-6 h-0.5 bg-slate-600" aria-hidden="true" />Outside</span>}
               </div>
-              {(telemetry.rolledUp || telemetryError) && (
+              {(telemetry.rolledUp || telemetryError || waterGaps.length > 0) && (
                 <details className="mt-3 text-sm font-bold text-slate-600">
                   <summary className="min-h-11 cursor-pointer flex items-center">Data details</summary>
                   <div className="pb-2 space-y-1">
                     {telemetry.rolledUp && <p>{telemetry.rawTotal.toLocaleString()} readings condensed for this view.</p>}
+                    {waterGaps.length > 0 && <p>Dashed water lines span periods with no confirmed temperature data.</p>}
                     {telemetryError && <p>Refresh failed; showing the last loaded graph.</p>}
                   </div>
                 </details>

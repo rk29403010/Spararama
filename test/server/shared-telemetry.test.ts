@@ -113,6 +113,24 @@ test('shared telemetry merges local and Firebase collectors without cross-contam
   }
 });
 
+test('shared chart history respects both start and end of the requested period', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-shared-window-'));
+  try {
+    const local = new LocalTelemetryStore(dir);
+    await local.append(snapshot('phone', 'first', 1000, 30));
+    await local.append(temperatureChange('phone', 'inside', 2000, 31));
+    await local.append(temperatureChange('phone', 'outside', 3000, 32));
+    const shared = new SharedTelemetryStore(local, new DisabledRemote());
+
+    const chart = await shared.readChartRange(1500, 500, 2500);
+    assert.deepEqual(chart.samples.map(sample => sample.id), ['inside']);
+    assert.equal(chart.samples[0].spa.waterTemperatureC, 31);
+    assert.equal(chart.rawTotal, 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('shared telemetry advances a cloud-write cursor and merges incremental changes', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-shared-incremental-'));
   try {

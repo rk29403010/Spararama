@@ -1,0 +1,45 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "spararama",
+      "intents": [
+        {
+          "name": "ReadyAtIntent",
+          "slots": [
+            { "name": "time", "type": "AMAZON.TIME" },
+            { "name": "temperature", "type": "AMAZON.NUMBER" }
+          ],
+          "samples": [
+            "have the hot tub ready for {time}",
+            "get the hot tub ready for {time}",
+            "have it ready for {time}",
+            "heat the hot tub for {time}",
+            "have the hot tub at {temperature} degrees by {time}",
+            "get the hot tub to {temperature} degrees by {time}"
+          ]
+        },
+        {
+          "name": "TemperatureIntent",
+          "slots": [],
+          "samples": [
+            "what is the hot tub temperature",
+            "what's the hot tub temperature",
+            "what is the water temperature",
+            "how warm is the hot tub"
+          ]
+        },
+        { "name": "BubblesOnIntent", "slots": [], "samples": ["bubbles on", "turn the bubbles on", "start the bubbles"] },
+        { "name": "BubblesOffIntent", "slots": [], "samples": ["bubbles off", "turn the bubbles off", "stop the bubbles"] },
+        { "name": "FilterOnIntent", "slots": [], "samples": ["filter on", "turn the filter on", "start the filter"] },
+        { "name": "FilterOffIntent", "slots": [], "samples": ["filter off", "turn the filter off", "stop the filter"] },
+        { "name": "HeaterOnIntent", "slots": [], "samples": ["heater on", "turn the heater on", "start heating"] },
+        { "name": "HeaterOffIntent", "slots": [], "samples": ["heater off", "turn the heater off", "stop heating"] },
+        { "name": "AMAZON.HelpIntent", "samples": [] },
+        { "name": "AMAZON.CancelIntent", "samples": [] },
+        { "name": "AMAZON.StopIntent", "samples": [] },
+        { "name": "AMAZON.FallbackIntent", "samples": [] }
+      ],
+      "types": []
+    }
+  }
+}

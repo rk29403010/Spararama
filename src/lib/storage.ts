@@ -1,6 +1,7 @@
 import { get, set } from 'idb-keyval';
 import { AppState, DEFAULT_SPA_CONFIG } from '../types';
 import { createDefaultDomainState } from '../domain/defaults';
+import { correctLegacySevenWayReadings } from '../domain/stripScales';
 
 const STORE_KEY = 'hottub_state';
 
@@ -39,10 +40,26 @@ export async function loadState(): Promise<AppState> {
       data.domain.maintenanceEvents = data.domain.maintenanceEvents || [];
       data.domain.equipment = data.domain.equipment || defaultDomain.equipment;
       data.domain.products = data.domain.products || defaultDomain.products;
-      data.domain.testMethods = data.domain.testMethods || defaultDomain.testMethods;
+
+      // Built-in strip definitions are application data rather than user data.
+      // Refresh them on load so corrected scales/order reach existing installs,
+      // while retaining any genuinely custom methods added later.
+      const builtInMethodIds = new Set(defaultDomain.testMethods.map(method => method.id));
+      const customMethods = (data.domain.testMethods || []).filter(method => !builtInMethodIds.has(method.id));
+      data.domain.testMethods = [...defaultDomain.testMethods, ...customMethods];
+
       data.domain.waterBodies = data.domain.waterBodies || defaultDomain.waterBodies;
       data.domain.activeWaterBodyId = data.domain.activeWaterBodyId || defaultDomain.activeWaterBodyId;
       data.domain.activeTestMethodId = data.domain.activeTestMethodId || defaultDomain.activeTestMethodId;
+
+      // Correct only records made with the bad 21-Aug scale. The earlier visual
+      // test-entry version already had the bottle's numeric values right.
+      data.domain.waterTests = data.domain.waterTests.map(record => {
+        if (record.testMethodId !== 'current-7-way') return record;
+        const correction = correctLegacySevenWayReadings(record.readings, { recordedAt: record.timestamp });
+        if (correction.correctedCount === 0) return record;
+        return { ...record, readings: correction.readings };
+      });
 
       const active = data.domain.waterBodies.find(item => item.id === data.domain.activeWaterBodyId)
         || data.domain.waterBodies[0];

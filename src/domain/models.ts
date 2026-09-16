@@ -10,7 +10,7 @@ export type MeasurementKey =
   | 'calcium_hardness'
   | 'cyanuric_acid';
 
-export type ReadingSource = 'manual' | 'camera' | 'photometer' | 'drop_test' | 'imported';
+export type ReadingSource = 'manual' | 'camera' | 'photometer' | 'drop_test' | 'ble_meter' | 'imported';
 
 export interface MeasurementReading {
   measurement: MeasurementKey;
@@ -20,6 +20,23 @@ export interface MeasurementReading {
   source: ReadingSource;
   confidence?: number;
   note?: string;
+  ignoredForAdvice?: boolean;
+  ignoreReason?: string;
+}
+
+export interface InstrumentMeasurement {
+  key: string;
+  value: number;
+  unit?: string;
+}
+
+export interface InstrumentSnapshot {
+  kind: string;
+  deviceId?: string;
+  deviceName?: string;
+  capturedAt: number;
+  measurements: InstrumentMeasurement[];
+  raw?: Record<string, string | number | boolean | null>;
 }
 
 export interface TargetRange {
@@ -173,6 +190,7 @@ export interface WaterTestRecord {
   waterBodyId: string;
   testMethodId: string;
   readings: MeasurementReading[];
+  instrument?: InstrumentSnapshot;
   dosingEpisodeId?: string;
   assessment?: ChemistryAssessment;
 }

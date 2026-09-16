@@ -46,6 +46,27 @@
 - Buffered chlorine tablets used in a floating dispenser.
 - Exact tablet mass / label release rate is not yet recorded.
 
+## Water testing equipment
+
+### YINMIK BLE-C600
+
+- Bluetooth 7-in-1 handheld water-quality meter received 29 Aug 2026.
+- Power: **3 x LR44** cells.
+- Manufacturer/manual parameters: pH, EC, TDS, salinity, specific gravity, ORP and temperature.
+- It does **not** directly measure free chlorine; do not treat an ORP value as a chlorine reading.
+- Direct Web Bluetooth support is implemented in Spararama on `chatgpt-dev`; see `docs/ble-c600.md`.
+- First physical BLE read and high-range EC/TDS/salinity scaling are not yet validated against this individual unit.
+
+### LaMotte Insta-TEST 5 Plus
+
+- Pool & spa test strips, LaMotte order code **2977**, added 14 Sep 2026.
+- The five-pad strip reports Free Chlorine/Bromine from a shared pad, Total Chlorine, Total Alkalinity, pH and Total Hardness.
+- Bottle scales: FC 0/0.5/1/3/5/10 ppm; Bromine 0/1/2/6/10/20 ppm; TC 0/0.5/1/3/5/10 ppm; TA 0/40/80/120/180/240 ppm; pH 6.2/6.8/7.2/7.8/8.4/9.0; TH 0/100/250/450/800+ ppm.
+- Bottle instructions: immerse for 2 seconds, remove with pads face up, shake once to remove excess water, then read immediately in the order FC > TC > TA > pH > TH.
+- Spararama records the FC scale for the current chlorine spa; the alternate bromine scale is retained in the strip reference.
+- On-screen swatch colours are approximate representations of the photographed bottle. Numeric values/order are authoritative; compare the wet strip to the physical bottle.
+- LaMotte WaterLink Home supports camera photo-scanning of Insta-TEST strips. A same-strip comparison between manual bottle matching, Spararama entry and WaterLink camera analysis is pending.
+
 ## Baseline tap-water strip readings
 
 - Free chlorine: 0 ppm
@@ -61,6 +82,9 @@ Because the water is hard, avoid unnecessarily high pH/alkalinity.
 - Free chlorine before bathing: approximately 3-5 ppm
 - pH: approximately 7.2-7.6, preferably towards the lower-middle of the range
 - TA: avoid chasing ambiguous strip colours once approximately within a workable range
+- For a strip result selected **between two adjacent swatches**, preserve the two printed endpoints in the stored reading but use their numeric midpoint as the working estimate for chemistry advice and dosing. Example: between 50 and 100 ppm is treated as about 75 ppm. This automatically respects non-linear printed scales because the midpoint is taken only between the actual adjacent values, not from a global linear scale.
+- A swatch that itself represents a printed range (for example 30-50 ppm CYA) is likewise treated by its midpoint for ordinary target assessment while the original range remains stored.
+- Do not require another strip test solely because a reading lies between two swatches; strip testing is inherently approximate.
 - Remove floating tablet dispenser while bathing
 
 ## Logging rules
@@ -73,11 +97,14 @@ Persistent event log: `history/spa-events.jsonl`.
 - Record filter/cartridge changes, rinses, flushes, refills, bathing/use, cover state when relevant, faults/noises, and other maintenance observations.
 - Preserve uncertain strip readings as ranges/approximate values rather than forcing a single number.
 - Do not invent missing historical times, quantities, or maintenance events.
+- Treat dose response as diagnostic evidence. If a confirmed dose is followed by a fresh reading with no detectable movement in the expected direction, do not simply repeat the same dose indefinitely. Record the apparent non-response, consider test-method reliability and product/dose assumptions, and prefer an independent or fresh test before escalating.
 
 ## Current diagnostic context
 
 - Persistent apparently-low FC occurred on the previous fill and again after a flush, empty/manual clean, clean refill and chlorine shock.
 - Current new 7-way strips have shown low FC while a noticeable chlorine smell is present.
 - A 1:1 dilution test on 11 Aug 2026 behaved normally: undiluted FC about 1 ppm, diluted FC about 0.5 ppm. This does not support high-chlorine bleaching as the explanation.
-- Total-chlorine strip readings of 0 while FC is non-zero are internally inconsistent and should be treated cautiously.
-- Filter/filtration area was reported rattling after only around 1-2 days of operation on the current fill; exact source is not yet identified.
+- The current 7-in-1 strip's total-chlorine pad repeatedly reads 0 even when free chlorine reads 0.5 ppm or higher. That combination is chemically impossible, so preserve the raw TC result but allow it to be explicitly excluded from dosing/readiness advice; never auto-correct or auto-ignore it.
+- On 12 Sep 2026 Robin confirmed that this batch's Total chlorine pad has never shown anything other than 0 across many strips. Once the user explicitly excludes that pad from advice, treat the exclusion as informational rather than asking for repeated tests with the same faulty pad. Combined chlorine remains unavailable from that batch; Free chlorine still drives chlorine dosing.
+- On 12 Sep 2026 Robin reported that the most recent full recommended Total Alkalinity Increaser dose appeared to produce no visible change on the strip, similar to the recurring apparent lack of response to chlorine additions. Because the current strips are themselves suspect, this is evidence of a dose/test-response mismatch rather than proof that the chemicals failed to work.
+- The current filter cartridge developed a layer of light grey deposit/gunk and began rattling after only around two days of use. The deposit is not identified; possibilities such as precipitated mineral material or trapped organic/biofilm material remain unconfirmed.

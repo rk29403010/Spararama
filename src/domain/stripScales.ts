@@ -1,0 +1,389 @@
+import type { MeasurementKey, MeasurementReading } from './models';
+
+export const SEVEN_WAY_SCALE_REVISION = '7way-bottle-2026-09-06';
+export const SEVEN_WAY_NOTE_MARKER = '[scale:7way-bottle-2026-09-06]';
+export const BAD_SEVEN_WAY_SCALE_INTRODUCED_AT = Date.parse('2026-08-21T09:02:31Z');
+
+export interface StripSwatchValue {
+  label: string;
+  min: number;
+  max: number;
+  color: string;
+}
+
+export interface StripScaleRow {
+  measurement: MeasurementKey;
+  label: string;
+  unit?: string;
+  swatches: StripSwatchValue[];
+  printedTarget?: string;
+  targetWarning?: string;
+}
+
+const swatch = (label: string, value: number, color: string): StripSwatchValue => ({ label, min: value, max: value, color });
+const rangeSwatch = (label: string, min: number, max: number, color: string): StripSwatchValue => ({ label, min, max, color });
+
+export const STRIP_SCALE_ROWS: Record<string, StripScaleRow[]> = {
+  'current-3-way': [
+    {
+      measurement: 'free_chlorine', label: 'Free chlorine', unit: 'ppm',
+      swatches: [
+        swatch('0', 0, '#f4f1d2'), swatch('1', 1, '#eeeeea'), swatch('2', 2, '#deddea'),
+        swatch('3', 3, '#c8bfdd'), swatch('5', 5, '#ab95ce'), swatch('10', 10, '#8067af')
+      ]
+    },
+    {
+      measurement: 'ph', label: 'pH',
+      swatches: [
+        swatch('6.4', 6.4, '#d6b45f'), swatch('6.8', 6.8, '#dca44e'), swatch('7.2', 7.2, '#d99558'),
+        swatch('7.6', 7.6, '#cf8069'), swatch('7.8', 7.8, '#cd6f60'), swatch('8.4', 8.4, '#c3526d')
+      ]
+    },
+    {
+      measurement: 'total_alkalinity', label: 'Total alkalinity', unit: 'ppm',
+      swatches: [
+        swatch('0', 0, '#b47e33'), swatch('40', 40, '#697730'), swatch('80', 80, '#465f25'),
+        swatch('120', 120, '#355126'), swatch('180', 180, '#1d6971'), swatch('240', 240, '#174c65')
+      ]
+    }
+  ],
+  'current-7-way': [
+    {
+      measurement: 'free_chlorine', label: 'Free chlorine', unit: 'ppm', printedTarget: 'Pool 1–3; spa 3–5',
+      swatches: [
+        swatch('0', 0, '#f6f6f1'), swatch('0.5', 0.5, '#dcebf0'), swatch('1', 1, '#b8dde7'),
+        swatch('3', 3, '#70c0d7'), swatch('5', 5, '#3196b7'), swatch('10', 10, '#17667d')
+      ]
+    },
+    {
+      measurement: 'ph', label: 'pH', printedTarget: '7.2–7.6',
+      swatches: [
+        swatch('6.2', 6.2, '#f0c463'), swatch('6.8', 6.8, '#f3a16a'), swatch('7.2', 7.2, '#ef836f'),
+        swatch('7.6', 7.6, '#eb6576'), swatch('8.4', 8.4, '#e6507c'), swatch('9.0', 9, '#d43f83')
+      ]
+    },
+    {
+      measurement: 'bromine', label: 'Bromine', unit: 'ppm', printedTarget: 'Pool 2–6.6; spa 6.6–11',
+      swatches: [
+        swatch('0', 0, '#f5f4f5'), swatch('1', 1, '#e7b6df'), swatch('2.0', 2, '#cf96c3'),
+        swatch('6.6', 6.6, '#a86e9f'), swatch('11', 11, '#7d4778'), swatch('22', 22, '#53234d')
+      ]
+    },
+    {
+      measurement: 'total_alkalinity', label: 'Total alkalinity', unit: 'ppm', printedTarget: '80–120',
+      swatches: [
+        swatch('0', 0, '#efc74e'), swatch('40', 40, '#d6c66f'), swatch('80', 80, '#a5b37c'),
+        swatch('120', 120, '#7ea397'), swatch('180', 180, '#57869d'), swatch('240', 240, '#376fa8')
+      ]
+    },
+    {
+      measurement: 'total_chlorine', label: 'Total chlorine', unit: 'ppm', printedTarget: 'Bottle marks 0',
+      targetWarning: 'Not used as an app target: total chlorine cannot be 0 when free chlorine is above 0.',
+      swatches: [
+        swatch('0', 0, '#f5f4f5'), swatch('0.5', 0.5, '#e7b6df'), swatch('1', 1, '#cf96c3'),
+        swatch('3', 3, '#a86e9f'), swatch('5', 5, '#7d4778'), swatch('10', 10, '#53234d')
+      ]
+    },
+    {
+      measurement: 'calcium_hardness', label: 'Total hardness', unit: 'ppm', printedTarget: '100–500',
+      swatches: [
+        swatch('0', 0, '#65b9dc'), swatch('50', 50, '#70b4d8'), swatch('100', 100, '#78add4'),
+        swatch('250', 250, '#9291d8'), swatch('500', 500, '#8076c7'), swatch('1000', 1000, '#6658ad')
+      ]
+    },
+    {
+      measurement: 'cyanuric_acid', label: 'Cyanuric acid', unit: 'ppm', printedTarget: '30–50',
+      swatches: [
+        swatch('0', 0, '#bf2758'), rangeSwatch('30–50', 30, 50, '#ca4459'), swatch('100', 100, '#d47b5d'),
+        swatch('150', 150, '#d49b52'), swatch('240', 240, '#c7a347')
+      ]
+    }
+  ],
+  'lamotte-insta-test-5-plus': [
+    {
+      measurement: 'free_chlorine', label: 'Free chlorine', unit: 'ppm',
+      swatches: [
+        swatch('0', 0, '#f7f4d7'), swatch('0.5', 0.5, '#f2e6df'), swatch('1', 1, '#e8dce7'),
+        swatch('3', 3, '#d8bddf'), swatch('5', 5, '#ca9ad1'), swatch('10', 10, '#bd75c6')
+      ]
+    },
+    {
+      measurement: 'bromine', label: 'Bromine (same pad)', unit: 'ppm',
+      swatches: [
+        swatch('0', 0, '#f7f4d7'), swatch('1', 1, '#f2e6df'), swatch('2', 2, '#e8dce7'),
+        swatch('6', 6, '#d8bddf'), swatch('10', 10, '#ca9ad1'), swatch('20', 20, '#bd75c6')
+      ]
+    },
+    {
+      measurement: 'total_chlorine', label: 'Total chlorine', unit: 'ppm',
+      swatches: [
+        swatch('0', 0, '#e9eeab'), swatch('0.5', 0.5, '#dce8a7'), swatch('1', 1, '#c7dfb2'),
+        swatch('3', 3, '#a7d7c3'), swatch('5', 5, '#75c8c3'), swatch('10', 10, '#45b5bd')
+      ]
+    },
+    {
+      measurement: 'total_alkalinity', label: 'Total alkalinity', unit: 'ppm',
+      swatches: [
+        swatch('0', 0, '#dfc45d'), swatch('40', 40, '#c7c75f'), swatch('80', 80, '#a6c49a'),
+        swatch('120', 120, '#72b6a9'), swatch('180', 180, '#55aabe'), swatch('240', 240, '#4597ba')
+      ]
+    },
+    {
+      measurement: 'ph', label: 'pH',
+      swatches: [
+        swatch('6.2', 6.2, '#eab04a'), swatch('6.8', 6.8, '#ef8b64'), swatch('7.2', 7.2, '#ee765c'),
+        swatch('7.8', 7.8, '#ec6659'), swatch('8.4', 8.4, '#e85b61'), swatch('9.0', 9, '#e64b72')
+      ]
+    },
+    {
+      measurement: 'calcium_hardness', label: 'Total hardness', unit: 'ppm',
+      swatches: [
+        swatch('0', 0, '#67c1ce'), swatch('100', 100, '#55b2cf'), swatch('250', 250, '#3b9cd1'),
+        swatch('450', 450, '#4f70c5'), swatch('800+', 800, '#6b52bb')
+      ]
+    }
+  ]
+};
+
+export const STRIP_SCALES: Record<string, Partial<Record<MeasurementKey, StripSwatchValue[]>>> = Object.fromEntries(
+  Object.entries(STRIP_SCALE_ROWS).map(([methodId, rows]) => [
+    methodId,
+    Object.fromEntries(rows.map(row => [row.measurement, row.swatches]))
+  ])
+);
+
+interface LegacySwatch {
+  label: string;
+  min: number;
+  max: number;
+}
+
+type LegacyScaleMap = Partial<Record<MeasurementKey, LegacySwatch[]>>;
+export type SevenWayScaleLayout = 'current' | 'original' | 'bad' | 'ambiguous';
+
+const legacy = (label: string, value: number): LegacySwatch => ({ label, min: value, max: value });
+const legacyRange = (label: string, min: number, max: number): LegacySwatch => ({ label, min, max });
+
+// The first visual-entry implementation (2026-08-19) had the bottle's numeric
+// values right, but omitted the bromine row. Keep this layout so we do NOT
+// corrupt those already-correct historical records.
+const ORIGINAL_SEVEN_WAY: LegacyScaleMap = {
+  free_chlorine: [legacy('0', 0), legacy('0.5', 0.5), legacy('1', 1), legacy('3', 3), legacy('5', 5), legacy('10', 10)],
+  ph: [legacy('6.2', 6.2), legacy('6.8', 6.8), legacy('7.2', 7.2), legacy('7.6', 7.6), legacy('8.4', 8.4), legacy('9.0', 9)],
+  total_alkalinity: [legacy('0', 0), legacy('40', 40), legacy('80', 80), legacy('120', 120), legacy('180', 180), legacy('240', 240)],
+  total_chlorine: [legacy('0', 0), legacy('0.5', 0.5), legacy('1', 1), legacy('3', 3), legacy('5', 5), legacy('10', 10)],
+  calcium_hardness: [legacy('0', 0), legacy('50', 50), legacy('100', 100), legacy('250', 250), legacy('500', 500), legacy('1000', 1000)],
+  cyanuric_acid: [legacy('0', 0), legacyRange('30/50', 30, 50), legacy('100', 100), legacy('150', 150), legacy('240', 240)]
+};
+
+// A UI-compaction commit at 2026-08-21T09:02:31Z accidentally replaced the
+// 7-in-1 scale with values from a different reference chart. This is the only
+// layout that should be remapped by swatch position.
+const BAD_SEVEN_WAY: LegacyScaleMap = {
+  free_chlorine: [legacy('0', 0), legacy('0.5/1', 0.5), legacy('1/2', 1), legacy('3/6', 3), legacy('5/11', 5), legacy('10/22', 10)],
+  ph: [legacy('6.2', 6.2), legacy('6.8', 6.8), legacy('7.2', 7.2), legacy('7.6', 7.6), legacy('7.8', 7.8), legacy('8.4', 8.4)],
+  total_alkalinity: [legacy('0', 0), legacy('40', 40), legacy('80', 80), legacy('120', 120), legacy('180', 180), legacy('240', 240), legacy('400', 400)],
+  total_chlorine: [legacy('0', 0), legacy('0.25', 0.25), legacy('0.5', 0.5), legacy('1', 1), legacy('2.5', 2.5), legacy('5', 5)],
+  calcium_hardness: [legacy('0', 0), legacy('100', 100), legacy('250', 250), legacy('500', 500), legacy('1000', 1000)],
+  cyanuric_acid: [legacy('0', 0), legacyRange('30–50', 30, 50), legacy('100', 100), legacy('150', 150), legacy('240', 240)]
+};
+
+function sameNumber(a: number | undefined, b: number) {
+  return typeof a === 'number' && Math.abs(a - b) < 0.0001;
+}
+
+function normalizeLabel(value: string) {
+  return value.trim().replace(/[–—]/g, '-').replace(/\s+/g, '');
+}
+
+function stripTerminalPeriod(value: string) {
+  return value.replace(/\.\s*$/, '').trim();
+}
+
+function selectionFromNoteOnly(reading: MeasurementReading, scale: LegacySwatch[]) {
+  const note = reading.note || '';
+  const exactPrefix = 'Selected bottle swatch ';
+  if (note.startsWith(exactPrefix)) {
+    const raw = stripTerminalPeriod(note.slice(exactPrefix.length));
+    const wanted = normalizeLabel(raw);
+    const index = scale.findIndex(item => normalizeLabel(item.label) === wanted);
+    if (index >= 0) return { kind: 'swatch' as const, index };
+  }
+
+  const betweenPrefix = 'Colour judged between bottle swatches ';
+  if (note.startsWith(betweenPrefix)) {
+    const raw = stripTerminalPeriod(note.slice(betweenPrefix.length));
+    const parts = raw.split(' and ');
+    if (parts.length === 2) {
+      const left = normalizeLabel(parts[0]);
+      const right = normalizeLabel(parts[1]);
+      const index = scale.findIndex((item, itemIndex) =>
+        itemIndex < scale.length - 1 &&
+        normalizeLabel(item.label) === left &&
+        normalizeLabel(scale[itemIndex + 1].label) === right
+      );
+      if (index >= 0) return { kind: 'between' as const, index };
+    }
+  }
+
+  return null;
+}
+
+function selectionFromValue(reading: MeasurementReading, scale: LegacySwatch[]) {
+  if (typeof reading.value === 'number') {
+    const index = scale.findIndex(item => item.min === item.max && sameNumber(reading.value, item.min));
+    if (index >= 0) return { kind: 'swatch' as const, index };
+  }
+
+  if (typeof reading.min === 'number' && typeof reading.max === 'number') {
+    const exactRange = scale.findIndex(item => sameNumber(reading.min, item.min) && sameNumber(reading.max, item.max));
+    if (exactRange >= 0) return { kind: 'swatch' as const, index: exactRange };
+    const between = scale.findIndex((item, index) => {
+      const right = scale[index + 1];
+      return right && sameNumber(reading.min, item.max) && sameNumber(reading.max, right.min);
+    });
+    if (between >= 0) return { kind: 'between' as const, index: between };
+  }
+
+  return null;
+}
+
+function selectionFor(reading: MeasurementReading, scale: LegacySwatch[]) {
+  return selectionFromNoteOnly(reading, scale) ?? selectionFromValue(reading, scale);
+}
+
+function noteEvidence(reading: MeasurementReading, scale: LegacyScaleMap) {
+  const measurementScale = scale[reading.measurement];
+  if (!measurementScale || !reading.note) return false;
+  return Boolean(selectionFromNoteOnly(reading, measurementScale));
+}
+
+export function detectLegacySevenWayLayout(
+  readings: MeasurementReading[],
+  recordedAt?: number
+): { layout: SevenWayScaleLayout; inferredFromTimestamp: boolean } {
+  if (readings.some(reading => reading.note?.includes(SEVEN_WAY_NOTE_MARKER))) {
+    return { layout: 'current', inferredFromTimestamp: false };
+  }
+
+  let originalEvidence = 0;
+  let badEvidence = 0;
+  for (const reading of readings) {
+    const originalMatches = noteEvidence(reading, ORIGINAL_SEVEN_WAY);
+    const badMatches = noteEvidence(reading, BAD_SEVEN_WAY);
+    if (originalMatches && !badMatches) originalEvidence++;
+    if (badMatches && !originalMatches) badEvidence++;
+  }
+
+  if (originalEvidence > 0 && badEvidence === 0) return { layout: 'original', inferredFromTimestamp: false };
+  if (badEvidence > 0 && originalEvidence === 0) return { layout: 'bad', inferredFromTimestamp: false };
+  if (originalEvidence > 0 && badEvidence > 0) return { layout: 'ambiguous', inferredFromTimestamp: false };
+
+  // Some swatches have identical labels in both layouts (for example FC=0).
+  // For those records, use the record time only when it is available. The bad
+  // layout did not exist before this exact commit timestamp.
+  if (typeof recordedAt === 'number' && Number.isFinite(recordedAt)) {
+    return {
+      layout: recordedAt < BAD_SEVEN_WAY_SCALE_INTRODUCED_AT ? 'original' : 'bad',
+      inferredFromTimestamp: true
+    };
+  }
+
+  return { layout: 'ambiguous', inferredFromTimestamp: false };
+}
+
+function migrationBase(reading: MeasurementReading) {
+  return {
+    measurement: reading.measurement,
+    source: reading.source,
+    ...(typeof reading.confidence === 'number' ? { confidence: reading.confidence } : {})
+  };
+}
+
+export interface SevenWayReadingCorrection {
+  readings: MeasurementReading[];
+  correctedCount: number;
+  unresolvedCount: number;
+  alreadyCurrent: boolean;
+  layout: SevenWayScaleLayout;
+  inferredFromTimestamp: boolean;
+}
+
+export function correctLegacySevenWayReadings(
+  readings: MeasurementReading[],
+  options: { recordedAt?: number } = {}
+): SevenWayReadingCorrection {
+  const detected = detectLegacySevenWayLayout(readings, options.recordedAt);
+  if (detected.layout === 'current') {
+    return { readings, correctedCount: 0, unresolvedCount: 0, alreadyCurrent: true, ...detected };
+  }
+
+  // The original 19/20 Aug layout already used the verified numeric values.
+  // Do not rewrite it merely because it predates today's revision marker.
+  if (detected.layout === 'original') {
+    return { readings, correctedCount: 0, unresolvedCount: 0, alreadyCurrent: false, ...detected };
+  }
+
+  if (detected.layout === 'ambiguous') {
+    return {
+      readings,
+      correctedCount: 0,
+      unresolvedCount: readings.filter(reading => BAD_SEVEN_WAY[reading.measurement]).length,
+      alreadyCurrent: false,
+      ...detected
+    };
+  }
+
+  const newScaleMap = STRIP_SCALES['current-7-way'] || {};
+  let correctedCount = 0;
+  let unresolvedCount = 0;
+
+  const corrected = readings.map(reading => {
+    const badScale = BAD_SEVEN_WAY[reading.measurement];
+    const newScale = newScaleMap[reading.measurement];
+    if (!badScale || !newScale) return reading;
+
+    const selection = selectionFor(reading, badScale);
+    if (!selection) {
+      unresolvedCount++;
+      return reading;
+    }
+
+    if (selection.kind === 'swatch') {
+      const oldItem = badScale[selection.index];
+      const nextItem = newScale[selection.index];
+      if (!nextItem) {
+        unresolvedCount++;
+        return {
+          ...migrationBase(reading),
+          note: `Legacy 7-in-1 swatch position ${selection.index + 1} (${oldItem?.label ?? 'unknown'}) has no corresponding swatch on the verified bottle; review required. ${SEVEN_WAY_NOTE_MARKER}`
+        };
+      }
+      correctedCount++;
+      const note = `Selected bottle swatch ${nextItem.label}. Corrected from bad-layout swatch position ${selection.index + 1} (previously labelled ${oldItem?.label ?? 'unknown'}). ${SEVEN_WAY_NOTE_MARKER}`;
+      if (nextItem.min === nextItem.max) return { ...migrationBase(reading), value: nextItem.min, note };
+      return { ...migrationBase(reading), min: nextItem.min, max: nextItem.max, note };
+    }
+
+    const oldLeft = badScale[selection.index];
+    const oldRight = badScale[selection.index + 1];
+    const newLeft = newScale[selection.index];
+    const newRight = newScale[selection.index + 1];
+    if (!newLeft || !newRight) {
+      unresolvedCount++;
+      return {
+        ...migrationBase(reading),
+        note: `Legacy 7-in-1 between-swatch position ${selection.index + 1}/${selection.index + 2} has no verified equivalent; review required. ${SEVEN_WAY_NOTE_MARKER}`
+      };
+    }
+    correctedCount++;
+    return {
+      ...migrationBase(reading),
+      min: Math.min(newLeft.max, newRight.min),
+      max: Math.max(newLeft.max, newRight.min),
+      note: `Colour judged between bottle swatches ${newLeft.label} and ${newRight.label}. Corrected from bad-layout labels ${oldLeft?.label ?? '?'} and ${oldRight?.label ?? '?'}. ${SEVEN_WAY_NOTE_MARKER}`
+    };
+  });
+
+  return { readings: corrected, correctedCount, unresolvedCount, alreadyCurrent: false, ...detected };
+}

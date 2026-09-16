@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { AppState, HeatingSession } from '../types';
 import { addDays, format } from 'date-fns';
-import { volumeAdjustedHeatingRate } from '../domain/heating';
+import { estimateHeatingPlan } from '../domain/heating';
 import { spaApi } from '../lib/spaApi';
+import { cacheSpaTemperature, readCachedWaterTemperature } from '../lib/spaSnapshotCache';
 import { weatherApi, type WeatherForecastDto } from '../lib/weatherApi';
 import { heatingApi } from '../lib/heatingApi';
 import { Cloud, Save, Sun, Wind } from 'lucide-react';
@@ -19,14 +20,17 @@ function displayTemperature(celsius: number, scale: 'C' | 'F') {
   return scale === 'F' ? Math.round((celsius * 9 / 5) + 32) : Math.round(celsius);
 }
 
-function mean(values: Array<number | null | undefined>, fallback: number) {
-  const usable = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
-  return usable.length ? usable.reduce((sum, value) => sum + value, 0) / usable.length : fallback;
-}
-
 export function Heating({ state, updateState }: HeatingProps) {
-  const [currentTemp, setCurrentTemp] = useState<number | null>(null);
+  const scale = state.config.temperatureScale;
+  const timeFormat = state.config.timeFormat;
+  const activeWaterBody = state.domain.waterBodies.find(item => item.id === state.domain.activeWaterBodyId) || state.domain.waterBodies[0];
+  const waterVolumeLiters = activeWaterBody?.volumeLiters || state.config.waterCapacityLiters || 800;
+  const autoStartPreferred = activeWaterBody?.connectivity === 'wifi' && Boolean(activeWaterBody?.connectorId);
+  const initialCachedTemperature = activeWaterBody && autoStartPreferred ? readCachedWaterTemperature(activeWaterBody.id) : null;
+
+  const [currentTemp, setCurrentTemp] = useState<number | null>(() => initialCachedTemperature ? displayTemperature(initialCachedTemperature.valueC, scale) : null);
   const [currentReadingLive, setCurrentReadingLive] = useState(false);
+  const [currentTempRefreshing, setCurrentTempRefreshing] = useState(autoStartPreferred);
   const [temperatureLookupError, setTemperatureLookupError] = useState('');
   const [targetTemp, setTargetTemp] = useState(state.config.defaultHeatingTarget || 40);
   const [readyMode, setReadyMode] = useState<ReadyMode>('by-time');
@@ -40,11 +44,6 @@ export function Heating({ state, updateState }: HeatingProps) {
   const [weatherData, setWeatherData] = useState<WeatherForecastDto | null>(null);
   const [weatherError, setWeatherError] = useState('');
 
-  const scale = state.config.temperatureScale;
-  const timeFormat = state.config.timeFormat;
-  const activeWaterBody = state.domain.waterBodies.find(item => item.id === state.domain.activeWaterBodyId) || state.domain.waterBodies[0];
-  const waterVolumeLiters = activeWaterBody?.volumeLiters || state.config.waterCapacityLiters || 800;
-  const autoStartPreferred = activeWaterBody?.connectivity === 'wifi' && Boolean(activeWaterBody?.connectorId);
   const minC = 10;
   const maxC = 42;
   const minTemp = scale === 'F' ? Math.round((minC * 9 / 5) + 32) : minC;
@@ -52,19 +51,35 @@ export function Heating({ state, updateState }: HeatingProps) {
 
   useEffect(() => {
     let cancelled = false;
-    setCurrentTemp(null);
+    if (!activeWaterBody) {
+      setCurrentTemp(null);
+      setCurrentReadingLive(false);
+      setCurrentTempRefreshing(false);
+      setTemperatureLookupError('Current temperature unavailable.');
+      return;
+    }
+
+    const cached = autoStartPreferred ? readCachedWaterTemperature(activeWaterBody.id) : null;
+    setCurrentTemp(cached ? displayTemperature(cached.valueC, state.config.temperatureScale) : null);
     setCurrentReadingLive(false);
+    setCurrentTempRefreshing(autoStartPreferred);
     setTemperatureLookupError('');
+
     spaApi.currentTemperature()
       .then(estimate => {
         if (cancelled) return;
+        cacheSpaTemperature(activeWaterBody.id, estimate);
         setCurrentReadingLive(estimate.source === 'live-spa');
         setCurrentTemp(displayTemperature(estimate.valueC, state.config.temperatureScale));
       })
       .catch((err: any) => {
         if (cancelled) return;
         setCurrentReadingLive(false);
-        setTemperatureLookupError(err?.message || 'Current temperature unavailable.');
+        const message = err?.message || 'Current temperature unavailable.';
+        setTemperatureLookupError(cached ? `${message} Showing last known temperature.` : message);
+      })
+      .finally(() => {
+        if (!cancelled) setCurrentTempRefreshing(false);
       });
     return () => { cancelled = true; };
   }, [activeWaterBody?.id]);
@@ -106,13 +121,13 @@ export function Heating({ state, updateState }: HeatingProps) {
   }, [readyMode]);
 
   useEffect(() => {
-    if (currentTemp === null) {
+    if (currentTemp === null || currentTempRefreshing) {
       setCalculation(null);
       return;
     }
     const timer = setTimeout(() => { calculateHeating(); setSaveSuccess(false); }, 300);
     return () => clearTimeout(timer);
-  }, [currentTemp, targetTemp, readyMode, readyDay, readyHour, asapClock, scale, weatherData, waterVolumeLiters, state.config.heatingRateReferenceVolumeLiters, state.config.heatSoakMinutes]);
+  }, [currentTemp, currentTempRefreshing, targetTemp, readyMode, readyDay, readyHour, asapClock, scale, weatherData, waterVolumeLiters, state.config.heatingRateReferenceVolumeLiters, state.config.heatSoakMinutes]);
 
   const handleScheduleHeating = async () => {
     if (!calculation) return;
@@ -152,105 +167,64 @@ export function Heating({ state, updateState }: HeatingProps) {
         return;
       }
 
-      let cTemp = currentTemp;
-      let tTemp = targetTemp;
+      let currentTemperatureC = currentTemp;
+      let targetTemperatureC = targetTemp;
       if (scale === 'F') {
-        cTemp = (currentTemp - 32) * 5 / 9;
-        tTemp = (targetTemp - 32) * 5 / 9;
+        currentTemperatureC = (currentTemp - 32) * 5 / 9;
+        targetTemperatureC = (targetTemp - 32) * 5 / 9;
       }
-      const tempDiff = Math.max(0, tTemp - cTemp);
-      const now = Date.now();
-      const soakHours = Math.max(0, state.config.heatSoakMinutes || 0) / 60;
-      const baseHeatingRate = volumeAdjustedHeatingRate(
-        state.config.baseHeatingRatePerHour,
-        waterVolumeLiters,
-        state.config.heatingRateReferenceVolumeLiters || 800
-      );
 
-      let targetTimestamp: number;
-      if (readyMode === 'asap') {
-        const provisionalHours = (tempDiff / Math.max(0.5, baseHeatingRate)) + soakHours;
-        targetTimestamp = now + Math.max(60_000, provisionalHours * 60 * 60 * 1000);
-      } else {
+      const now = Date.now();
+      let requestedTargetTime: number | undefined;
+      if (readyMode === 'by-time') {
         const baseDate = readyDay === 'today' ? new Date() : addDays(new Date(), 1);
         const targetDate = new Date(baseDate.setHours(readyHour, 0, 0, 0));
-        targetTimestamp = targetDate.getTime();
-        if (targetTimestamp <= now) {
+        requestedTargetTime = targetDate.getTime();
+        if (requestedTargetTime <= now) {
           setError('Choose a future ready time.');
           setCalculation(null);
           return;
         }
       }
 
-      let avgAmbientTemp = 15;
-      let avgWindSpeed = 10;
-      let avgSolarRadiationWm2 = 0;
-      let avgPrecipitationMm = 0;
-      let temperatureInfluence = 1;
-      let windInfluence = 1;
-      let solarInfluence = 0;
-      let precipitationInfluence = 0;
+      const estimate = estimateHeatingPlan({
+        mode: readyMode,
+        now,
+        currentTemperatureC,
+        targetTemperatureC,
+        targetTime: requestedTargetTime,
+        baseHeatingRateCPerHour: state.config.baseHeatingRatePerHour,
+        waterVolumeLiters,
+        referenceVolumeLiters: state.config.heatingRateReferenceVolumeLiters || 800,
+        heatSoakMinutes: state.config.heatSoakMinutes || 0,
+        heaterPowerWatts: state.config.heaterPowerWatts,
+        electricityRatePerKwh: state.config.electricityRatePerKwh,
+        weather: weatherData ? {
+          derived: weatherData.derived,
+          influence: weatherData.influence,
+          sourceCount: weatherData.sources.length,
+          samplingMode: weatherData.settings.samplingMode
+        } : undefined
+      });
 
-      if (weatherData) {
-        const selectedIndexes = weatherData.derived.time
-          .map((time, index) => ({ time, index }))
-          .filter(item => item.time >= now && item.time <= targetTimestamp)
-          .map(item => item.index);
-
-        if (selectedIndexes.length) {
-          avgAmbientTemp = mean(selectedIndexes.map(index => weatherData.derived.temperatureC[index]), 15);
-          avgWindSpeed = mean(selectedIndexes.map(index => weatherData.derived.windSpeedMps[index]), 10 / 3.6) * 3.6;
-          avgSolarRadiationWm2 = mean(selectedIndexes.map(index => weatherData.derived.shortwaveRadiationWm2[index]), 0);
-          avgPrecipitationMm = mean(selectedIndexes.map(index => weatherData.derived.precipitationMm[index]), 0);
-        }
-        temperatureInfluence = weatherData.influence.temperature;
-        windInfluence = weatherData.influence.wind;
-        solarInfluence = weatherData.influence.solar;
-        precipitationInfluence = weatherData.influence.precipitation;
-      }
-
-      let effectiveHeatingRate = baseHeatingRate;
-      if (avgAmbientTemp < 15) effectiveHeatingRate -= (15 - avgAmbientTemp) * 0.05 * temperatureInfluence;
-      if (avgWindSpeed > 10) effectiveHeatingRate -= ((avgWindSpeed - 10) / 5) * 0.05 * windInfluence;
-      if (avgSolarRadiationWm2 > 0) effectiveHeatingRate += Math.min(0.12, (avgSolarRadiationWm2 / 800) * 0.12) * solarInfluence;
-      if (avgPrecipitationMm > 0) effectiveHeatingRate -= Math.min(0.08, avgPrecipitationMm * 0.02) * precipitationInfluence;
-      effectiveHeatingRate = Math.max(0.5, effectiveHeatingRate);
-
-      const hoursToHeat = tempDiff / effectiveHeatingRate;
-      const totalHours = hoursToHeat + soakHours;
-      const startTimestamp = readyMode === 'asap'
-        ? now
-        : targetTimestamp - totalHours * 60 * 60 * 1000;
-
-      if (readyMode === 'asap') {
-        targetTimestamp = now + Math.max(60_000, totalHours * 60 * 60 * 1000);
-      } else if (startTimestamp < now) {
+      if (readyMode === 'by-time' && !estimate.canMeetTarget) {
         setError('Choose ASAP - this ready time is too soon.');
       }
 
-      const activeHeatingKwh = (state.config.heaterPowerWatts / 1000) * hoursToHeat;
-      const soakKwh = (state.config.heaterPowerWatts / 1000) * soakHours * 0.5;
-      const costEstimate = (activeHeatingKwh + soakKwh) * state.config.electricityRatePerKwh;
-
       setCalculation({
         id: Date.now().toString(),
-        targetTemp: tTemp,
-        targetTime: targetTimestamp,
-        startTemp: cTemp,
-        startTime: startTimestamp,
-        ambientTempAvg: avgAmbientTemp,
-        avgWindSpeed,
-        avgSolarRadiationWm2,
-        weatherSourceCount: weatherData?.sources.length,
-        weatherSamplingMode: weatherData?.settings.samplingMode,
-        weatherInfluence: weatherData ? {
-          temperature: weatherData.influence.temperature,
-          wind: weatherData.influence.wind,
-          solar: weatherData.influence.solar,
-          precipitation: weatherData.influence.precipitation
-        } : undefined,
-        expectedDurationHours: totalHours,
-        costEstimate
+        targetTemp: estimate.targetTemperatureC,
+        targetTime: estimate.targetTime,
+        startTemp: estimate.startTemperatureC,
+        startTime: estimate.startTime,
+        ambientTempAvg: estimate.avgAmbientTemperatureC,
+        avgWindSpeed: estimate.avgWindSpeedKph,
+        avgSolarRadiationWm2: estimate.avgSolarRadiationWm2,
+        weatherSourceCount: estimate.weatherSourceCount,
+        weatherSamplingMode: estimate.weatherSamplingMode,
+        weatherInfluence: estimate.weatherInfluence,
+        expectedDurationHours: estimate.totalHours,
+        costEstimate: estimate.costEstimate
       });
     } catch {
       setError('Heating estimate failed.');
@@ -258,7 +232,9 @@ export function Heating({ state, updateState }: HeatingProps) {
   };
 
   const displayedCurrentTemp = currentTemp ?? minTemp;
-  const currentDetail = temperatureLookupError || undefined;
+  const currentDetail = currentTempRefreshing
+    ? (currentTemp !== null ? 'Refreshing live reading…' : 'Refreshing…')
+    : temperatureLookupError || undefined;
   const resultTimestamp = calculation ? (readyMode === 'asap' ? calculation.targetTime : calculation.startTime) : null;
   const resultLabel = readyMode === 'asap' ? 'Ready around' : 'Start heating';
 
@@ -271,7 +247,7 @@ export function Heating({ state, updateState }: HeatingProps) {
           min={minTemp}
           max={maxTemp}
           scale={scale}
-          disabled={currentTemp === null}
+          disabled={currentTemp === null || currentTempRefreshing}
           liveReading={currentReadingLive}
           onChange={value => {
             setCurrentReadingLive(false);

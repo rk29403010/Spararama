@@ -16,14 +16,20 @@ import { registerSpaHistoryRoutes } from './server/history/spa-events';
 import { WeatherService } from './server/weather/service';
 import { registerWeatherRoutes } from './server/weather/routes';
 import { HeatingScheduler } from './server/heating/scheduler';
+import { HeatingStore } from './server/heating/store';
 import { registerHeatingRoutes } from './server/heating/routes';
+import { PushService } from './server/push/service';
+import { registerPushRoutes } from './server/push/routes';
 import { AlexaAlertDispatcher } from './server/alerts/alexa-dispatcher';
 import { registerAlertRoutes } from './server/alerts/routes';
+import { AlexaSpaCommandService } from './server/alexa/direct';
+import { registerDirectAlexaRoutes } from './server/alexa/routes';
 import { createMerossMsh300SensorSource } from './server/sensors/meross-msh300';
 
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT || 3000);
+  const HOST = process.env.SPAR_BIND_HOST || '0.0.0.0';
 
   const isTermux = String(process.env.PREFIX || '').includes('com.termux');
   if (isTermux && (!process.env.TELEMETRY_HOST_ID || process.env.TELEMETRY_HOST_ID === 'spararama-laptop')) {
@@ -58,11 +64,15 @@ async function startServer() {
   const weather = new WeatherService();
   const merossSensors = createMerossMsh300SensorSource();
   const temperatureResolver = new BestEffortTemperatureResolver(spaAdapter, telemetryStore);
-  const heatingScheduler = new HeatingScheduler(spaAdapter);
+  const pushService = new PushService();
+  const heatingScheduler = new HeatingScheduler(spaAdapter, new HeatingStore(), pushService);
+  const alexaDirect = new AlexaSpaCommandService(spaAdapter, bubbles, heatingScheduler, { weatherService: weather });
   registerSpaRoutes(app, spaAdapter, temperatureResolver, bubbles);
   registerWeatherRoutes(app, weather);
   registerHeatingRoutes(app, heatingScheduler);
+  registerPushRoutes(app, pushService);
   registerAlertRoutes(app, alexaAlerts);
+  registerDirectAlexaRoutes(app, alexaDirect);
   registerSpaHistoryRoutes(app);
 
   const telemetry = new TelemetryCollector(spaAdapter, telemetryStore, firebaseTelemetry, weather, merossSensors);
@@ -79,11 +89,11 @@ async function startServer() {
     });
   }
 
-  // Event-capable adapters can ask for an immediate observation. This is optional:
-  // polling-only Wi-Fi adapters, cloud adapters and manual-only spas remain valid.
-  // The collector's system-owned watchdog continues even when push events exist.
-  const unsubscribeSpaEvents = spaAdapter.subscribe?.(() => {
-    void telemetry.collectNow();
+  // Event-capable adapters can provide an immediate observation. Feed that exact
+  // status into telemetry instead of re-reading the spa, otherwise a status event
+  // would trigger another status request and recursively generate more events.
+  const unsubscribeSpaEvents = spaAdapter.subscribe?.((event) => {
+    if (event.kind === 'status') void telemetry.collectNow(event.status);
   });
 
   heatingScheduler.start();
@@ -95,6 +105,7 @@ async function startServer() {
   console.log(`Firebase project: ${telemetryStatus.firebaseProjectId || 'not resolved'}`);
   console.log(`Firestore database: ${telemetryStatus.firestoreDatabaseId || 'not resolved'}`);
   console.log(`Firebase credential source: ${telemetryStatus.firebaseCredentialSource || 'not resolved'}`);
+  console.log(`Background push enabled: ${pushService.enabled}`);
   console.log(`Telemetry collector ID: ${process.env.TELEMETRY_HOST_ID || 'machine hostname'}`);
   console.log(`Meross MSH300 sensor polling: ${merossSensors ? `enabled (${merossSensors.config.endpoint.host})` : 'disabled'}`);
 
@@ -141,12 +152,13 @@ async function startServer() {
   app.get('/api/telemetry/chart', async (req, res) => {
     try {
       const since = Number(req.query.since || Date.now() - 48 * 60 * 60 * 1000);
+      const until = Number(req.query.until || Date.now());
       const maxPoints = Number(req.query.maxPoints || 500);
-      if (!Number.isFinite(since)) {
-        res.status(400).json({ error: 'Expected numeric query parameter: since' });
+      if (!Number.isFinite(since) || !Number.isFinite(until) || until < since) {
+        res.status(400).json({ error: 'Expected numeric chart range with until >= since' });
         return;
       }
-      res.json(await sharedTelemetry.readChartRange(since, maxPoints));
+      res.json(await sharedTelemetry.readChartRange(since, maxPoints, until));
     } catch (error: any) {
       res.status(500).json({ error: error?.message || 'Unable to prepare shared telemetry chart history' });
     }
@@ -255,8 +267,8 @@ async function startServer() {
     });
   }
 
-  const server = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`Server running on http://${HOST}:${PORT}`);
     console.log(`Telemetry watchdog every ${telemetry.getStatus().intervalMs / 1000}s -> ${telemetry.getStatus().localArchivePath}`);
   });
 
