@@ -44,6 +44,27 @@ spar
 The installer takes care of Node.js, curl, process tools, `setsid`, and the repo's
 pinned pnpm version.
 
+## Always-on old-phone server
+
+If the phone will be left at home as the unattended Spararama host rather than used
+mainly as an interactive development phone, use the server setup wrapper after cloning:
+
+```bash
+bash scripts/termux/server-setup.sh --host-id spararama-a17
+```
+
+That adds OpenSSH, `termux-services`, wake-lock handling and automatic boot startup.
+It deliberately does not attempt to change Android/Samsung battery settings or router
+configuration. The full end-to-end guide, including those manual steps, SSH keys,
+Firebase Admin setup, DHCP reservation and troubleshooting, is in
+[`docs/old-phone-server.md`](./old-phone-server.md).
+
+A quick health summary for an already configured server is available with:
+
+```bash
+bash scripts/termux/server-check.sh
+```
+
 ## Connector modes
 
 ### Mock mode
