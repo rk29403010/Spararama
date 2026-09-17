@@ -12,7 +12,17 @@ export function isSystemUpdateEnabled(env: NodeJS.ProcessEnv = process.env) {
   return String(env.PREFIX || '').includes('com.termux') && env.SPAR_UI_UPDATE_ENABLED !== '0';
 }
 
+export function systemUpdateRequired(input: {
+  currentBranch?: string;
+  targetBranch: string;
+  localCommit: string;
+  remoteCommit: string;
+}) {
+  return input.currentBranch !== input.targetBranch || input.localCommit !== input.remoteCommit;
+}
+
 type UpdateState = 'idle' | 'running' | 'succeeded' | 'failed';
+export type SystemUpdateOutcome = 'started' | 'up-to-date';
 
 export interface SystemUpdateStatus {
   supported: boolean;
@@ -21,6 +31,7 @@ export interface SystemUpdateStatus {
   currentBranch?: string;
   commit?: string;
   dirty?: boolean;
+  outcome?: SystemUpdateOutcome;
   update: {
     state: UpdateState;
     startedAt?: number;
@@ -93,10 +104,10 @@ export class SystemUpdateService {
     this.noOpenBin = path.join(this.stateDir, 'ui-update-bin');
   }
 
-  private async git(args: string[]) {
+  private async git(args: string[], timeout = 5_000) {
     const result = await execFileAsync('git', args, {
       cwd: this.repoPath,
-      timeout: 5_000,
+      timeout,
       maxBuffer: 256 * 1024
     });
     return String(result.stdout || '').trim();
@@ -182,11 +193,40 @@ export class SystemUpdateService {
     };
   }
 
-  async startUpdate() {
+  private async hasUpdate(status: SystemUpdateStatus) {
+    try {
+      await this.git(['fetch', 'origin', this.branch], 20_000);
+      const [localCommit, remoteCommit] = await Promise.all([
+        this.git(['rev-parse', 'HEAD']),
+        this.git(['rev-parse', `origin/${this.branch}`])
+      ]);
+      return systemUpdateRequired({
+        currentBranch: status.currentBranch,
+        targetBranch: this.branch,
+        localCommit,
+        remoteCommit
+      });
+    } catch (error: any) {
+      throw new SystemUpdateError(
+        `Could not check GitHub for updates. Existing server has not been stopped. ${error?.message || ''}`.trim(),
+        502
+      );
+    }
+  }
+
+  async startUpdate(): Promise<SystemUpdateStatus> {
     const status = await this.status();
     if (!status.supported) throw new SystemUpdateError(status.reason || 'UI update is unavailable.');
     if (status.update.state === 'running') throw new SystemUpdateError('An update is already running.');
     if (status.dirty) throw new SystemUpdateError('The checkout has local changes. Update is disabled until they are resolved.');
+
+    if (!(await this.hasUpdate(status))) {
+      return {
+        ...(await this.status()),
+        outcome: 'up-to-date',
+        update: { state: 'idle', message: 'Already up to date.' }
+      };
+    }
 
     const sourceRunner = path.join(this.repoPath, 'scripts', 'termux', 'spar');
     try {
@@ -234,7 +274,7 @@ export class SystemUpdateService {
     await fsp.writeFile(this.pidPath, `${child.pid}\n`, 'utf8');
     child.unref();
 
-    return this.status();
+    return { ...(await this.status()), outcome: 'started' };
   }
 }
 
@@ -258,6 +298,7 @@ export function registerSystemUpdateRoutes(app: Express, updater = new SystemUpd
       res.status(403).json({ error: 'Developer update header required.' });
       return;
     }
-    res.status(202).json(await updater.startUpdate());
+    const result = await updater.startUpdate();
+    res.status(result.outcome === 'started' ? 202 : 200).json(result);
   }));
 }

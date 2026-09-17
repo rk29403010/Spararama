@@ -1,4 +1,5 @@
 export type SystemUpdateRunState = 'idle' | 'running' | 'succeeded' | 'failed';
+export type SystemUpdateOutcome = 'started' | 'up-to-date';
 
 export interface SystemUpdateStatusDto {
   supported: boolean;
@@ -7,6 +8,7 @@ export interface SystemUpdateStatusDto {
   currentBranch?: string;
   commit?: string;
   dirty?: boolean;
+  outcome?: SystemUpdateOutcome;
   update: {
     state: SystemUpdateRunState;
     startedAt?: number;
