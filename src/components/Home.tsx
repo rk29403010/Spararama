@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Flame, Loader2, Minus, Plus, RefreshCw, Thermometer, Waves, Wifi, WifiOff, Wind } from 'lucide-react';
 import type { AppState } from '../types';
 import { spaApi, type SpaStatusDto } from '../lib/spaApi';
+import { heatingApi, type HeatingOutlookDto } from '../lib/heatingApi';
 import { cacheConnectedSpaStatus, readCachedSpaStatus } from '../lib/spaSnapshotCache';
 import { ManualLogModal } from './ManualLogModal';
 
@@ -34,6 +35,22 @@ function countdownText(endsAt: number | undefined, now: number) {
 function acquiredText(timestamp: number | undefined) {
   if (!timestamp || !Number.isFinite(timestamp)) return 'No live reading yet';
   return `Updated ${new Date(timestamp).toLocaleString()}`;
+}
+
+function bathingTimeText(timestamp: number, timeFormat: '12h' | '24h', now: number) {
+  const date = new Date(timestamp);
+  const today = new Date(now);
+  const sameDay = date.getFullYear() === today.getFullYear()
+    && date.getMonth() === today.getMonth()
+    && date.getDate() === today.getDate();
+  const time = new Intl.DateTimeFormat('en-GB', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: timeFormat === '12h'
+  }).format(date);
+  if (sameDay) return time;
+  const weekday = new Intl.DateTimeFormat('en-GB', { weekday: 'short' }).format(date);
+  return `${weekday} ${time}`;
 }
 
 function ManualReadingButton({ onClick, label = 'Add observation' }: { onClick: () => void; label?: string }) {
@@ -86,6 +103,7 @@ export function Home({ state }: HomeProps) {
   const initialCachedStatus = waterBody ? readCachedSpaStatus(waterBody.id) : null;
   const [status, setStatus] = useState<SpaStatusDto | null>(initialCachedStatus);
   const [lastKnownStatus, setLastKnownStatus] = useState<SpaStatusDto | null>(initialCachedStatus);
+  const [heatingOutlook, setHeatingOutlook] = useState<HeatingOutlookDto | null>(null);
   const [reachable, setReachable] = useState(false);
   const [connectionChecked, setConnectionChecked] = useState(!expectedConnectedTub);
   const [refreshing, setRefreshing] = useState(false);
@@ -97,6 +115,19 @@ export function Home({ state }: HomeProps) {
     try { return window.localStorage.getItem(BUBBLE_AUTO_RESTART_KEY) === 'true'; } catch { return false; }
   });
   const refreshInFlight = useRef(false);
+  const outlookInFlight = useRef(false);
+
+  const refreshHeatingOutlook = async () => {
+    if (!waterBody || !expectedConnectedTub || outlookInFlight.current) return;
+    outlookInFlight.current = true;
+    try {
+      setHeatingOutlook(await heatingApi.outlook());
+    } catch {
+      // Keep the last useful projection. Spa connectivity errors are shown by the main status request.
+    } finally {
+      outlookInFlight.current = false;
+    }
+  };
 
   const refresh = async (manual = false) => {
     if (!waterBody || !expectedConnectedTub || refreshInFlight.current) return;
@@ -114,6 +145,7 @@ export function Home({ state }: HomeProps) {
       if (connected) {
         setLastKnownStatus(next);
         cacheConnectedSpaStatus(waterBody.id, next);
+        if (manual) void refreshHeatingOutlook();
       }
     } catch (err: any) {
       setReachable(false);
@@ -146,6 +178,17 @@ export function Home({ state }: HomeProps) {
     return () => { window.clearInterval(pollTimer); window.clearInterval(clockTimer); };
   }, [waterBody?.id, connectivity, liveConnectorAvailable]);
 
+  useEffect(() => {
+    setHeatingOutlook(null);
+    if (!expectedConnectedTub || !waterBody) return;
+    const initialTimer = window.setTimeout(() => void refreshHeatingOutlook(), 1500);
+    const outlookTimer = window.setInterval(() => void refreshHeatingOutlook(), 60_000);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(outlookTimer);
+    };
+  }, [waterBody?.id, connectivity, liveConnectorAvailable]);
+
   const command = async (name: string, action: () => Promise<SpaStatusDto>) => {
     setBusy(name);
     setError('');
@@ -158,6 +201,7 @@ export function Home({ state }: HomeProps) {
       if (connected && waterBody) {
         setLastKnownStatus(next);
         cacheConnectedSpaStatus(waterBody.id, next);
+        void refreshHeatingOutlook();
       }
       setNow(Date.now());
     } catch (err: any) {
@@ -219,6 +263,12 @@ export function Home({ state }: HomeProps) {
   const target = statusTarget ?? fallbackTarget;
   const dataAge = ageText(displayedStatus?.updatedAt, now);
   const contactAge = ageText(lastContactAt, now);
+  const requestedBathingText = finiteNumber(heatingOutlook?.requestedBathingTime)
+    ? bathingTimeText(heatingOutlook.requestedBathingTime, state.config.timeFormat, now)
+    : null;
+  const estimatedBathingText = finiteNumber(heatingOutlook?.estimatedBathingTime)
+    ? bathingTimeText(heatingOutlook.estimatedBathingTime, state.config.timeFormat, now)
+    : '—';
 
   if (connectionChecked && !reachable) return <>
     <div className="p-4 max-w-xl mx-auto">
@@ -279,12 +329,20 @@ export function Home({ state }: HomeProps) {
             <p className="text-7xl font-black tabular-nums tracking-tight mt-1">{current === null ? '—' : `${Math.round(current)}°`}</p>
           </div>
 
-          <div className="text-right">
+          <div className="text-right min-w-[10rem]">
             <p className="text-sm font-black text-slate-400">Target</p>
             <p className="text-4xl font-black tabular-nums tracking-tight mt-1">{target.toFixed(0)}°</p>
             <div className="mt-2 flex items-center justify-end gap-2">
               <button type="button" disabled={disabled} onClick={() => setTarget(target - 1)} className="w-12 h-12 rounded-xl bg-white/10 hover:bg-white/15 flex items-center justify-center disabled:opacity-40" aria-label="Lower target temperature"><Minus className="w-6 h-6" aria-hidden="true" /></button>
               <button type="button" disabled={disabled} onClick={() => setTarget(target + 1)} className="w-12 h-12 rounded-xl bg-white text-slate-950 flex items-center justify-center disabled:opacity-40" aria-label="Raise target temperature"><Plus className="w-6 h-6" aria-hidden="true" /></button>
+            </div>
+            <div className="mt-3 border-t border-white/10 pt-3 grid grid-cols-[auto_auto] justify-end gap-x-3 gap-y-1 text-sm">
+              {requestedBathingText && <>
+                <span className="font-bold text-slate-400">Requested bath</span>
+                <span className="font-black tabular-nums text-white">{requestedBathingText}</span>
+              </>}
+              <span className="font-bold text-slate-400">Estimated bath</span>
+              <span className="font-black tabular-nums text-white">{estimatedBathingText}</span>
             </div>
           </div>
         </div>

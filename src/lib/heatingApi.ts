@@ -44,6 +44,33 @@ export interface HeatingNotificationDto {
   pushLastError?: string;
 }
 
+export interface HeatingOutlookDto {
+  generatedAt: number;
+  modelVersion: string;
+  scenario: 'assume-start-now' | 'continue-heating' | 'unavailable';
+  requestedBathingTime?: number;
+  requestedScheduleId?: string;
+  requestedScheduleStatus?: HeatingScheduleStatus;
+  requestedTargetTemperatureC?: number;
+  estimatedBathingTime?: number;
+  currentTemperatureC?: number;
+  targetTemperatureC?: number;
+  heaterOn?: boolean;
+  weatherMode: 'forecast' | 'neutral';
+  weatherError?: string;
+  unavailableReason?: string;
+  projection?: {
+    effectiveHeatingRateCPerHour: number;
+    hoursToHeat: number;
+    heatSoakMinutes: number;
+    costEstimate: number;
+    avgAmbientTemperatureC: number;
+    avgWindSpeedKph: number;
+    avgSolarRadiationWm2: number;
+    avgPrecipitationMm: number;
+  };
+}
+
 export interface HeatingAlertOptions {
   heatSoakMinutes: number;
   alertOnTargetReached: boolean;
@@ -63,6 +90,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const heatingApi = {
+  outlook: () => requestJson<HeatingOutlookDto>('/api/heating/outlook'),
   schedule: (session: HeatingSession, autoStartPreferred: boolean, alerts: HeatingAlertOptions) => requestJson<HeatingScheduleDto>('/api/heating/schedules', {
     method: 'POST',
     body: JSON.stringify({

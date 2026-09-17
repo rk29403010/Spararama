@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { registerPushRoutes } from '../push/routes';
 import { PushService } from '../push/service';
+import type { HeatingPlanner } from './planner';
 import type { HeatingScheduler } from './scheduler';
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) {
@@ -12,8 +13,12 @@ function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) {
   };
 }
 
-export function registerHeatingRoutes(app: Express, scheduler: HeatingScheduler) {
+export function registerHeatingRoutes(app: Express, scheduler: HeatingScheduler, planner: HeatingPlanner) {
   registerPushRoutes(app, new PushService());
+
+  app.get('/api/heating/outlook', asyncRoute(async (_req, res) => {
+    res.json(await planner.getOutlook());
+  }));
 
   app.get('/api/heating/schedules', asyncRoute(async (_req, res) => {
     res.json({ schedules: await scheduler.listSchedules() });

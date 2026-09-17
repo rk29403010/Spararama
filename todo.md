@@ -30,6 +30,21 @@ Outstanding ideas and follow-up work discussed but not yet implemented or comple
   - Start heating automatically.
   - Hold the requested target temperature.
 
+- [ ] **Turn the backend heating outlook into a continuous planner/controller**
+  - Treat the requested bathing time as immutable user intent. Do not overwrite it when predictions move.
+  - Persist the initial plan/prediction, then append timestamped projection revisions so the original promise and every later correction remain available for analysis.
+  - Reforecast periodically and when meaningful inputs change: water temperature/rate, heater state, target, weather forecast, local weather observations, cover state and equipment interruptions.
+  - Record the reason for every material replan/course correction, the model version/configuration used and the data snapshot that drove it.
+  - Start with observation/reforecasting before allowing automatic schedule changes; add control policies only when we can audit why they acted.
+  - Develop a confidence/safety-margin policy: when uncertainty is high and the water is cold, favour an earlier start; where useful, allow an economical holding phase followed by a controlled “finish” rather than gambling on one exact start time.
+  - Keep the Home `requestedBathingTime` and `estimatedBathingTime` API semantics stable while the internal model evolves.
+
+- [ ] **Support more than one bathing strategy**
+  - `ready-by-time`: reach target for one requested bathing time.
+  - `asap`: heat from the current state as quickly as practical.
+  - `maintain-window`: keep the tub usable over a defined period (for example, repeated use through an afternoon/day) with a configurable comfort/economy policy.
+  - Keep strategy as explicit plan data rather than inferring it later from heater activity.
+
 - [ ] **Learn real heating/cooling behaviour from telemetry**
   - Replace fixed assumptions with observed rates.
   - Model effects from ambient temperature, cover state, wind, solar load, bubbles and other relevant inputs.
@@ -43,6 +58,14 @@ Outstanding ideas and follow-up work discussed but not yet implemented or comple
 ## History and actionable analytics
 
 The Logs page now has visual Today / 2-day / week / month / year temperature views, a shape-preserving chart roll-up, heater-on shading, typical-use markers, manual-temperature points, and an initial water-balance chart. The following are the next questions rather than reasons to add more decoration immediately.
+
+- [ ] **Heating event plan-vs-actual comparison graph**
+  - For one heating event, overlay the original planned temperature/time trajectory, later projection revisions/course corrections and actual measured water temperature.
+  - Mark planned start, actual heater start/stop periods, target reached, soak/ready point and any interruption or manual intervention.
+  - Show how the external forecast changed over the event and compare forecast conditions with local/observed weather where available.
+  - Show the initial cost estimate alongside revised estimates and actual estimated energy cost from measured heater runtime plus the tariff/rate that applied at the time.
+  - Preserve model version and key inputs with each plan/revision so old events remain interpretable after the model improves.
+  - Expose a backend event-analysis payload suitable for graphs; do not make the chart reconstruct plan history from mutable current schedule state.
 
 - [ ] **Detect explicit heating episodes and calculate useful outcomes**
   - Start temperature and target.
