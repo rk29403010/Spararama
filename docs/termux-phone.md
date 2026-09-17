@@ -157,6 +157,26 @@ or the current Wi-Fi blocks it, the already-running version is left alone.
 The long-running processes are launched with `setsid` and `nohup` so moving from
 Termux to the browser does not normally terminate their Node process trees.
 
+## Update from the Spararama UI
+
+On a Termux-hosted backend, **Settings -> Developer -> Mode** shows the backend branch
+and commit and exposes **Update & restart**.
+
+The browser does not supply a command, branch or filesystem path. The backend makes a
+detached copy of the normal `spar` runner and uses its existing update path to
+fast-forward the configured `chatgpt-dev` checkout, install changed dependencies when
+needed, and restart the current connector mode. A dirty checkout is refused. As with
+bare `spar`, fetch/pull/dependency work completes before the existing server is stopped.
+
+The Developer switch is UI disclosure rather than the security boundary. The backend
+only enables the operation on Termux, the POST requires a same-origin developer request
+header, and the action is fixed to the configured checkout/branch. Set
+`SPAR_UI_UPDATE_ENABLED=0` in the backend environment to disable UI updating completely.
+
+The browser polls while the backend restarts, then reloads once the new backend reports
+a successful update. Update-run status and diagnostics are kept under
+`~/.local/state/spararama-phone/`.
+
 ## Commands
 
 ```text
@@ -184,6 +204,10 @@ Phone runtime state is stored under:
   server.log
   cleverspa.pid
   cleverspa.log
+  ui-update.pid
+  ui-update.started
+  ui-update.exit
+  ui-update.log
 ```
 
 Phone-specific configuration is stored in:

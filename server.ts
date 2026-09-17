@@ -26,6 +26,7 @@ import { registerAlertRoutes } from './server/alerts/routes';
 import { AlexaSpaCommandService } from './server/alexa/direct';
 import { registerDirectAlexaRoutes } from './server/alexa/routes';
 import { createMerossMsh300SensorSource } from './server/sensors/meross-msh300';
+import { registerSystemUpdateRoutes } from './server/system/update';
 
 async function startServer() {
   const app = express();
@@ -76,6 +77,7 @@ async function startServer() {
   registerAlertRoutes(app, alexaAlerts);
   registerDirectAlexaRoutes(app, alexaDirect);
   registerSpaHistoryRoutes(app);
+  registerSystemUpdateRoutes(app);
 
   const telemetry = new TelemetryCollector(spaAdapter, telemetryStore, firebaseTelemetry, weather, merossSensors);
   const telemetrySettingsStore = new TelemetrySettingsStore();

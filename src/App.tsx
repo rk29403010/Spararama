@@ -11,6 +11,7 @@ import { ReminderModal } from './components/ReminderModal';
 import { ManualLogModal } from './components/ManualLogModal';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
 import { TelemetrySettings } from './components/TelemetrySettings';
+import { DeveloperSettings } from './components/DeveloperSettings';
 import { SpaConfiguration } from './components/SpaConfiguration';
 import { WeatherConfiguration } from './components/WeatherConfiguration';
 import { BleC600Settings } from './components/BleC600Settings';
@@ -222,6 +223,7 @@ export default function App() {
               </section>
 
               <TelemetrySettings />
+              <ErrorBoundary resetKey="developer-settings" title="Developer settings failed"><DeveloperSettings /></ErrorBoundary>
             </div>
           )}
         </ErrorBoundary>
