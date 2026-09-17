@@ -2,6 +2,7 @@ export type WeatherSamplingMode = 'nearest' | 'triangulate';
 export type WeatherInstallation = 'indoor' | 'outdoor';
 export type WindExposure = 'sheltered' | 'normal' | 'exposed';
 export type SolarExposure = 'shade' | 'mixed' | 'sun-trap';
+export type WeatherProvider = 'open-meteo' | 'ecowitt';
 
 export interface WeatherLocation {
   latitude: number;
@@ -34,9 +35,9 @@ export interface WeatherInfluence {
 
 export interface WeatherSourceLocation {
   id: string;
-  provider: 'open-meteo';
-  requestedLatitude: number;
-  requestedLongitude: number;
+  provider: WeatherProvider;
+  requestedLatitude?: number;
+  requestedLongitude?: number;
   resolvedLatitude?: number;
   resolvedLongitude?: number;
   label: string;
@@ -45,12 +46,13 @@ export interface WeatherSourceLocation {
 export interface RawWeatherReading {
   source: string;
   station?: string;
-  provider: 'open-meteo';
+  provider: WeatherProvider;
   sourceLocationId: string;
   latitude?: number;
   longitude?: number;
   temperatureC?: number;
   humidityPercent?: number;
+  pressureHpa?: number;
   windSpeedMps?: number;
   windDirectionDegrees?: number;
   cloudPercent?: number;
@@ -65,6 +67,7 @@ export interface DerivedWeatherReading {
   sourceLocationIds: string[];
   temperatureC?: number;
   humidityPercent?: number;
+  pressureHpa?: number;
   windSpeedMps?: number;
   windDirectionDegrees?: number;
   cloudPercent?: number;
@@ -79,6 +82,13 @@ export interface CurrentWeatherSnapshot {
   sources: WeatherSourceLocation[];
   raw: RawWeatherReading[];
   derived: DerivedWeatherReading;
+}
+
+export interface CurrentWeatherSource {
+  readCurrent(settings: WeatherSettings): Promise<{
+    source: WeatherSourceLocation;
+    reading: RawWeatherReading;
+  } | null>;
 }
 
 export interface WeatherForecastSeries {

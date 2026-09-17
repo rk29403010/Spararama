@@ -17,6 +17,7 @@ import './server/runtime.test';
 import './server/recovery-bridge.test';
 import './server/telemetry.test';
 import './server/meross-msh300.test';
+import './server/ecowitt.test';
 import './server/telemetry-push.test';
 import './server/shared-telemetry.test';
 import './server/telemetry-rollup.test';

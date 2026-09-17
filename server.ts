@@ -13,7 +13,7 @@ import { LocalTelemetryStore } from './server/telemetry/local-store';
 import { SharedTelemetryStore } from './server/telemetry/shared-store';
 import { TelemetrySettingsStore } from './server/telemetry/settings';
 import { registerSpaHistoryRoutes } from './server/history/spa-events';
-import { WeatherService } from './server/weather/service';
+import { LocalFirstWeatherService } from './server/weather/local-first';
 import { registerWeatherRoutes } from './server/weather/routes';
 import { HeatingPlanner } from './server/heating/planner';
 import { HeatingScheduler } from './server/heating/scheduler';
@@ -26,6 +26,8 @@ import { registerAlertRoutes } from './server/alerts/routes';
 import { AlexaSpaCommandService } from './server/alexa/direct';
 import { registerDirectAlexaRoutes } from './server/alexa/routes';
 import { createMerossMsh300SensorSource } from './server/sensors/meross-msh300';
+import { createEcowittLanIntegration } from './server/sensors/ecowitt';
+import { combineSensorSources } from './server/sensors/composite';
 import { registerSystemUpdateRoutes } from './server/system/update';
 
 async function startServer() {
@@ -63,8 +65,10 @@ async function startServer() {
   const firebaseTelemetry = new FirebaseTelemetrySink();
   const sharedTelemetry = new SharedTelemetryStore(telemetryStore, firebaseTelemetry);
 
-  const weather = new WeatherService();
+  const ecowitt = createEcowittLanIntegration();
+  const weather = new LocalFirstWeatherService(ecowitt?.weatherSource);
   const merossSensors = createMerossMsh300SensorSource();
+  const environmentalSensors = combineSensorSources(merossSensors, ecowitt?.sensorSource);
   const temperatureResolver = new BestEffortTemperatureResolver(spaAdapter, telemetryStore);
   const pushService = new PushService();
   const heatingScheduler = new HeatingScheduler(spaAdapter, new HeatingStore(), pushService);
@@ -79,7 +83,7 @@ async function startServer() {
   registerSpaHistoryRoutes(app);
   registerSystemUpdateRoutes(app);
 
-  const telemetry = new TelemetryCollector(spaAdapter, telemetryStore, firebaseTelemetry, weather, merossSensors);
+  const telemetry = new TelemetryCollector(spaAdapter, telemetryStore, firebaseTelemetry, weather, environmentalSensors);
   const telemetrySettingsStore = new TelemetrySettingsStore();
   const telemetrySettings = await telemetrySettingsStore.load();
   telemetry.setIntervalSeconds(telemetrySettings.intervalSeconds);
@@ -112,11 +116,16 @@ async function startServer() {
   console.log(`Background push enabled: ${pushService.enabled}`);
   console.log(`Telemetry collector ID: ${process.env.TELEMETRY_HOST_ID || 'machine hostname'}`);
   console.log(`Meross MSH300 sensor polling: ${merossSensors ? `enabled (${merossSensors.config.endpoint.host})` : 'disabled'}`);
+  console.log(`Ecowitt LAN weather: ${ecowitt ? `enabled (${ecowitt.client.config.endpoint.host})` : 'disabled'}`);
 
   const combinedTelemetryStatus = () => ({
     ...telemetry.getStatus(),
     collectorHostId: process.env.TELEMETRY_HOST_ID || 'machine-hostname',
-    sharedHistory: sharedTelemetry.getStatus()
+    sharedHistory: sharedTelemetry.getStatus(),
+    localSensors: {
+      merossConfigured: Boolean(merossSensors),
+      ecowitt: ecowitt?.client.getStatus() ?? { configured: false }
+    }
   });
 
   app.get("/api/health", (_req, res) => {
