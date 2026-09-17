@@ -78,6 +78,22 @@ test('heater-off outlook keeps requested bathing time but estimates as if heatin
   assert.equal(outlook.projection?.hoursToHeat, 5);
 });
 
+test('heater-on outlook keeps a missed requested time visible while projecting the later ready time', async () => {
+  const now = 1_700_000_000_000;
+  const request = schedule({
+    status: 'running-remote',
+    targetTime: now - (10 * 60_000),
+    createdAt: now - (4 * 60 * 60_000)
+  });
+  const planner = new HeatingPlanner(spa(spaStatus({ heaterOn: true })), schedules([request]), undefined, model);
+
+  const outlook = await planner.getOutlook(now);
+
+  assert.equal(outlook.requestedBathingTime, request.targetTime);
+  assert.equal(outlook.scenario, 'continue-heating');
+  assert.equal(outlook.estimatedBathingTime, now + (5 * 60 * 60_000));
+});
+
 test('heater-on outlook uses remaining soak time instead of restarting the whole soak', async () => {
   const now = 1_700_000_000_000;
   const request = schedule({
@@ -100,9 +116,14 @@ test('heater-on outlook uses remaining soak time instead of restarting the whole
   assert.equal(outlook.estimatedBathingTime, now + (20 * 60_000));
 });
 
-test('outlook omits requested bathing time when no future heating request exists', async () => {
+test('outlook omits requested bathing time when no future or active heating request exists', async () => {
   const now = 1_700_000_000_000;
-  const planner = new HeatingPlanner(spa(spaStatus()), schedules([]), undefined, model);
+  const completed = schedule({
+    status: 'ready',
+    targetTime: now - 60_000,
+    heatSoakCompletedAt: now - 60_000
+  });
+  const planner = new HeatingPlanner(spa(spaStatus()), schedules([completed]), undefined, model);
 
   const outlook = await planner.getOutlook(now);
 

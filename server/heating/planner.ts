@@ -96,8 +96,9 @@ function weatherForHeating(forecast: WeatherForecastSnapshot | undefined): Heati
 
 function requestedSchedule(schedules: HeatingSchedule[], now: number) {
   return schedules
-    .filter(schedule => schedule.status !== 'cancelled' && finiteNumber(schedule.targetTime) && schedule.targetTime >= now)
-    .sort((a, b) => a.targetTime - b.targetTime)[0];
+    .filter(schedule => schedule.status !== 'cancelled' && finiteNumber(schedule.targetTime))
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .find(schedule => schedule.status !== 'ready' || schedule.targetTime >= now);
 }
 
 function remainingHeatSoakMinutes(schedule: HeatingSchedule | undefined, heaterOn: boolean, now: number, fallback: number) {
