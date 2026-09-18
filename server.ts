@@ -110,6 +110,7 @@ async function startServer() {
   alexaAlerts.start();
   bubbles.start();
   await remoteRuntime.agent.start();
+  remoteRuntime.publisher?.start();
   void sharedTelemetry.refresh();
   const telemetryStatus = telemetry.getStatus();
   console.log(`Firebase telemetry enabled: ${telemetryStatus.firebaseEnabled}`);
@@ -297,6 +298,7 @@ async function startServer() {
     heatingScheduler.stop();
     alexaAlerts.stop();
     bubbles.stop();
+    remoteRuntime.publisher?.stop();
     void remoteRuntime.agent.stop();
     server.close(() => process.exit(0));
   };
