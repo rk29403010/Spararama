@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { RemoteAgent } from '../../server/remote/agent';
 import { RemoteCommandExecutor } from '../../server/remote/executor';
+import { resolveRemoteRuntimeConfig } from '../../server/remote/factory';
 import { FileRemoteCommandLedger, MemoryRemoteCommandLedger } from '../../server/remote/ledger';
 import { InMemoryRemoteTransport } from '../../server/remote/transports';
 import type { RemoteCommandEnvelope } from '../../server/remote/types';
@@ -254,4 +255,31 @@ test('in-memory transport and RemoteAgent exercise the provider-neutral delivery
   assert.equal(transport.acknowledgements[0].status, 'succeeded');
   assert.equal(agent.getStatus().provider, 'memory');
   await agent.stop();
+});
+
+
+test('remote runtime configuration is disabled by default and Firebase requires an installation id', () => {
+  const previousTransport = process.env.REMOTE_TRANSPORT;
+  const previousInstallation = process.env.REMOTE_INSTALLATION_ID;
+  try {
+    delete process.env.REMOTE_TRANSPORT;
+    delete process.env.REMOTE_INSTALLATION_ID;
+    assert.equal(resolveRemoteRuntimeConfig().transport, 'none');
+
+    process.env.REMOTE_TRANSPORT = 'firebase';
+    delete process.env.REMOTE_INSTALLATION_ID;
+    let config = resolveRemoteRuntimeConfig();
+    assert.equal(config.transport, 'none');
+    assert.match(config.warning || '', /requires REMOTE_INSTALLATION_ID/);
+
+    process.env.REMOTE_INSTALLATION_ID = 'home-spa';
+    config = resolveRemoteRuntimeConfig();
+    assert.equal(config.transport, 'firebase');
+    assert.equal(config.installationId, 'home-spa');
+  } finally {
+    if (previousTransport === undefined) delete process.env.REMOTE_TRANSPORT;
+    else process.env.REMOTE_TRANSPORT = previousTransport;
+    if (previousInstallation === undefined) delete process.env.REMOTE_INSTALLATION_ID;
+    else process.env.REMOTE_INSTALLATION_ID = previousInstallation;
+  }
 });
