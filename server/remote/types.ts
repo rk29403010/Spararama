@@ -2,13 +2,16 @@ import type { SpaStatus } from '../spa/types';
 
 export const REMOTE_COMMAND_VERSION = 1 as const;
 
-export type RemoteCommandType =
-  | 'readStatus'
-  | 'setTargetTemperature'
-  | 'setHeater'
-  | 'setFilter'
-  | 'setBubbles'
-  | 'createHeatingSchedule';
+export const REMOTE_COMMAND_TYPES = [
+  'readStatus',
+  'setTargetTemperature',
+  'setHeater',
+  'setFilter',
+  'setBubbles',
+  'createHeatingSchedule'
+] as const;
+
+export type RemoteCommandType = typeof REMOTE_COMMAND_TYPES[number];
 
 export interface RemoteRequestedBy {
   kind: 'user' | 'integration' | 'system';
