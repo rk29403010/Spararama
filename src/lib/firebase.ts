@@ -6,14 +6,15 @@ import { createDefaultDomainState } from '../domain/defaults';
 import { correctLegacySevenWayReadings, SEVEN_WAY_SCALE_REVISION } from '../domain/stripScales';
 
 const firebaseConfig = {
-  projectId: "microprojects-481213",
-  appId: "1:917911030888:web:c474b419d5a03c0066bfdd",
-  messagingSenderId: "917911030888",
-  // @ts-ignore
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'microprojects-481213',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:917911030888:web:c474b419d5a03c0066bfdd',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '917911030888',
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: "microprojects-481213.firebaseapp.com",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'microprojects-481213.firebaseapp.com',
 };
 
+const firestoreDatabaseId = import.meta.env.VITE_FIRESTORE_DATABASE_ID
+  || 'ai-studio-hottubmonitor-c4b572e9-4270-488c-b8d2-306ccf453f65';
 const apiKey = String(firebaseConfig.apiKey || '').trim();
 export const isFirebaseConfigured = Boolean(apiKey && apiKey !== 'YOUR_FIREBASE_API_KEY');
 
@@ -21,10 +22,11 @@ export const isFirebaseConfigured = Boolean(apiKey && apiKey !== 'YOUR_FIREBASE_
 // Firestore until a real browser API key has been provided; the SDK otherwise
 // throws during module evaluation and prevents the whole UI from loading.
 export const firebaseApp = isFirebaseConfigured ? initializeApp(firebaseConfig) : null;
-export const db = firebaseApp ? getFirestore(firebaseApp, "ai-studio-hottubmonitor-c4b572e9-4270-488c-b8d2-306ccf453f65") : null;
+export const db = firebaseApp ? getFirestore(firebaseApp, firestoreDatabaseId) : null;
 export const auth = firebaseApp ? getAuth(firebaseApp) : null;
 
-const googleClientId = '917911030888-umuoc3r4l62j26naqdj474rmjtijd4kn.apps.googleusercontent.com';
+const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
+  || '917911030888-umuoc3r4l62j26naqdj474rmjtijd4kn.apps.googleusercontent.com';
 let googleIdentityPromise: Promise<any> | null = null;
 let googleIdentityInitialized = false;
 const sevenWayCorrectionInFlight = new Set<string>();
