@@ -91,7 +91,9 @@ function validateEnvelope(value: unknown): ValidatedEnvelope {
   }
   const payload = asRecord(record.payload);
   if (!payload) throw new RemoteExecutionError('invalid_command', 'Remote command payload must be an object.');
-  if (!finiteNumber(record.createdAt) || !finiteNumber(record.expiresAt) || record.expiresAt < record.createdAt) {
+  const createdAt = record.createdAt;
+  const expiresAt = record.expiresAt;
+  if (!finiteNumber(createdAt) || !finiteNumber(expiresAt) || expiresAt < createdAt) {
     throw new RemoteExecutionError('invalid_command', 'Remote command requires valid createdAt/expiresAt timestamps.');
   }
   const requestedBy = validateRequestedBy(record.requestedBy);
@@ -102,8 +104,8 @@ function validateEnvelope(value: unknown): ValidatedEnvelope {
     installationId: record.installationId,
     type: record.type,
     payload,
-    createdAt: record.createdAt,
-    expiresAt: record.expiresAt,
+    createdAt,
+    expiresAt,
     requestedBy
   };
 }
