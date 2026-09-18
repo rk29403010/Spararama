@@ -25,7 +25,8 @@
     "local:start": "node scripts/local.mjs start",
     "local:stop": "node scripts/local.mjs stop",
     "local:restart": "node scripts/local.mjs restart",
-    "local:status": "node scripts/local.mjs status"
+    "local:status": "node scripts/local.mjs status",
+    "remote:diagnose": "tsx scripts/diagnose-remote.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
