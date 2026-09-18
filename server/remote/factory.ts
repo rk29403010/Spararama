@@ -1,14 +1,17 @@
 import path from 'node:path';
+import type { HeatingScheduler } from '../heating/scheduler';
 import type { BubbleSessionManager } from '../spa/bubbles';
 import type { SpaAdapter } from '../spa/types';
-import type { HeatingScheduler } from '../heating/scheduler';
 import { RemoteAgent } from './agent';
 import { RemoteCommandExecutor } from './executor';
+import { FirebaseRemoteTransport } from './firebase';
 import { FileRemoteCommandLedger } from './ledger';
+import { RemoteSnapshotPublisher } from './snapshot';
 import { NoneRemoteTransport } from './transports';
+import type { RemoteTransport } from './types';
 
 export interface RemoteRuntimeConfig {
-  transport: 'none';
+  transport: 'none' | 'firebase';
   configuredTransport: string;
   installationId: string;
   stateDir: string;
@@ -18,25 +21,37 @@ export interface RemoteRuntimeConfig {
 export interface RemoteRuntime {
   config: RemoteRuntimeConfig;
   agent: RemoteAgent;
+  publisher?: RemoteSnapshotPublisher;
 }
 
 export function resolveRemoteRuntimeConfig(): RemoteRuntimeConfig {
   const configuredTransport = String(process.env.REMOTE_TRANSPORT || 'none').trim().toLowerCase() || 'none';
-  const installationId = String(process.env.REMOTE_INSTALLATION_ID || '').trim() || 'local-disabled';
+  const configuredInstallationId = String(process.env.REMOTE_INSTALLATION_ID || '').trim();
+  const installationId = configuredInstallationId || 'local-disabled';
   const stateDir = process.env.REMOTE_STATE_DIR || path.join(process.cwd(), 'data', 'remote');
 
-  if (configuredTransport !== 'none') {
+  if (configuredTransport === 'firebase' && !configuredInstallationId) {
     return {
       transport: 'none',
       configuredTransport,
       installationId,
       stateDir,
-      warning: `REMOTE_TRANSPORT=${configuredTransport} is not implemented yet; remote control remains disabled.`
+      warning: 'REMOTE_TRANSPORT=firebase requires REMOTE_INSTALLATION_ID; remote control remains disabled.'
+    };
+  }
+
+  if (configuredTransport !== 'none' && configuredTransport !== 'firebase') {
+    return {
+      transport: 'none',
+      configuredTransport,
+      installationId,
+      stateDir,
+      warning: `Unsupported REMOTE_TRANSPORT=${configuredTransport}; remote control remains disabled.`
     };
   }
 
   return {
-    transport: 'none',
+    transport: configuredTransport as 'none' | 'firebase',
     configuredTransport,
     installationId,
     stateDir
@@ -49,7 +64,10 @@ export function createRemoteRuntime(dependencies: {
   heating?: HeatingScheduler;
 }): RemoteRuntime {
   const config = resolveRemoteRuntimeConfig();
-  const transport = new NoneRemoteTransport();
+  const transport: RemoteTransport = config.transport === 'firebase'
+    ? new FirebaseRemoteTransport({ installationId: config.installationId })
+    : new NoneRemoteTransport();
+
   const executor = new RemoteCommandExecutor({
     installationId: config.installationId,
     spa: dependencies.spa,
@@ -57,8 +75,13 @@ export function createRemoteRuntime(dependencies: {
     heating: dependencies.heating,
     ledger: new FileRemoteCommandLedger(config.stateDir)
   });
+  const agent = new RemoteAgent(config.installationId, transport, executor);
+
   return {
     config,
-    agent: new RemoteAgent(config.installationId, transport, executor)
+    agent,
+    ...(config.transport === 'firebase'
+      ? { publisher: new RemoteSnapshotPublisher(agent, dependencies.spa, dependencies.bubbles, dependencies.heating) }
+      : {})
   };
 }
