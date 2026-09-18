@@ -1,11 +1,8 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
+import { resolveFirebaseAdminTarget } from '../firebase/admin-config';
 import type { StoredTelemetryRecord } from './types';
 
-const DEFAULT_PROJECT_ID = 'microprojects-481213';
-const DEFAULT_DATABASE_ID = 'ai-studio-hottubmonitor-c4b572e9-4270-488c-b8d2-306ccf453f65';
 const TELEMETRY_APP_NAME = 'spararama-telemetry';
 const CLOUD_WRITTEN_AT = '_firebaseWrittenAt';
 const COLLECTOR_REGISTRATION_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -28,33 +25,13 @@ export interface FirebaseTelemetryReadResult {
   cursor: number;
 }
 
-function credentialSourceDescription() {
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    return fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)
-      ? 'GOOGLE_APPLICATION_CREDENTIALS (file present)'
-      : 'GOOGLE_APPLICATION_CREDENTIALS (file missing)';
-  }
-
-  const appData = process.env.APPDATA;
-  const cloudSdkConfig = process.env.CLOUDSDK_CONFIG;
-  const wellKnownPath = cloudSdkConfig
-    ? path.join(cloudSdkConfig, 'application_default_credentials.json')
-    : appData
-      ? path.join(appData, 'gcloud', 'application_default_credentials.json')
-      : null;
-  if (wellKnownPath && fs.existsSync(wellKnownPath)) {
-    return 'Google Cloud SDK application-default credentials';
-  }
-
-  return 'Application Default Credentials (environment or metadata; no local file detected)';
-}
-
 export function resolveFirebaseTelemetryConfig(): FirebaseTelemetryConfig {
+  const target = resolveFirebaseAdminTarget();
   return {
     enabled: String(process.env.FIREBASE_TELEMETRY_ENABLED || '').toLowerCase() === 'true',
-    projectId: process.env.FIREBASE_PROJECT_ID || DEFAULT_PROJECT_ID,
-    databaseId: process.env.FIRESTORE_DATABASE_ID || DEFAULT_DATABASE_ID,
-    credentialSource: credentialSourceDescription()
+    projectId: target.projectId,
+    databaseId: target.databaseId,
+    credentialSource: target.credentialSource
   };
 }
 
