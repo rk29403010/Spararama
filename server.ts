@@ -29,6 +29,7 @@ import { createMerossMsh300SensorSource } from './server/sensors/meross-msh300';
 import { createEcowittLanIntegration } from './server/sensors/ecowitt';
 import { combineSensorSources } from './server/sensors/composite';
 import { registerSystemUpdateRoutes } from './server/system/update';
+import { createRemoteRuntime } from './server/remote/factory';
 
 async function startServer() {
   const app = express();
@@ -74,6 +75,7 @@ async function startServer() {
   const heatingScheduler = new HeatingScheduler(spaAdapter, new HeatingStore(), pushService);
   const heatingPlanner = new HeatingPlanner(spaAdapter, heatingScheduler, weather);
   const alexaDirect = new AlexaSpaCommandService(spaAdapter, bubbles, heatingScheduler, { weatherService: weather });
+  const remoteRuntime = createRemoteRuntime({ spa: spaAdapter, bubbles, heating: heatingScheduler });
   registerSpaRoutes(app, spaAdapter, temperatureResolver, bubbles);
   registerWeatherRoutes(app, weather);
   registerHeatingRoutes(app, heatingScheduler, heatingPlanner);
@@ -107,6 +109,7 @@ async function startServer() {
   heatingScheduler.start();
   alexaAlerts.start();
   bubbles.start();
+  await remoteRuntime.agent.start();
   void sharedTelemetry.refresh();
   const telemetryStatus = telemetry.getStatus();
   console.log(`Firebase telemetry enabled: ${telemetryStatus.firebaseEnabled}`);
@@ -117,6 +120,8 @@ async function startServer() {
   console.log(`Telemetry collector ID: ${process.env.TELEMETRY_HOST_ID || 'machine hostname'}`);
   console.log(`Meross MSH300 sensor polling: ${merossSensors ? `enabled (${merossSensors.config.endpoint.host})` : 'disabled'}`);
   console.log(`Ecowitt LAN weather: ${ecowitt ? `enabled (${ecowitt.client.config.endpoint.host})` : 'disabled'}`);
+  console.log(`Remote transport: ${remoteRuntime.config.configuredTransport} (${remoteRuntime.config.transport === 'none' ? 'disabled' : 'enabled'})`);
+  if (remoteRuntime.config.warning) console.warn(remoteRuntime.config.warning);
 
   const combinedTelemetryStatus = () => ({
     ...telemetry.getStatus(),
@@ -132,7 +137,8 @@ async function startServer() {
     res.json({
       status: "ok",
       spaAdapter: process.env.SPA_ADAPTER || 'bridge',
-      telemetry: combinedTelemetryStatus()
+      telemetry: combinedTelemetryStatus(),
+      remote: remoteRuntime.agent.getStatus()
     });
   });
 
@@ -291,6 +297,7 @@ async function startServer() {
     heatingScheduler.stop();
     alexaAlerts.stop();
     bubbles.stop();
+    void remoteRuntime.agent.stop();
     server.close(() => process.exit(0));
   };
   process.once('SIGINT', shutdown);
