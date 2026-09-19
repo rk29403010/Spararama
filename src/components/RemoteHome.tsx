@@ -291,11 +291,19 @@ export function RemoteHome({ user }: { user: User }) {
         <div className="mt-5 grid grid-cols-[1fr_auto] gap-5 items-end">
           <div>
             <p className="text-sm font-black text-slate-400">{genuinelyLive ? 'Water' : 'Last water'}</p>
-            <p className="text-7xl font-black tabular-nums tracking-tight mt-1">{water === null ? '—' : `${Math.round(water)}°`}</p>
+            {water === null ? (
+              <p className="text-2xl font-black tracking-tight mt-3 text-slate-200">Unknown</p>
+            ) : (
+              <p className="text-7xl font-black tabular-nums tracking-tight mt-1">{`${Math.round(water)}°`}</p>
+            )}
           </div>
           <div className="text-right min-w-[9rem]">
             <p className="text-sm font-black text-slate-400">Target</p>
-            <p className="text-4xl font-black tabular-nums tracking-tight mt-1">{target === null ? '—' : `${Math.round(target)}°`}</p>
+            {target === null ? (
+              <p className="text-xl font-black tracking-tight mt-3 text-slate-200">Unknown</p>
+            ) : (
+              <p className="text-4xl font-black tabular-nums tracking-tight mt-1">{`${Math.round(target)}°`}</p>
+            )}
             {target !== null && writableRole && supports('setTargetTemperature') && (
               <div className="mt-2 flex items-center justify-end gap-2">
                 <button
