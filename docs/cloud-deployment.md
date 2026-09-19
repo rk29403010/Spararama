@@ -191,6 +191,7 @@ It currently provides:
 - heater/filter/bubble status;
 - current heating plan summary;
 - immediate heater/filter/bubble/target controls for owner/member roles;
+- ready-by scheduling through the shared backend heating planner;
 - controls disabled when the home agent/spa state is not fresh;
 - read-only behaviour for viewer roles.
 
@@ -235,3 +236,37 @@ Local internet/Firebase outage
 ## Not yet automated here
 
 Actual creation of the user's Cloud Run service account, IAM grants, Cloud Run deployment, Firebase Hosting site, OAuth-origin configuration and production smoke test require authenticated access to the user's Google/Firebase project. Those are deployment operations rather than source-code changes and should be performed from a credentialled Codex/terminal session or manually with the relevant CLIs.
+
+
+## Alexa migration
+
+The source now contains a stable cloud Alexa path at:
+
+```text
+POST /api/integrations/alexa
+```
+
+It is disabled by default. Do not enable it until normal browser remote status/control has passed real end-to-end testing.
+
+Cloud Run settings:
+
+```env
+ALEXA_CLOUD_ENABLED="true"
+ALEXA_CLOUD_INSTALLATION_ID="home-spa"
+ALEXA_CLOUD_INTEGRATION_SECRET="<long random secret>"
+ALEXA_SKILL_ID="<skill id>"
+SPARARAMA_TIME_ZONE="Europe/London"
+```
+
+Prefer injecting `ALEXA_CLOUD_INTEGRATION_SECRET` from the managed secret store rather than committing it or baking it into an image.
+
+Lambda settings for the stable path:
+
+```env
+SPARARAMA_ALEXA_CLOUD_URL="https://<host>/api/integrations/alexa"
+SPARARAMA_ALEXA_INTEGRATION_SECRET="<same secret>"
+ALEXA_SKILL_ID="<skill id>"
+LWA_CLIENT_ID="<LWA client id>"
+```
+
+The Lambda prefers the cloud URL when configured and keeps the temporary `SPARARAMA_ALEXA_URL` tunnel path as a fallback. Ready-by Alexa requests are converted to the typed `scheduleReadyAt` command and use the same provider-neutral heating planner as the hosted UI/local backend.
