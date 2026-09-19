@@ -1,7 +1,6 @@
 import {
   REMOTE_COMMAND_TYPES,
   REMOTE_COMMAND_VERSION,
-  type CreateHeatingSchedulePayload,
   type RemoteCommandEnvelope,
   type RemoteCommandType
 } from '../types';
@@ -131,46 +130,6 @@ function readyAtPayload(payload: Record<string, unknown>, now: number) {
     ...(heatSoakMinutes !== undefined ? { heatSoakMinutes } : {}),
     ...(alertOnTargetReached !== undefined ? { alertOnTargetReached } : {}),
     ...(alertOnHeatSoakComplete !== undefined ? { alertOnHeatSoakComplete } : {})
-  };
-}
-
-function heatingPayload(payload: Record<string, unknown>, now: number): CreateHeatingSchedulePayload {
-  const startTime = requiredNumber(payload, 'startTime');
-  const targetTime = requiredNumber(payload, 'targetTime');
-  const startTemperatureC = requiredNumber(payload, 'startTemperatureC');
-  const targetTemperatureC = requiredNumber(payload, 'targetTemperatureC');
-  const autoStartPreferred = requiredBoolean(payload, 'autoStartPreferred');
-  if (targetTime <= now) {
-    throw new CloudControlError(400, 'invalid_command', 'Heating target time must be in the future.');
-  }
-  if (startTime > targetTime) {
-    throw new CloudControlError(400, 'invalid_command', 'Heating start time must not be after the target time.');
-  }
-
-  const heatSoakMinutes = payload.heatSoakMinutes === undefined
-    ? undefined
-    : requiredNumber(payload, 'heatSoakMinutes');
-  if (heatSoakMinutes !== undefined && heatSoakMinutes < 0) {
-    throw new CloudControlError(400, 'invalid_command', 'heatSoakMinutes must not be negative.');
-  }
-
-  const alertOnTargetReached = optionalBoolean(payload, 'alertOnTargetReached');
-  const alertOnHeatSoakComplete = optionalBoolean(payload, 'alertOnHeatSoakComplete');
-  const sessionData = payload.sessionData;
-  if (sessionData !== undefined && (!sessionData || typeof sessionData !== 'object' || Array.isArray(sessionData))) {
-    throw new CloudControlError(400, 'invalid_command', 'sessionData must be an object when supplied.');
-  }
-
-  return {
-    startTime,
-    targetTime,
-    startTemperatureC,
-    targetTemperatureC,
-    autoStartPreferred,
-    ...(heatSoakMinutes !== undefined ? { heatSoakMinutes } : {}),
-    ...(alertOnTargetReached !== undefined ? { alertOnTargetReached } : {}),
-    ...(alertOnHeatSoakComplete !== undefined ? { alertOnHeatSoakComplete } : {}),
-    ...(sessionData !== undefined ? { sessionData: sessionData as Record<string, unknown> } : {})
   };
 }
 
