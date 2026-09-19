@@ -22,6 +22,8 @@ function discoveryEvent(token = 'test-access-token') {
 }
 
 function setEnvironment() {
+  delete process.env.SPARARAMA_ALEXA_CLOUD_URL;
+  delete process.env.SPARARAMA_ALEXA_INTEGRATION_SECRET;
   process.env.SPARARAMA_ALEXA_URL = 'https://example.test/api/alexa/direct';
   process.env.SPARARAMA_ALEXA_PROXY_SECRET = 'proxy-secret';
   process.env.ALEXA_SKILL_ID = 'amzn1.ask.skill.test';
@@ -78,5 +80,40 @@ test('returns INVALID_AUTHORIZATION_CREDENTIAL when LWA rejects the token', { co
     assert.equal(result.event.payload.type, 'INVALID_AUTHORIZATION_CREDENTIAL');
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+
+test('prefers the stable cloud endpoint while retaining the local tunnel as fallback', { concurrency: false }, async () => {
+  setEnvironment();
+  process.env.SPARARAMA_ALEXA_CLOUD_URL = 'https://cloud.example.test/api/integrations/alexa';
+  process.env.SPARARAMA_ALEXA_INTEGRATION_SECRET = 'integration-secret';
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (String(url).startsWith('https://api.amazon.com/auth/o2/tokeninfo')) {
+      return {
+        ok: true,
+        async json() { return { aud: 'lwa-client' }; }
+      };
+    }
+    return {
+      ok: true,
+      async text() { return JSON.stringify({ cloud: true }); }
+    };
+  };
+
+  try {
+    const result = await handler(discoveryEvent());
+    assert.deepEqual(result, { cloud: true });
+    assert.equal(calls[1].url, 'https://cloud.example.test/api/integrations/alexa');
+    assert.equal(calls[1].options.headers['X-Spararama-Alexa-Integration-Secret'], 'integration-secret');
+    assert.equal(calls[1].options.headers['X-Spararama-Alexa-Proxy-Secret'], undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.SPARARAMA_ALEXA_CLOUD_URL;
+    delete process.env.SPARARAMA_ALEXA_INTEGRATION_SECRET;
   }
 });
