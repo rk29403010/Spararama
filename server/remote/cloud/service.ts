@@ -266,11 +266,55 @@ export class CloudControlService {
     if (membership.role === 'viewer') {
       throw new CloudControlError(403, 'read_only', 'This account has read-only access to the installation.');
     }
+    return this.queueCommand(
+      installationId,
+      request,
+      { kind: 'user', id: principal.uid },
+      `user:${principal.uid}:${installationId}`
+    );
+  }
 
+  async getCommand(principal: CloudPrincipal, installationId: string, commandId: string) {
+    await this.requireMembership(principal, installationId);
+    return this.requireCommand(installationId, commandId);
+  }
+
+  async getInstallationStateForIntegration(installationId: string) {
+    if (!installationId) throw new CloudControlError(400, 'invalid_installation', 'Installation ID is required.');
+    const runtime = await this.store.getRuntime(installationId);
+    return {
+      installationId,
+      freshness: runtimeFreshness(runtime, this.now()),
+      runtime
+    };
+  }
+
+  submitIntegrationCommand(installationId: string, integrationId: string, request: unknown) {
+    if (!installationId) throw new CloudControlError(400, 'invalid_installation', 'Installation ID is required.');
+    if (!integrationId) throw new CloudControlError(400, 'invalid_integration', 'Integration ID is required.');
+    return this.queueCommand(
+      installationId,
+      request,
+      { kind: 'integration', id: integrationId },
+      `integration:${integrationId}:${installationId}`
+    );
+  }
+
+  getIntegrationCommand(installationId: string, commandId: string) {
+    if (!installationId) throw new CloudControlError(400, 'invalid_installation', 'Installation ID is required.');
+    return this.requireCommand(installationId, commandId);
+  }
+
+  private async queueCommand(
+    installationId: string,
+    request: unknown,
+    requestedBy: { kind: 'user' | 'integration'; id: string },
+    rateKey: string
+  ) {
     const now = this.now();
     const record = asRecord(request);
     const validated = validateCloudCommandRequest(record.type, record.payload, now);
-    if (!this.limiter.consume(`${principal.uid}:${installationId}`, now)) {
+    if (!this.limiter.consume(rateKey, now)) {
       throw new CloudControlError(429, 'rate_limited', 'Too many remote control requests. Try again shortly.');
     }
 
@@ -283,7 +327,7 @@ export class CloudControlService {
       payload: validated.payload as any,
       createdAt: now,
       expiresAt: now + defaultCommandTtlMs(validated.type),
-      requestedBy: { kind: 'user', id: principal.uid }
+      requestedBy
     };
 
     await this.store.createCommand(envelope);
@@ -291,14 +335,13 @@ export class CloudControlService {
       commandId,
       installationId,
       type: envelope.type,
-      status: 'queued',
+      status: 'queued' as const,
       createdAt: envelope.createdAt,
       expiresAt: envelope.expiresAt
     };
   }
 
-  async getCommand(principal: CloudPrincipal, installationId: string, commandId: string) {
-    await this.requireMembership(principal, installationId);
+  private async requireCommand(installationId: string, commandId: string) {
     const command = await this.store.getCommand(installationId, commandId);
     if (!command) throw new CloudControlError(404, 'not_found', 'Remote command was not found.');
     return command;
