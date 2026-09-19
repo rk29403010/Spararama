@@ -83,34 +83,31 @@ export class FirebaseRemoteTransport implements RemoteTransport {
   }
 
   async publishPresence(presence: InstallationPresence) {
-    await this.runtimeRef().set({
+    await this.writeCloud('presence', () => this.runtimeRef().set({
       schemaVersion: 1,
       presence: serializable(presence),
       heartbeatAtMs: Date.now(),
       heartbeatAt: FieldValue.serverTimestamp()
-    }, { merge: true });
-    this.markContact();
+    }, { merge: true }));
   }
 
   async publishState(state: RemoteInstallationState) {
-    await this.runtimeRef().set({
+    await this.writeCloud('state', () => this.runtimeRef().set({
       schemaVersion: 1,
       state: serializable(state),
       statePublishedAtMs: Date.now(),
       statePublishedAt: FieldValue.serverTimestamp()
-    }, { merge: true });
-    this.markContact();
+    }, { merge: true }));
   }
 
   async acknowledgeCommand(result: RemoteCommandResult) {
-    await this.commandsRef().doc(result.commandId).set({
+    await this.writeCloud('acknowledgement', () => this.commandsRef().doc(result.commandId).set({
       status: result.status,
       result: serializable(result),
       completedAt: result.completedAt,
       updatedAt: FieldValue.serverTimestamp(),
       claimLeaseUntil: FieldValue.delete()
-    }, { merge: true });
-    this.markContact();
+    }, { merge: true }));
   }
 
   getStatus(): RemoteTransportStatus {
@@ -251,6 +248,18 @@ export class FirebaseRemoteTransport implements RemoteTransport {
       }, { merge: true });
       return true;
     });
+  }
+
+  private async writeCloud(label: string, action: () => Promise<unknown>) {
+    try {
+      await action();
+      this.lastError = undefined;
+      this.markContact();
+    } catch (error) {
+      this.connected = false;
+      this.lastError = `${label}: ${error instanceof Error ? error.message : String(error)}`;
+      throw error;
+    }
   }
 
   private markContact() {
