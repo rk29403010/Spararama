@@ -29,6 +29,7 @@ const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
   || '917911030888-umuoc3r4l62j26naqdj474rmjtijd4kn.apps.googleusercontent.com';
 let googleIdentityPromise: Promise<any> | null = null;
 let googleIdentityInitialized = false;
+let googleSignInFailureHandler: ((error: unknown) => void) | null = null;
 const sevenWayCorrectionInFlight = new Set<string>();
 
 function loadGoogleIdentity() {
@@ -46,8 +47,12 @@ function loadGoogleIdentity() {
   return googleIdentityPromise;
 }
 
-export async function renderGoogleSignInButton(container: HTMLElement) {
+export async function renderGoogleSignInButton(
+  container: HTMLElement,
+  onSignInFailure?: (error: unknown) => void
+) {
   if (!auth) throw new Error('Firebase is not configured on this device.');
+  googleSignInFailureHandler = onSignInFailure ?? null;
   const google = await loadGoogleIdentity();
 
   if (!googleIdentityInitialized) {
@@ -62,6 +67,7 @@ export async function renderGoogleSignInButton(container: HTMLElement) {
           await signInWithCredential(auth, credential);
         } catch (error) {
           console.error('Google credential sign-in failed', error);
+          googleSignInFailureHandler?.(error);
         }
       }
     });
