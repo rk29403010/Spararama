@@ -208,6 +208,7 @@ test('a temperature change creates one sparse event and history reconstructs ful
     assert.equal(records[1].schemaVersion, 2);
     if (records[1].schemaVersion !== 2) throw new Error('Expected v2 event');
     assert.equal(records[1].recordKind, 'change');
+    assert.ok(records[1].timestamp > records[0].timestamp);
     assert.deepEqual(records[1].spa, { waterTemperatureC: 32.5 });
     assert.deepEqual(records[1].changedFields, ['spa.waterTemperatureC']);
 
