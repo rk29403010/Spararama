@@ -149,7 +149,7 @@ Running `spar` with no arguments keeps the currently selected connector mode and
 5. if live mode is selected, starts the CleverSpa adapter on port 8787;
 6. starts `pnpm dev` on port 3000 with the selected adapter mode in a detached session;
 7. waits for `/api/health` to respond and verifies it remains alive briefly;
-8. opens `http://127.0.0.1:3000` on the phone.
+8. opens `http://localhost:3000` on the phone. Backend health checks still use `127.0.0.1`; the browser-facing localhost origin is deliberate because Android Chrome has been verified to expose Web Bluetooth there.
 
 The update happens **before** the old processes are stopped. If GitHub is unavailable
 or the current Wi-Fi blocks it, the already-running version is left alone.
