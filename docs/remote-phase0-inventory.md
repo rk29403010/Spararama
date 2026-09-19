@@ -51,10 +51,11 @@ setTargetTemperature
 setHeater
 setFilter
 setBubbles
+scheduleReadyAt
 createHeatingSchedule
 ```
 
-`createHeatingSchedule` exists in Phase 1 specifically to prove that remote scheduling uses the existing `HeatingScheduler`; it does not duplicate scheduler logic. A higher-level `scheduleReadyAt` command can be added once the existing Alexa-specific ready-at planning is factored into a provider-neutral application service.
+`scheduleReadyAt` is now the preferred high-level remote scheduling command. It delegates to the provider-neutral `HeatingPlanner.scheduleReadyAt`, which performs the shared heating/weather estimate and creates a normal `HeatingScheduler` schedule. `createHeatingSchedule` remains as the lower-level compatibility command and also still terminates at the existing scheduler.
 
 ## Firebase inventory
 
