@@ -143,7 +143,7 @@ export class FirebaseRemoteTransport implements RemoteTransport {
     if (this.stopped || !this.handlers || this.unsubscribe) return;
 
     try {
-      this.unsubscribe = this.commandsRef().onSnapshot(
+      this.unsubscribe = this.commandsRef().where('status', 'in', ['queued', 'claimed']).onSnapshot(
         snapshot => {
           this.connected = true;
           this.lastError = undefined;
