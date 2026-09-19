@@ -113,6 +113,12 @@ function measurementFromReadings(readings: any[], key: string) {
   return measurementValue(reading);
 }
 
+function instrumentMeasurementValue(instrument: any, key: string): number | null {
+  const measurements = Array.isArray(instrument?.measurements) ? instrument.measurements : [];
+  const measurement = measurements.find((item: any) => item?.key === key);
+  return finiteNumber(measurement?.value) ? measurement.value : null;
+}
+
 function heaterPeriods(samples: TelemetryChartDto['samples']) {
   const periods: Array<{ start: number; end: number }> = [];
   let start: number | null = null;
@@ -156,6 +162,7 @@ function HeatTooltip({ active, payload, label, timeFormat = '24h' }: any) {
       {finiteNumber(point.target) && <p className="text-orange-700">Target {point.target}°C</p>}
       {finiteNumber(point.ambient) && <p className="text-slate-700">Outside {point.ambient}°C</p>}
       {finiteNumber(point.manualWater) && <p className="text-indigo-800">Manual {point.manualWater}°C</p>}
+      {finiteNumber(point.probeWater) && <p className="text-cyan-800">BLE probe {point.probeWater}°C</p>}
     </div>
   );
 }
@@ -290,9 +297,26 @@ export function Logs({ state }: LogsProps) {
         connected: sample.spa.connected
       });
     }
+    for (const test of state.domain.waterTests) {
+      const timestamp = Number(test.timestamp);
+      const probeTemp = instrumentMeasurementValue(test.instrument, 'temperature');
+      if (!Number.isFinite(timestamp) || timestamp < heatWindow.since || timestamp > heatWindow.end || probeTemp === null) continue;
+      const point = points.get(timestamp) || { timestamp };
+      point.probeWater = probeTemp;
+      points.set(timestamp, point);
+    }
     for (const log of logs) {
-      if (log?.type !== 'manual_log' && log?.type !== 'heating_action') continue;
       const timestamp = logTimestamp(log);
+      if (log?.type === 'water_test') {
+        const probeTemp = instrumentMeasurementValue(log?.data?.instrument, 'temperature');
+        if (timestamp >= heatWindow.since && timestamp <= heatWindow.end && probeTemp !== null) {
+          const point = points.get(timestamp) || { timestamp };
+          point.probeWater = probeTemp;
+          points.set(timestamp, point);
+        }
+        continue;
+      }
+      if (log?.type !== 'manual_log' && log?.type !== 'heating_action') continue;
       const temp = Number(log?.data?.temp);
       if (timestamp < heatWindow.since || timestamp > heatWindow.end || !Number.isFinite(temp)) continue;
       const point = points.get(timestamp) || { timestamp };
@@ -301,11 +325,12 @@ export function Logs({ state }: LogsProps) {
     }
     const sorted = Array.from(points.values()).sort((a, b) => a.timestamp - b.timestamp);
     return addWaterTrend(sorted);
-  }, [telemetry.samples, logs, heatWindow]);
+  }, [telemetry.samples, logs, heatWindow, state.domain.waterTests]);
 
   const waterGaps = useMemo(() => findWaterTrendGaps(heatData), [heatData]);
   const heatPeriods = useMemo(() => heaterPeriods(telemetry.samples), [telemetry.samples]);
   const hasWeather = heatData.some(point => finiteNumber(point.ambient));
+  const hasProbeWater = heatData.some(point => finiteNumber(point.probeWater));
   const usualMarkers = useMemo(
     () => usualTubMarkers(heatWindow.since, heatWindow.end, state.config.defaultReadyTime, heatRange === 'daily' || heatRange === '48h'),
     [heatWindow, state.config.defaultReadyTime, heatRange]
@@ -444,6 +469,7 @@ export function Logs({ state }: LogsProps) {
                     <Line yAxisId="temp" type="stepAfter" dataKey="target" name="Target °C" stroke="#ea580c" strokeWidth={2.5} strokeDasharray="6 4" dot={false} connectNulls={false} isAnimationActive={false} />
                     {hasWeather && <Line yAxisId="temp" type="monotoneX" dataKey="ambient" name="Outside °C" stroke="#475569" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />}
                     <Line yAxisId="temp" type="linear" dataKey="manualWater" name="Manual reading" stroke="transparent" strokeWidth={0} dot={{ r: 5, fill: '#c7d2fe', stroke: '#3730a3', strokeWidth: 2 }} activeDot={{ r: 7 }} connectNulls={false} legendType="none" isAnimationActive={false} />
+                    {hasProbeWater && <Line yAxisId="temp" type="linear" dataKey="probeWater" name="BLE probe" stroke="transparent" strokeWidth={0} dot={{ r: 5, fill: '#cffafe', stroke: '#0e7490', strokeWidth: 2 }} activeDot={{ r: 7 }} connectNulls={false} legendType="none" isAnimationActive={false} />}
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
@@ -452,6 +478,7 @@ export function Logs({ state }: LogsProps) {
                 <span className="flex items-center gap-2"><span className="w-6 border-t-2 border-dashed border-orange-600" aria-hidden="true" />Target</span>
                 <span className="flex items-center gap-2"><span className="w-5 h-3 rounded bg-amber-100" aria-hidden="true" />Heater</span>
                 {user && <span className="flex items-center gap-2"><span className="w-4 h-4 rounded-full bg-indigo-200 border-2 border-indigo-800" aria-hidden="true" />Manual</span>}
+                {hasProbeWater && <span className="flex items-center gap-2"><span className="w-4 h-4 rounded-full bg-cyan-100 border-2 border-cyan-700" aria-hidden="true" />BLE probe</span>}
                 {hasWeather && <span className="flex items-center gap-2"><span className="w-6 h-0.5 bg-slate-600" aria-hidden="true" />Outside</span>}
               </div>
               {(telemetry.rolledUp || telemetryError || waterGaps.length > 0) && (
