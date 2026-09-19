@@ -311,9 +311,17 @@ Local internet/Firebase outage
   -> remote UI becomes stale/offline
 ```
 
-## Not yet automated here
+## Current reference deployment
 
-Actual creation of the user's Cloud Run service account, IAM grants, Cloud Run deployment, Firebase Hosting site, OAuth-origin configuration and production smoke test require authenticated access to the user's Google/Firebase project. Those are deployment operations rather than source-code changes and should be performed from a credentialled Codex/terminal session or manually with the relevant CLIs.
+The first managed deployment has now been completed and verified against the existing project. The live reference setup includes:
+
+- Cloud Run control API in `europe-west2`;
+- Firebase Hosting for the cloud UI;
+- deployed Firestore rules/indexes;
+- working Google/Firebase sign-in and `home-spa` membership;
+- A71 outbound Firebase agent connectivity and successful read-only diagnostic.
+
+The deployment remains reproducible through the checked-in Cloud Build, Dockerfile, Firebase and documentation assets. Physical remote-control smoke tests are intentionally a separate operational validation step.
 
 
 ## Alexa migration
