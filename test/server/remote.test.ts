@@ -246,6 +246,8 @@ test('in-memory transport and RemoteAgent exercise the provider-neutral delivery
     now: () => NOW
   });
   const agent = new RemoteAgent('home-spa', transport, executor);
+  let completed = 0;
+  agent.setCommandCompletedHandler(() => { completed += 1; });
 
   await agent.start();
   await transport.deliver(command('cmd-9', 'setFilter', { on: false }));
@@ -253,6 +255,7 @@ test('in-memory transport and RemoteAgent exercise the provider-neutral delivery
   assert.equal(calls.filter, 1);
   assert.equal(transport.acknowledgements.length, 1);
   assert.equal(transport.acknowledgements[0].status, 'succeeded');
+  assert.equal(completed, 1);
   assert.equal(agent.getStatus().provider, 'memory');
   await agent.stop();
 });
