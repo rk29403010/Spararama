@@ -319,7 +319,7 @@ test('cloud Alexa ready-at uses the high-level remote planner command', async ()
   const now = Date.parse('2026-09-05T14:00:00Z');
   store.completion = command => command.type === 'scheduleReadyAt'
     ? {
-        targetTime: command.payload.targetTime,
+        targetTime: (command.payload as any).targetTime,
         startTime: now + 60_000,
         targetTemperatureC: 39,
         startTemperatureC: 36,
