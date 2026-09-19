@@ -71,13 +71,18 @@ function eventWithoutAccessToken(event) {
 }
 
 export async function handler(event) {
-  const endpoint = String(process.env.SPARARAMA_ALEXA_URL || '').trim();
+  const cloudEndpoint = String(process.env.SPARARAMA_ALEXA_CLOUD_URL || '').trim();
+  const localEndpoint = String(process.env.SPARARAMA_ALEXA_URL || '').trim();
+  const useCloud = Boolean(cloudEndpoint);
+  const endpoint = cloudEndpoint || localEndpoint;
+  const integrationSecret = String(process.env.SPARARAMA_ALEXA_INTEGRATION_SECRET || '').trim();
   const proxySecret = String(process.env.SPARARAMA_ALEXA_PROXY_SECRET || '').trim();
   const skillId = String(process.env.ALEXA_SKILL_ID || '').trim();
   const lwaClientId = String(process.env.LWA_CLIENT_ID || '').trim();
 
-  if (!endpoint) throw new Error('SPARARAMA_ALEXA_URL is not configured.');
-  if (!proxySecret) throw new Error('SPARARAMA_ALEXA_PROXY_SECRET is not configured.');
+  if (!endpoint) throw new Error('No Spararama Alexa endpoint is configured.');
+  if (useCloud && !integrationSecret) throw new Error('SPARARAMA_ALEXA_INTEGRATION_SECRET is not configured.');
+  if (!useCloud && !proxySecret) throw new Error('SPARARAMA_ALEXA_PROXY_SECRET is not configured.');
   if (!skillId) throw new Error('ALEXA_SKILL_ID is not configured.');
   if (!lwaClientId) throw new Error('LWA_CLIENT_ID is not configured.');
 
@@ -93,7 +98,9 @@ export async function handler(event) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Spararama-Alexa-Proxy-Secret': proxySecret,
+        ...(useCloud
+          ? { 'X-Spararama-Alexa-Integration-Secret': integrationSecret }
+          : { 'X-Spararama-Alexa-Proxy-Secret': proxySecret }),
         'X-Spararama-Alexa-Skill-Id': skillId
       },
       body: JSON.stringify(eventWithoutAccessToken(event)),
