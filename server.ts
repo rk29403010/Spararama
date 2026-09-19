@@ -75,7 +75,12 @@ async function startServer() {
   const heatingScheduler = new HeatingScheduler(spaAdapter, new HeatingStore(), pushService);
   const heatingPlanner = new HeatingPlanner(spaAdapter, heatingScheduler, weather);
   const alexaDirect = new AlexaSpaCommandService(spaAdapter, bubbles, heatingScheduler, { weatherService: weather });
-  const remoteRuntime = createRemoteRuntime({ spa: spaAdapter, bubbles, heating: heatingScheduler });
+  const remoteRuntime = createRemoteRuntime({
+    spa: spaAdapter,
+    bubbles,
+    heating: heatingScheduler,
+    heatingPlanner
+  });
   registerSpaRoutes(app, spaAdapter, temperatureResolver, bubbles);
   registerWeatherRoutes(app, weather);
   registerHeatingRoutes(app, heatingScheduler, heatingPlanner);
