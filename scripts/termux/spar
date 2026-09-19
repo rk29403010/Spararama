@@ -30,6 +30,7 @@ if [ -f "$CONFIG_FILE" ]; then
 fi
 
 URL="http://127.0.0.1:${SPAR_PORT}"
+BROWSER_URL="http://localhost:${SPAR_PORT}"
 HEALTH_URL="$URL/api/health"
 ADAPTER_URL="http://127.0.0.1:${CLEVERSPA_SERVICE_PORT}"
 ADAPTER_STATUS_URL="$ADAPTER_URL/api/status"
@@ -39,7 +40,7 @@ public_url() {
   if [ "$SPAR_HTTPS_ENABLED" = "1" ] && [ -n "$SPAR_HTTPS_HOST" ]; then
     printf 'https://%s:%s\n' "$SPAR_HTTPS_HOST" "$SPAR_HTTPS_PORT"
   else
-    printf '%s\n' "$URL"
+    printf '%s\n' "$BROWSER_URL"
   fi
 }
 
