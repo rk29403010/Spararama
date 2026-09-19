@@ -76,12 +76,14 @@ export function createRemoteRuntime(dependencies: {
     ledger: new FileRemoteCommandLedger(config.stateDir)
   });
   const agent = new RemoteAgent(config.installationId, transport, executor);
+  const publisher = config.transport === 'firebase'
+    ? new RemoteSnapshotPublisher(agent, dependencies.spa, dependencies.bubbles, dependencies.heating)
+    : undefined;
+  if (publisher) agent.setCommandCompletedHandler(() => publisher.publishNow());
 
   return {
     config,
     agent,
-    ...(config.transport === 'firebase'
-      ? { publisher: new RemoteSnapshotPublisher(agent, dependencies.spa, dependencies.bubbles, dependencies.heating) }
-      : {})
+    ...(publisher ? { publisher } : {})
   };
 }
