@@ -89,6 +89,7 @@ export interface HeatingReadyAtPlan {
 }
 
 export interface HeatingReadyAtRequest {
+  scheduleId?: string;
   targetTime: number;
   targetTemperatureC?: number;
   heatSoakMinutes?: number;
@@ -242,6 +243,7 @@ export class HeatingPlanner {
     const startTime = Math.max(now, estimate.startTime);
     const autoStartPreferred = status.connected && status.transport !== 'manual';
     const schedule = await this.schedules.createSchedule({
+      ...(request.scheduleId ? { id: request.scheduleId } : {}),
       startTime,
       targetTime: estimate.targetTime,
       startTemperatureC: estimate.startTemperatureC,
