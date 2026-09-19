@@ -6,6 +6,7 @@ RUN corepack enable && pnpm install --frozen-lockfile
 
 COPY tsconfig.json ./
 COPY server ./server
+COPY src ./src
 COPY services/cloud ./services/cloud
 RUN pnpm cloud:build
 
