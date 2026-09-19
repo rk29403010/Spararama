@@ -8,11 +8,19 @@ import {
   type RemoteCommandEnvelope,
   type RemoteCommandError,
   type RemoteCommandResult,
-  type RemoteRequestedBy
+  type RemoteRequestedBy,
+  type ScheduleReadyAtPayload
 } from './types';
 
 interface HeatingSchedulerLike {
   createSchedule(input: CreateHeatingSchedulePayload & { id?: string }): Promise<unknown>;
+}
+
+interface HeatingReadyPlannerLike {
+  scheduleReadyAt(
+    input: ScheduleReadyAtPayload & { sessionData?: Record<string, unknown> },
+    now?: number
+  ): Promise<unknown>;
 }
 
 interface ExecutorOptions {
@@ -20,6 +28,7 @@ interface ExecutorOptions {
   spa: SpaAdapter;
   bubbles?: BubbleSessionManager;
   heating?: HeatingSchedulerLike;
+  readyPlanner?: HeatingReadyPlannerLike;
   ledger?: RemoteCommandLedger;
   now?: () => number;
 }
@@ -236,6 +245,20 @@ export class RemoteCommandExecutor {
           : this.options.spa.setBubbles(on);
       }
 
+      case 'scheduleReadyAt': {
+        if (!this.options.readyPlanner) {
+          throw new RemoteExecutionError('scheduler_unavailable', 'Ready-at heating planner is not configured.');
+        }
+        const payload = this.validateReadyAt(command.payload);
+        return this.options.readyPlanner.scheduleReadyAt({
+          ...payload,
+          sessionData: {
+            source: 'remote',
+            requestedBy: command.requestedBy
+          }
+        }, this.now());
+      }
+
       case 'createHeatingSchedule': {
         if (!this.options.heating) {
           throw new RemoteExecutionError('scheduler_unavailable', 'Heating scheduler is not configured.');
@@ -267,6 +290,40 @@ export class RemoteCommandExecutor {
       throw new RemoteExecutionError('spa_unavailable', 'Spa is not remotely connected.');
     }
     return status;
+  }
+
+  private validateReadyAt(payload: Record<string, unknown>): ScheduleReadyAtPayload {
+    const targetTime = numberField(payload, 'targetTime');
+    if (targetTime <= this.now()) {
+      throw new RemoteExecutionError('invalid_command', 'Heating target time must be in the future.');
+    }
+
+    const targetTemperatureC = payload.targetTemperatureC === undefined
+      ? undefined
+      : numberField(payload, 'targetTemperatureC');
+    const heatSoakMinutes = payload.heatSoakMinutes === undefined
+      ? undefined
+      : numberField(payload, 'heatSoakMinutes');
+    if (heatSoakMinutes !== undefined && heatSoakMinutes < 0) {
+      throw new RemoteExecutionError('invalid_command', 'heatSoakMinutes must not be negative.');
+    }
+
+    const alertOnTargetReached = payload.alertOnTargetReached;
+    const alertOnHeatSoakComplete = payload.alertOnHeatSoakComplete;
+    if (alertOnTargetReached !== undefined && typeof alertOnTargetReached !== 'boolean') {
+      throw new RemoteExecutionError('invalid_command', 'alertOnTargetReached must be boolean when supplied.');
+    }
+    if (alertOnHeatSoakComplete !== undefined && typeof alertOnHeatSoakComplete !== 'boolean') {
+      throw new RemoteExecutionError('invalid_command', 'alertOnHeatSoakComplete must be boolean when supplied.');
+    }
+
+    return {
+      targetTime,
+      ...(targetTemperatureC !== undefined ? { targetTemperatureC } : {}),
+      ...(heatSoakMinutes !== undefined ? { heatSoakMinutes } : {}),
+      ...(typeof alertOnTargetReached === 'boolean' ? { alertOnTargetReached } : {}),
+      ...(typeof alertOnHeatSoakComplete === 'boolean' ? { alertOnHeatSoakComplete } : {})
+    };
   }
 
   private validateHeatingSchedule(payload: Record<string, unknown>): CreateHeatingSchedulePayload {
