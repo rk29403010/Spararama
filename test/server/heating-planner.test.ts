@@ -149,3 +149,37 @@ test('outlook preserves the requested bathing time when live spa data is unavail
   assert.equal(outlook.scenario, 'unavailable');
   assert.match(outlook.unavailableReason || '', /live water temperature/i);
 });
+
+
+test('provider-neutral ready-at scheduling uses the shared model and normal scheduler boundary', async () => {
+  const now = 1_700_000_000_000;
+  const created: any[] = [];
+  const source = {
+    listSchedules: async () => [] as HeatingSchedule[],
+    createSchedule: async (input: any) => {
+      created.push(input);
+      return { ...input, id: 'ready-at-1', status: 'scheduled' };
+    }
+  };
+  const planner = new HeatingPlanner(
+    spa(spaStatus({ waterTemperatureC: 35, targetTemperatureC: 39, connected: true, transport: 'lan' })),
+    source,
+    undefined,
+    { ...model, heatSoakMinutes: 30 }
+  );
+
+  const result = await planner.scheduleReadyAt({
+    targetTime: now + (4 * 60 * 60_000),
+    sessionData: { source: 'test' }
+  }, now);
+
+  assert.equal(created.length, 1);
+  assert.equal(created[0].targetTemperatureC, 39);
+  assert.equal(created[0].autoStartPreferred, true);
+  assert.equal(created[0].heatSoakMinutes, 30);
+  assert.equal(created[0].sessionData.source, 'test');
+  assert.equal(created[0].sessionData.estimation, 'shared-heating-model');
+  assert.equal(result.targetTime, now + (4 * 60 * 60_000));
+  assert.equal(result.targetTemperatureC, 39);
+  assert.equal(result.weatherAdjusted, false);
+});
