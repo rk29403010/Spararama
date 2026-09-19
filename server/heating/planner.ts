@@ -16,6 +16,18 @@ export const HEATING_OUTLOOK_MODEL_VERSION = 'baseline-weather-v1';
 
 interface HeatingScheduleSource {
   listSchedules(): Promise<HeatingSchedule[]>;
+  createSchedule?(input: {
+    id?: string;
+    startTime: number;
+    targetTime: number;
+    startTemperatureC: number;
+    targetTemperatureC: number;
+    autoStartPreferred: boolean;
+    heatSoakMinutes?: number;
+    alertOnTargetReached?: boolean;
+    alertOnHeatSoakComplete?: boolean;
+    sessionData?: Record<string, unknown>;
+  }): Promise<unknown>;
 }
 
 interface HeatingWeatherSource {
@@ -60,6 +72,29 @@ export interface HeatingOutlook {
     avgSolarRadiationWm2: number;
     avgPrecipitationMm: number;
   };
+}
+
+export interface HeatingReadyAtPlan {
+  targetTime: number;
+  startTime: number;
+  targetTemperatureC: number;
+  startTemperatureC: number;
+  heatSoakMinutes: number;
+  effectiveHeatingRateCPerHour: number;
+  canMeetTarget: boolean;
+  autoStartPreferred: boolean;
+  weatherAdjusted: boolean;
+  weatherError?: string;
+  schedule: unknown;
+}
+
+export interface HeatingReadyAtRequest {
+  targetTime: number;
+  targetTemperatureC?: number;
+  heatSoakMinutes?: number;
+  alertOnTargetReached?: boolean;
+  alertOnHeatSoakComplete?: boolean;
+  sessionData?: Record<string, unknown>;
 }
 
 function finiteNumber(value: unknown): value is number {
@@ -155,6 +190,98 @@ export class HeatingPlanner {
       ?? environmentNumber('HEATING_DEFAULT_TARGET_C', 'ALEXA_DEFAULT_READY_TARGET_C');
     this.defaultTargetTemperatureC = finiteNumber(defaultTarget) ? defaultTarget : undefined;
     this.forecastCacheMs = positive(options.forecastCacheMs, DEFAULT_FORECAST_CACHE_MS);
+  }
+
+  async scheduleReadyAt(request: HeatingReadyAtRequest, now = Date.now()): Promise<HeatingReadyAtPlan> {
+    if (!this.schedules.createSchedule) {
+      throw new Error('Heating scheduler is not configured for ready-at requests.');
+    }
+    if (!finiteNumber(request.targetTime) || request.targetTime <= now) {
+      throw new Error('Heating target time must be in the future.');
+    }
+
+    const status = await this.spa.getStatus();
+    const targetTemperatureC = finiteNumber(request.targetTemperatureC)
+      ? request.targetTemperatureC
+      : finiteNumber(status.targetTemperatureC)
+        ? status.targetTemperatureC
+        : this.defaultTargetTemperatureC;
+
+    if (!finiteNumber(status.waterTemperatureC) || !finiteNumber(targetTemperatureC)) {
+      throw new Error('A current and target temperature are required to plan heating.');
+    }
+
+    let forecast: WeatherForecastSnapshot | undefined;
+    let weatherError: string | undefined;
+    if (this.weather) {
+      try {
+        forecast = await this.forecast(now);
+      } catch (error) {
+        weatherError = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    const heatSoakMinutes = finiteNumber(request.heatSoakMinutes)
+      ? Math.max(0, request.heatSoakMinutes)
+      : this.heatSoakMinutes;
+    const estimate = estimateHeatingPlan({
+      mode: 'by-time',
+      now,
+      currentTemperatureC: status.waterTemperatureC,
+      targetTemperatureC,
+      targetTime: request.targetTime,
+      baseHeatingRateCPerHour: this.baseHeatingRateCPerHour,
+      waterVolumeLiters: this.waterVolumeLiters,
+      referenceVolumeLiters: this.referenceVolumeLiters,
+      heatSoakMinutes,
+      heaterPowerWatts: this.heaterPowerWatts,
+      electricityRatePerKwh: this.electricityRatePerKwh,
+      weather: weatherForHeating(forecast)
+    });
+
+    const startTime = Math.max(now, estimate.startTime);
+    const autoStartPreferred = status.connected && status.transport !== 'manual';
+    const schedule = await this.schedules.createSchedule({
+      startTime,
+      targetTime: estimate.targetTime,
+      startTemperatureC: estimate.startTemperatureC,
+      targetTemperatureC: estimate.targetTemperatureC,
+      autoStartPreferred,
+      heatSoakMinutes: estimate.heatSoakMinutes,
+      alertOnTargetReached: request.alertOnTargetReached !== false,
+      alertOnHeatSoakComplete: request.alertOnHeatSoakComplete !== false,
+      sessionData: {
+        ...(request.sessionData || {}),
+        estimation: 'shared-heating-model',
+        weatherMode: forecast ? 'forecast' : 'neutral',
+        baseHeatingRateCPerHour: estimate.baseHeatingRateCPerHour,
+        effectiveHeatingRateCPerHour: estimate.effectiveHeatingRateCPerHour,
+        waterVolumeLiters: this.waterVolumeLiters,
+        heatingRateReferenceVolumeLiters: this.referenceVolumeLiters,
+        heatSoakMinutes: estimate.heatSoakMinutes,
+        avgAmbientTemperatureC: estimate.avgAmbientTemperatureC,
+        avgWindSpeedKph: estimate.avgWindSpeedKph,
+        avgSolarRadiationWm2: estimate.avgSolarRadiationWm2,
+        avgPrecipitationMm: estimate.avgPrecipitationMm,
+        weatherSourceCount: estimate.weatherSourceCount,
+        weatherSamplingMode: estimate.weatherSamplingMode,
+        ...(weatherError ? { weatherError } : {})
+      }
+    });
+
+    return {
+      targetTime: estimate.targetTime,
+      startTime,
+      targetTemperatureC: estimate.targetTemperatureC,
+      startTemperatureC: estimate.startTemperatureC,
+      heatSoakMinutes: estimate.heatSoakMinutes,
+      effectiveHeatingRateCPerHour: estimate.effectiveHeatingRateCPerHour,
+      canMeetTarget: estimate.canMeetTarget,
+      autoStartPreferred,
+      weatherAdjusted: Boolean(forecast),
+      ...(weatherError ? { weatherError } : {}),
+      schedule
+    };
   }
 
   async getOutlook(now = Date.now()): Promise<HeatingOutlook> {
