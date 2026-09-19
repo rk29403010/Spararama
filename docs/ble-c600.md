@@ -66,7 +66,7 @@ Supported examples:
 
 An ordinary plain-HTTP LAN address such as `http://192.168.x.x:3000` is not a secure context and cannot directly use Web Bluetooth.
 
-The supported Termux phone runner opens the local phone instance at `http://127.0.0.1:3000`, which is suitable for the phone-local meter workflow.
+The supported Termux phone runner opens the local phone instance at `http://localhost:3000`. Backend health checks still use loopback IP internally, but the browser-facing localhost origin is deliberate because Web Bluetooth has been physically verified there on Android Chrome.
 
 ## Water-test workflow
 
@@ -77,7 +77,7 @@ While the screen is open Spararama polls the meter about once per second and dis
 - pH as a normal chemistry `MeasurementReading` with source `ble_meter`;
 - the complete instrument snapshot containing pH, ORP, temperature, EC, TDS, salinity, S.G., battery estimate, raw BLE frame and decoded frame.
 
-Only pH currently participates directly in dosing decisions. ORP, EC, TDS, salinity and S.G. are retained for history/analysis until their behaviour on this physical unit and this spa has been characterised. Do not derive chlorine dosing from ORP alone.
+Only pH currently participates directly in dosing decisions. The complete meter snapshot is still retained: pH, ORP, temperature and EC are tagged as sensor channels; TDS, salinity and S.G. are tagged as meter-derived values; the battery percentage is an estimate; and the raw/decoded BLE frames plus protocol diagnostics are preserved. TDS is known to use the meter's configurable conductivity conversion factor. Salinity and S.G. are treated as conductivity-derived values, while their exact firmware formula remains unverified. Do not derive chlorine dosing from ORP alone.
 
 ## BLE protocol
 
