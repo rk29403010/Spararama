@@ -15,7 +15,7 @@ const DEFAULT_FORECAST_CACHE_MS = 15 * 60_000;
 export const HEATING_OUTLOOK_MODEL_VERSION = 'baseline-weather-v1';
 
 interface HeatingScheduleSource {
-  listSchedules(): Promise<HeatingSchedule[]>;
+  listSchedules?(): Promise<HeatingSchedule[]>;
   createSchedule?(input: {
     id?: string;
     startTime: number;
@@ -285,7 +285,9 @@ export class HeatingPlanner {
   }
 
   async getOutlook(now = Date.now()): Promise<HeatingOutlook> {
-    const schedules = await this.schedules.listSchedules().catch(() => [] as HeatingSchedule[]);
+    const schedules = this.schedules.listSchedules
+      ? await this.schedules.listSchedules().catch(() => [] as HeatingSchedule[])
+      : [];
     const request = requestedSchedule(schedules, now);
     const requestFields = request ? {
       requestedBathingTime: request.targetTime,
