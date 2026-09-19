@@ -1,6 +1,6 @@
 # Firebase reference remote control plane
 
-Status: **Phases 0-3 implemented in source; deployment to a real public cloud endpoint is still to be validated.**
+Status: **Phases 0-4 implemented in source; managed deployment and real internet-path validation are still required.**
 
 This is the reference remote-access implementation described by
 [remote-access-cloud-architecture.md](remote-access-cloud-architecture.md). It is intentionally optional. A normal local Spararama installation still defaults to:
@@ -275,15 +275,30 @@ The reference design deliberately does **not**:
 
 Both cloud and local boundaries validate command data. The local node remains the final authority for hardware reachability and safety/application rules.
 
-## Still to implement
+## Hosted browser
 
-The next phases are:
+The source now includes a dedicated hosted-browser runtime and build:
 
-1. deploy the control API and static web app to managed HTTPS;
-2. add hosted/read-only frontend mode using Firebase Auth and the API above;
-3. enable remote UI controls one at a time;
-4. migrate Alexa Lambda from the temporary tunnel to this cloud API;
-5. add repeatable Firebase/Cloud Run/Hosting deployment automation;
-6. prove the provider boundary with a small self-hosted alternative.
+```bash
+pnpm cloud:web:build
+```
 
-Until the hosted frontend exists, this control plane is an API/agent foundation rather than an end-user remote UI.
+The hosted shell uses Firebase human sign-in, lists only installations the user can access, and reads current state through the authenticated control API. It explicitly distinguishes fresh, stale and offline state.
+
+For `owner` and `member` roles, target-temperature and heater/filter/bubble controls are enabled only while the home agent and spa are fresh/live. `viewer` remains read-only. Commands use the same expiring/idempotent cloud queue and local executor as every other remote caller.
+
+The local/LAN build remains the full poolside application. In particular the BLE-C600 meter stays browser-local beside the spa; it is not proxied through the cloud control plane.
+
+## Still to implement or validate
+
+The remaining sequence is:
+
+1. deploy the Cloud Run control API and Firebase Hosting web build to managed HTTPS;
+2. configure the hosted Google/Firebase authentication origin and bootstrap real household memberships;
+3. enable `REMOTE_TRANSPORT=firebase` on the always-on home node and run the read-only diagnostic;
+4. exercise the real hosted UI over mobile data, including stale/offline/failure behaviour;
+5. migrate Alexa Lambda from the temporary tunnel to the cloud control path;
+6. make deployment/setup more automated after the first real deployment has exposed any provider-specific wrinkles;
+7. prove the provider boundary with a small self-hosted alternative after the Firebase path is stable.
+
+See [cloud-deployment.md](cloud-deployment.md) for the prepared deployment path.
