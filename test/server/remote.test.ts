@@ -207,6 +207,7 @@ test('remote ready-at command delegates to the shared planner with caller metada
   assert.equal(received.length, 1);
   assert.equal(received[0].now, NOW);
   assert.equal(received[0].input.targetTime, NOW + 3_600_000);
+  assert.equal(received[0].input.scheduleId, 'remote-cmd-ready');
   assert.equal(received[0].input.targetTemperatureC, 39);
   assert.equal(received[0].input.heatSoakMinutes, 30);
   assert.equal(received[0].input.sessionData.source, 'remote');
