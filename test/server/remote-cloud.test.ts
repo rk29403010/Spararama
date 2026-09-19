@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { AlexaCloudCommandService } from '../../server/remote/cloud/alexa';
 import {
   CloudControlError,
   CloudControlService,
@@ -21,6 +22,7 @@ class FakeStore implements CloudControlStore {
   runtime = new Map<string, InstallationRuntimeDocument>();
   commands = new Map<string, StoredCloudCommand>();
   created: RemoteCommandEnvelope[] = [];
+  completion?: (command: RemoteCommandEnvelope) => unknown;
 
   async listMemberships(uid: string) {
     return uid === 'user-1' ? this.memberships : [];
@@ -37,9 +39,23 @@ class FakeStore implements CloudControlStore {
 
   async createCommand(command: RemoteCommandEnvelope) {
     this.created.push(command);
+    const completed = this.completion?.(command);
     this.commands.set(command.commandId, {
       ...command,
-      status: 'queued'
+      status: completed === undefined ? 'queued' : 'succeeded',
+      ...(completed === undefined ? {} : {
+        result: {
+          version: 1,
+          commandId: command.commandId,
+          installationId: command.installationId,
+          type: command.type,
+          status: 'succeeded',
+          acceptedAt: NOW,
+          completedAt: NOW,
+          requestedBy: command.requestedBy,
+          result: completed
+        }
+      })
     });
   }
 
@@ -259,4 +275,71 @@ test('trusted integration command submission is typed, attributed and does not r
 
   const stored = await service.getIntegrationCommand('home-spa', queued.commandId);
   assert.equal(stored.commandId, queued.commandId);
+});
+
+
+test('cloud Alexa command service reads fresh state and routes control through integration commands', async () => {
+  const store = new FakeStore();
+  const spaState = {
+    transport: 'lan' as const,
+    connected: true,
+    waterTemperatureC: 36,
+    targetTemperatureC: 39,
+    heaterOn: true,
+    filterOn: true,
+    bubblesOn: false,
+    filterRuntimeSeconds: 0,
+    heaterRuntimeSeconds: 0,
+    updatedAt: NOW
+  };
+  store.runtime.set('home-spa', {
+    heartbeatAtMs: NOW,
+    statePublishedAtMs: NOW,
+    state: { spa: spaState }
+  });
+  store.completion = command => command.type === 'setFilter'
+    ? { ...spaState, filterOn: false }
+    : undefined;
+
+  const service = new CloudControlService(store, { now: () => NOW });
+  const alexa = new AlexaCloudCommandService(service, 'home-spa', 'alexa', {
+    timeZone: 'Europe/London',
+    timeoutMs: 1_000
+  });
+
+  assert.equal((await alexa.status()).waterTemperatureC, 36);
+  const updated = await alexa.setFilter(false);
+  assert.equal(updated.filterOn, false);
+  assert.equal(store.created[0].type, 'setFilter');
+  assert.deepEqual(store.created[0].requestedBy, { kind: 'integration', id: 'alexa' });
+});
+
+test('cloud Alexa ready-at uses the high-level remote planner command', async () => {
+  const store = new FakeStore();
+  const now = Date.parse('2026-09-05T14:00:00Z');
+  store.completion = command => command.type === 'scheduleReadyAt'
+    ? {
+        targetTime: command.payload.targetTime,
+        startTime: now + 60_000,
+        targetTemperatureC: 39,
+        startTemperatureC: 36,
+        heatSoakMinutes: 30,
+        effectiveHeatingRateCPerHour: 1.4,
+        canMeetTarget: true,
+        autoStartPreferred: true,
+        weatherAdjusted: true
+      }
+    : undefined;
+
+  const service = new CloudControlService(store, { now: () => now });
+  const alexa = new AlexaCloudCommandService(service, 'home-spa', 'alexa', {
+    timeZone: 'Europe/London',
+    timeoutMs: 1_000
+  });
+
+  const plan = await alexa.planReadyAt('17:00', 39, now);
+  assert.equal(plan.targetTime, Date.parse('2026-09-05T16:00:00Z'));
+  assert.equal(plan.targetTemperatureC, 39);
+  assert.equal(store.created[0].type, 'scheduleReadyAt');
+  assert.equal((store.created[0].payload as any).targetTemperatureC, 39);
 });
