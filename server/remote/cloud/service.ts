@@ -157,19 +157,20 @@ export function validateCloudCommandRequest(type: unknown, rawPayload: unknown, 
   }
 
   const payload = rawPayload === undefined ? {} : asRecord(rawPayload);
+  const commandType = type as RemoteCommandType;
 
-  switch (type as RemoteCommandType) {
+  switch (commandType) {
     case 'readStatus':
-      return { type, payload: {} };
+      return { type: commandType, payload: {} };
     case 'setTargetTemperature':
-      return { type, payload: { celsius: requiredNumber(payload, 'celsius') } };
+      return { type: commandType, payload: { celsius: requiredNumber(payload, 'celsius') } };
     case 'setHeater':
     case 'setFilter':
-      return { type, payload: { on: requiredBoolean(payload, 'on') } };
+      return { type: commandType, payload: { on: requiredBoolean(payload, 'on') } };
     case 'setBubbles': {
       const autoRestart = optionalBoolean(payload, 'autoRestart');
       return {
-        type,
+        type: commandType,
         payload: {
           on: requiredBoolean(payload, 'on'),
           ...(autoRestart !== undefined ? { autoRestart } : {})
@@ -177,7 +178,7 @@ export function validateCloudCommandRequest(type: unknown, rawPayload: unknown, 
       };
     }
     case 'createHeatingSchedule':
-      return { type, payload: heatingPayload(payload, now) as unknown as Record<string, unknown> };
+      return { type: commandType, payload: heatingPayload(payload, now) as unknown as Record<string, unknown> };
   }
 }
 
