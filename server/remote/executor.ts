@@ -18,7 +18,7 @@ interface HeatingSchedulerLike {
 
 interface HeatingReadyPlannerLike {
   scheduleReadyAt(
-    input: ScheduleReadyAtPayload & { sessionData?: Record<string, unknown> },
+    input: ScheduleReadyAtPayload & { scheduleId?: string; sessionData?: Record<string, unknown> },
     now?: number
   ): Promise<unknown>;
 }
@@ -252,6 +252,7 @@ export class RemoteCommandExecutor {
         const payload = this.validateReadyAt(command.payload);
         return this.options.readyPlanner.scheduleReadyAt({
           ...payload,
+          scheduleId: `remote-${command.commandId}`,
           sessionData: {
             source: 'remote',
             requestedBy: command.requestedBy
