@@ -1,5 +1,83 @@
 # Reference cloud deployment
 
+## Fastest first deployment - no local Docker required
+
+For the first deployment, the simplest path is Google Cloud Shell in the browser. Cloud Shell already has `gcloud`, and the container can be built by Cloud Build, so Docker does **not** need to be installed on the development laptop.
+
+From Cloud Shell:
+
+```bash
+git clone -b chatgpt-dev https://github.com/rk29403010/Spararama.git
+cd Spararama
+
+gcloud config set project microprojects-481213
+gcloud services enable \
+  run.googleapis.com \
+  cloudbuild.googleapis.com \
+  artifactregistry.googleapis.com \
+  firestore.googleapis.com \
+  secretmanager.googleapis.com
+
+gcloud artifacts repositories describe spararama \
+  --location=europe-west2 >/dev/null 2>&1 \
+  || gcloud artifacts repositories create spararama \
+       --repository-format=docker \
+       --location=europe-west2 \
+       --description="Spararama deployment images"
+
+gcloud builds submit --config cloudbuild.control-plane.yaml .
+```
+
+The checked-in Cloud Build recipe builds `services/cloud/Dockerfile` with the repository root as its Docker build context and pushes:
+
+```text
+europe-west2-docker.pkg.dev/microprojects-481213/spararama/spararama-cloud-control:latest
+```
+
+Create a dedicated runtime identity once:
+
+```bash
+gcloud iam service-accounts describe \
+  spararama-cloud-runtime@microprojects-481213.iam.gserviceaccount.com >/dev/null 2>&1 \
+  || gcloud iam service-accounts create spararama-cloud-runtime \
+       --display-name="Spararama Cloud Runtime"
+
+gcloud projects add-iam-policy-binding microprojects-481213 \
+  --member="serviceAccount:spararama-cloud-runtime@microprojects-481213.iam.gserviceaccount.com" \
+  --role="roles/datastore.user"
+```
+
+Then deploy the API:
+
+```bash
+gcloud run deploy spararama-cloud-control \
+  --image=europe-west2-docker.pkg.dev/microprojects-481213/spararama/spararama-cloud-control:latest \
+  --region=europe-west2 \
+  --service-account=spararama-cloud-runtime@microprojects-481213.iam.gserviceaccount.com \
+  --allow-unauthenticated \
+  --set-env-vars=FIREBASE_PROJECT_ID=microprojects-481213,FIRESTORE_DATABASE_ID=ai-studio-hottubmonitor-c4b572e9-4270-488c-b8d2-306ccf453f65,REMOTE_CLOUD_COMMANDS_PER_MINUTE=30,REMOTE_CLOUD_STALE_AFTER_MS=90000,REMOTE_CLOUD_OFFLINE_AFTER_MS=300000
+```
+
+`--allow-unauthenticated` applies only to the Cloud Run HTTP edge. Spararama still authenticates the browser's Firebase ID token and checks installation membership before returning state or accepting user control commands.
+
+Firebase CLI also does not need to be installed globally. In Cloud Shell (or any machine with Node.js) use:
+
+```bash
+npx firebase-tools@latest login --no-localhost
+npx firebase-tools@latest use microprojects-481213
+```
+
+Build the hosted browser with its public Firebase/Google browser values in the environment, then deploy rules/indexes and Hosting:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm cloud:web:build
+npx firebase-tools@latest deploy --only firestore,hosting --project microprojects-481213
+```
+
+The first interactive deployment still requires the project owner to authenticate Google Cloud/Firebase and supply the public browser Firebase/OAuth configuration. It does not require a local Docker installation or downloaded Firebase Admin JSON key.
+
+
 This is the operational deployment guide for the Firebase/Cloud Run remote-control reference implementation.
 
 The design deliberately keeps the house private:
