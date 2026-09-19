@@ -1,6 +1,7 @@
 import type { RemoteCommandExecutor } from './executor';
 import type {
   InstallationPresence,
+  RemoteCommandResult,
   RemoteInstallationState,
   RemoteTransport,
   RemoteTransportStatus
@@ -16,7 +17,7 @@ export class RemoteAgent {
   private started = false;
   private lastCompletedCommandAt?: number;
   private lastCompletedCommandId?: string;
-  private commandCompletedHandler?: (result: import('./types').RemoteCommandResult) => Promise<void> | void;
+  private commandCompletedHandler?: (result: RemoteCommandResult) => Promise<void> | void;
 
   constructor(
     readonly installationId: string,
@@ -50,7 +51,7 @@ export class RemoteAgent {
     this.started = false;
   }
 
-  setCommandCompletedHandler(handler: (result: import('./types').RemoteCommandResult) => Promise<void> | void) {
+  setCommandCompletedHandler(handler: (result: RemoteCommandResult) => Promise<void> | void) {
     this.commandCompletedHandler = handler;
   }
 
