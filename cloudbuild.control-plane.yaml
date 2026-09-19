@@ -1,0 +1,11 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - services/cloud/Dockerfile
+      - -t
+      - europe-west2-docker.pkg.dev/$PROJECT_ID/spararama/spararama-cloud-control:latest
+      - .
+images:
+  - europe-west2-docker.pkg.dev/$PROJECT_ID/spararama/spararama-cloud-control:latest
