@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type { HeatingPlanner } from '../heating/planner';
 import type { HeatingScheduler } from '../heating/scheduler';
 import type { BubbleSessionManager } from '../spa/bubbles';
 import type { SpaAdapter } from '../spa/types';
@@ -62,6 +63,7 @@ export function createRemoteRuntime(dependencies: {
   spa: SpaAdapter;
   bubbles?: BubbleSessionManager;
   heating?: HeatingScheduler;
+  heatingPlanner?: HeatingPlanner;
 }): RemoteRuntime {
   const config = resolveRemoteRuntimeConfig();
   const transport: RemoteTransport = config.transport === 'firebase'
@@ -73,6 +75,7 @@ export function createRemoteRuntime(dependencies: {
     spa: dependencies.spa,
     bubbles: dependencies.bubbles,
     heating: dependencies.heating,
+    readyPlanner: dependencies.heatingPlanner,
     ledger: new FileRemoteCommandLedger(config.stateDir)
   });
   const agent = new RemoteAgent(config.installationId, transport, executor);
