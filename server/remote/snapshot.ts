@@ -22,9 +22,16 @@ export class RemoteSnapshotPublisher {
 
   start() {
     if (this.timer) return;
-    void this.publishNow();
-    this.timer = setInterval(() => void this.publishNow(), this.intervalMs);
+    this.publishInBackground();
+    this.timer = setInterval(() => this.publishInBackground(), this.intervalMs);
     this.timer.unref?.();
+  }
+
+  private publishInBackground() {
+    void this.publishNow().catch(() => {
+      // Transport status records the failure. Remote publication is optional and
+      // must never become an unhandled rejection that destabilises local control.
+    });
   }
 
   stop() {
