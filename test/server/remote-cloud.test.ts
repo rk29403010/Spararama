@@ -188,38 +188,26 @@ test('rate limiting is enforced before queue growth', async () => {
   assert.equal(store.created.length, 1);
 });
 
-test('heating schedule command is validated at the public boundary', async () => {
+test('low-level heating schedule command is not exposed at the public cloud boundary', async () => {
   const store = new FakeStore();
   const service = new CloudControlService(store, { now: () => NOW });
-
-  await service.submitCommand(principal, 'home-spa', {
-    type: 'createHeatingSchedule',
-    payload: {
-      startTime: NOW + 60_000,
-      targetTime: NOW + 3_600_000,
-      startTemperatureC: 35,
-      targetTemperatureC: 39,
-      autoStartPreferred: true,
-      heatSoakMinutes: 30
-    }
-  });
-
-  assert.equal(store.created[0].type, 'createHeatingSchedule');
-  assert.equal(store.created[0].expiresAt, NOW + 60_000);
 
   await assert.rejects(
     service.submitCommand(principal, 'home-spa', {
       type: 'createHeatingSchedule',
       payload: {
-        startTime: NOW + 120_000,
-        targetTime: NOW + 60_000,
+        startTime: NOW + 60_000,
+        targetTime: NOW + 3_600_000,
         startTemperatureC: 35,
         targetTemperatureC: 39,
         autoStartPreferred: true
       }
     }),
-    (error: any) => error instanceof CloudControlError && error.statusCode === 400
+    (error: any) => error instanceof CloudControlError
+      && error.statusCode === 400
+      && error.code === 'unsupported_command'
   );
+  assert.equal(store.created.length, 0);
 });
 
 
