@@ -73,6 +73,7 @@ export class RemoteSnapshotPublisher {
           'setHeater',
           'setFilter',
           'setBubbles',
+          'scheduleReadyAt',
           'createHeatingSchedule'
         ]
       });
