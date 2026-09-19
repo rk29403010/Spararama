@@ -1,6 +1,6 @@
 # Firebase reference remote control plane
 
-Status: **Phases 0-4 implemented in source; managed deployment and real internet-path validation are still required.**
+Status: **Managed cloud deployment is live and the A71 outbound agent/read-only round trip are verified. Physical remote-control, mobile-data and viewer-role validation remain.**
 
 This is the reference remote-access implementation described by
 [remote-access-cloud-architecture.md](remote-access-cloud-architecture.md). It is intentionally optional. A normal local Spararama installation still defaults to:
@@ -294,16 +294,31 @@ For `owner` and `member` roles, target-temperature and heater/filter/bubble cont
 
 The local/LAN build remains the full poolside application. In particular the BLE-C600 meter stays browser-local beside the spa; it is not proxied through the cloud control plane.
 
-## Still to implement or validate
+## Verified deployment state
+
+The reference deployment is live:
+
+- Firebase Hosting is serving the hosted Spararama UI.
+- Cloud Run is serving the authenticated control API.
+- Firestore rules/indexes are deployed to the named database.
+- Google sign-in and installation membership are working.
+- The A71 is running `REMOTE_TRANSPORT=firebase` for installation `home-spa`.
+- The home agent has published live state and reconnected after a deliberate backend stop/restart.
+- The read-only `remote:diagnose` round trip has completed successfully.
+- Local live spa operation, telemetry, and phone-local `http://localhost:3000` remain healthy.
+- BLE-C600 decoder tests continue to pass.
+
+## Still to validate
 
 The remaining sequence is:
 
-1. deploy the Cloud Run control API and Firebase Hosting web build to managed HTTPS;
-2. configure the hosted Google/Firebase authentication origin and bootstrap real household memberships;
-3. enable `REMOTE_TRANSPORT=firebase` on the always-on home node and run the read-only diagnostic;
-4. exercise the real hosted UI over mobile data, including stale/offline/failure behaviour;
-5. migrate Alexa Lambda from the temporary tunnel to the cloud control path;
-6. make deployment/setup more automated after the first real deployment has exposed any provider-specific wrinkles;
-7. prove the provider boundary with a small self-hosted alternative after the Firebase path is stable.
+1. verify the hosted signed-in UI shows the live A71 state and the stale/offline transitions honestly;
+2. issue owner/member physical commands through the hosted UI one at a time and verify cloud result, local status and actual spa state agree;
+3. validate `scheduleReadyAt`, deterministic replay/idempotency, and cancellation/cleanup of a test schedule;
+4. verify the hosted path over mobile data;
+5. verify viewer-role server-side and UI read-only enforcement;
+6. migrate Alexa Lambda from the temporary tunnel to the cloud control path;
+7. add further deployment automation only where the real deployment showed value;
+8. prove the provider boundary with a small self-hosted alternative after the Firebase path is stable.
 
-See [cloud-deployment.md](cloud-deployment.md) for the prepared deployment path.
+See [cloud-deployment.md](cloud-deployment.md) for the deployment/operations path.
