@@ -206,7 +206,11 @@ export function validateCloudCommandRequest(type: unknown, rawPayload: unknown, 
     case 'scheduleReadyAt':
       return { type: commandType, payload: readyAtPayload(payload, now) };
     case 'createHeatingSchedule':
-      return { type: commandType, payload: heatingPayload(payload, now) as unknown as Record<string, unknown> };
+      throw new CloudControlError(
+        400,
+        'unsupported_command',
+        'Low-level heating schedules are not exposed through the cloud API. Use scheduleReadyAt.'
+      );
   }
 }
 
