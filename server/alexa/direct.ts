@@ -46,6 +46,16 @@ export interface AlexaDirectOptions {
   weatherService?: WeatherServiceLike;
 }
 
+export interface AlexaCommandServiceLike {
+  readonly timeZone: string;
+  status(): Promise<BubbleAwareSpaStatus | SpaStatus>;
+  setBubbles(on: boolean): Promise<BubbleAwareSpaStatus | SpaStatus>;
+  setFilter(on: boolean): Promise<SpaStatus>;
+  setHeater(on: boolean): Promise<SpaStatus>;
+  setTargetTemperature(celsius: number): Promise<SpaStatus>;
+  planReadyAt(alexaTime: string, targetTemperatureC?: number, now?: number): Promise<AlexaReadyPlan>;
+}
+
 export interface AlexaReadyPlan {
   targetTime: number;
   startTime: number;
@@ -448,7 +458,7 @@ export class AlexaSpaCommandService {
   }
 }
 
-async function handleSmartHome(event: any, commands: AlexaSpaCommandService) {
+async function handleSmartHome(event: any, commands: AlexaCommandServiceLike) {
   const directive = event?.directive;
   const namespace = directive?.header?.namespace;
   const name = directive?.header?.name;
@@ -502,7 +512,7 @@ async function handleSmartHome(event: any, commands: AlexaSpaCommandService) {
   }
 }
 
-async function handleCustom(event: any, commands: AlexaSpaCommandService, now = Date.now()) {
+async function handleCustom(event: any, commands: AlexaCommandServiceLike, now = Date.now()) {
   const type = event?.request?.type;
   if (type === 'LaunchRequest') {
     return customSpeech('Spararama is connected. You can ask for the hot tub temperature, control the bubbles, or ask me to have the hot tub ready for a time.', false);
@@ -568,7 +578,7 @@ async function handleCustom(event: any, commands: AlexaSpaCommandService, now = 
   }
 }
 
-export async function handleAlexaDirectRequest(event: any, commands: AlexaSpaCommandService, now = Date.now()) {
+export async function handleAlexaDirectRequest(event: any, commands: AlexaCommandServiceLike, now = Date.now()) {
   if (event?.directive?.header) return handleSmartHome(event, commands);
   if (event?.request?.type) return handleCustom(event, commands, now);
   throw new Error('Unsupported Alexa request payload.');
