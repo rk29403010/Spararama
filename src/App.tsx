@@ -15,9 +15,11 @@ import { DeveloperSettings } from './components/DeveloperSettings';
 import { SpaConfiguration } from './components/SpaConfiguration';
 import { WeatherConfiguration } from './components/WeatherConfiguration';
 import { BleC600Settings } from './components/BleC600Settings';
+import { RemoteHome } from './components/RemoteHome';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ClipboardPlus, Droplets, Flame, Settings, List, LogOut, User as UserIcon, House } from 'lucide-react';
 import { subscribeToAuthChanges, signOutUser } from './lib/firebase';
+import { isCloudRuntime } from './lib/runtime';
 import type { User } from 'firebase/auth';
 
 type AppTab = 'home' | 'heating' | 'chemicals' | 'logs' | 'settings';
@@ -33,6 +35,52 @@ function initialTab(): AppTab {
   } catch {
     return 'home';
   }
+}
+
+function CloudApp({ user }: { user: User | null }) {
+  return (
+    <div className="min-h-screen bg-slate-100 flex flex-col font-sans text-slate-950">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
+        <div className="max-w-xl mx-auto px-4 h-16 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 bg-slate-950 rounded-2xl flex items-center justify-center shrink-0">
+              <Droplets className="w-6 h-6 text-sky-200" aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-xl leading-tight font-black text-slate-950 tracking-tight">Spararama</h1>
+              <p className="text-sm leading-tight font-bold text-slate-600">Remote access</p>
+            </div>
+          </div>
+          {user && (
+            <button
+              type="button"
+              className="min-h-11 px-3 rounded-xl bg-slate-100 text-slate-800 font-black flex items-center gap-2"
+              onClick={() => void signOutUser()}
+            >
+              <LogOut className="w-5 h-5" aria-hidden="true" />
+              Sign out
+            </button>
+          )}
+        </div>
+      </header>
+
+      <main className="flex-1">
+        {!user ? (
+          <div className="p-4 max-w-xl mx-auto">
+            <section className="mt-6 rounded-3xl bg-white border border-slate-200 p-6">
+              <h2 className="text-2xl font-black text-slate-950">Sign in to your hot tub</h2>
+              <p className="mt-2 mb-5 font-bold text-slate-600">Remote status and controls are available only to accounts linked to the installation.</p>
+              <ErrorBoundary resetKey="cloud-auth" title="Sign-in unavailable"><GoogleSignInButton /></ErrorBoundary>
+            </section>
+          </div>
+        ) : (
+          <ErrorBoundary resetKey={user.uid} title="Remote hot tub failed">
+            <RemoteHome user={user} />
+          </ErrorBoundary>
+        )}
+      </main>
+    </div>
+  );
 }
 
 function blocksTabSwipe(target: EventTarget | null) {
@@ -107,7 +155,7 @@ export default function App() {
     if (nextTab) setActiveTab(nextTab);
   };
 
-  if (!state || !authInitialized) {
+  if (!authInitialized || (!isCloudRuntime && !state)) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-slate-100 text-slate-700">
         <span className="w-14 h-14 rounded-2xl bg-slate-950 text-white flex items-center justify-center">
@@ -117,6 +165,9 @@ export default function App() {
       </div>
     );
   }
+
+  if (isCloudRuntime) return <CloudApp user={user} />;
+  if (!state) return null;
 
   const activeWaterBody = state.domain.waterBodies.find(item => item.id === state.domain.activeWaterBodyId) ?? state.domain.waterBodies[0];
 
@@ -152,7 +203,7 @@ export default function App() {
             </button>
           </div>
         </div>
-        {!user && <div className="bg-amber-100 border-t border-amber-200 px-4 py-2 text-center text-amber-950 text-sm font-black">Not signed in - history will not be saved.</div>}
+        {!user && <div className="bg-amber-100 border-t border-amber-200 px-4 py-2 text-center text-amber-950 text-sm font-black">Not signed in - personal activity won't sync to your account.</div>}
       </header>
 
       <main className="flex-1 pb-24 overflow-y-auto" onTouchStart={handleSwipeStart} onTouchEnd={handleSwipeEnd}>
