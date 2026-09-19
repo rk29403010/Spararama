@@ -225,6 +225,7 @@ export class TelemetryCollector {
   private previousForecast = new Map<string, ForecastChange>();
   private lastSnapshotAt = 0;
   private lastForecastPollAt = 0;
+  private lastRecordTimestamp = 0;
   private status: TelemetryCollectorStatus;
   private equipmentCatalog: EquipmentCatalogResponse = { source: 'seed', models: [...EQUIPMENT_CATALOG_SEED] };
 
@@ -365,10 +366,14 @@ export class TelemetryCollector {
         : [...spaResult.fields, ...weatherResult.fields, ...sensorResult.fields, ...forecast.map(item => `forecast.${item.forecastFor}.${item.metric}`)];
 
       if (snapshot || changedFields.length > 0) {
+        // Two explicit collections can complete within the same millisecond. Keep
+        // per-collector record time monotonic so sparse events reconstruct in the
+        // order they were persisted instead of falling back to random UUID order.
+        const recordTimestamp = Math.max(now, this.lastRecordTimestamp + 1);
         const record: TelemetryEventRecord = {
           schemaVersion: 2,
           id: crypto.randomUUID(),
-          timestamp: now,
+          timestamp: recordTimestamp,
           hostId: this.hostId,
           collectorVersion: this.collectorVersion,
           recordKind: snapshot ? 'snapshot' : 'change',
@@ -382,8 +387,9 @@ export class TelemetryCollector {
           weatherSources: snapshot ? weather?.sources : undefined
         };
         await this.store.append(record);
+        this.lastRecordTimestamp = recordTimestamp;
         if (snapshot) {
-          this.lastSnapshotAt = now;
+          this.lastSnapshotAt = recordTimestamp;
           this.previousSpa = { ...spa };
         } else if (this.previousSpa) {
           this.previousSpa = { ...this.previousSpa, ...spaResult.patch };
@@ -391,7 +397,7 @@ export class TelemetryCollector {
           this.previousSpa = { ...spa };
         }
         this.status.samplesCollected += 1;
-        this.status.lastSampleAt = now;
+        this.status.lastSampleAt = recordTimestamp;
       }
       this.status.lastError = undefined;
     } catch (error: any) {
