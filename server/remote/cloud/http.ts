@@ -1,5 +1,6 @@
 import express, { type Express, type Request, type Response } from 'express';
 import type { CloudAuthenticator } from './firebase-auth';
+import { registerCloudAlexaRoutes } from './alexa';
 import { CloudControlError, type CloudControlService, type CloudPrincipal } from './service';
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) {
@@ -91,6 +92,8 @@ export function createCloudControlApp(dependencies: {
       req.params.commandId
     ));
   }));
+
+  registerCloudAlexaRoutes(app, dependencies.service);
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'not_found', message: 'No such Spararama cloud endpoint.' });
