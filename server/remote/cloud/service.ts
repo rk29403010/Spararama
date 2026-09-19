@@ -108,6 +108,32 @@ function optionalBoolean(payload: Record<string, unknown>, field: string) {
   return value;
 }
 
+function readyAtPayload(payload: Record<string, unknown>, now: number) {
+  const targetTime = requiredNumber(payload, 'targetTime');
+  if (targetTime <= now) {
+    throw new CloudControlError(400, 'invalid_command', 'Heating target time must be in the future.');
+  }
+  const targetTemperatureC = payload.targetTemperatureC === undefined
+    ? undefined
+    : requiredNumber(payload, 'targetTemperatureC');
+  const heatSoakMinutes = payload.heatSoakMinutes === undefined
+    ? undefined
+    : requiredNumber(payload, 'heatSoakMinutes');
+  if (heatSoakMinutes !== undefined && heatSoakMinutes < 0) {
+    throw new CloudControlError(400, 'invalid_command', 'heatSoakMinutes must not be negative.');
+  }
+  const alertOnTargetReached = optionalBoolean(payload, 'alertOnTargetReached');
+  const alertOnHeatSoakComplete = optionalBoolean(payload, 'alertOnHeatSoakComplete');
+
+  return {
+    targetTime,
+    ...(targetTemperatureC !== undefined ? { targetTemperatureC } : {}),
+    ...(heatSoakMinutes !== undefined ? { heatSoakMinutes } : {}),
+    ...(alertOnTargetReached !== undefined ? { alertOnTargetReached } : {}),
+    ...(alertOnHeatSoakComplete !== undefined ? { alertOnHeatSoakComplete } : {})
+  };
+}
+
 function heatingPayload(payload: Record<string, unknown>, now: number): CreateHeatingSchedulePayload {
   const startTime = requiredNumber(payload, 'startTime');
   const targetTime = requiredNumber(payload, 'targetTime');
@@ -177,6 +203,8 @@ export function validateCloudCommandRequest(type: unknown, rawPayload: unknown, 
         }
       };
     }
+    case 'scheduleReadyAt':
+      return { type: commandType, payload: readyAtPayload(payload, now) };
     case 'createHeatingSchedule':
       return { type: commandType, payload: heatingPayload(payload, now) as unknown as Record<string, unknown> };
   }
@@ -184,7 +212,7 @@ export function validateCloudCommandRequest(type: unknown, rawPayload: unknown, 
 
 export function defaultCommandTtlMs(type: RemoteCommandType) {
   if (type === 'readStatus') return 15_000;
-  if (type === 'createHeatingSchedule') return 60_000;
+  if (type === 'createHeatingSchedule' || type === 'scheduleReadyAt') return 60_000;
   return 30_000;
 }
 
