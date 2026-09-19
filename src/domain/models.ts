@@ -24,10 +24,15 @@ export interface MeasurementReading {
   ignoreReason?: string;
 }
 
+export type InstrumentMeasurementProvenance = 'sensor' | 'derived' | 'estimate';
+
 export interface InstrumentMeasurement {
   key: string;
   value: number;
   unit?: string;
+  provenance?: InstrumentMeasurementProvenance;
+  derivedFrom?: string[];
+  note?: string;
 }
 
 export interface InstrumentSnapshot {
