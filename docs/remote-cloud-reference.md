@@ -42,7 +42,7 @@ RemoteCommandExecutor
     +--> HeatingScheduler
 ```
 
-The initial command allowlist is:
+The local executor understands this compatibility allowlist:
 
 ```text
 readStatus
@@ -53,6 +53,8 @@ setBubbles
 scheduleReadyAt
 createHeatingSchedule
 ```
+
+The **public cloud API advertises/accepts only the first six high-level operations through `scheduleReadyAt`**. `createHeatingSchedule` remains an internal compatibility command so cloud clients cannot supply scheduler-internal start temperatures, start times or auto-start policy.
 
 Commands have server-assigned IDs/timestamps and short expiries. The local executor also maintains a durable recent-command ledger under `REMOTE_STATE_DIR` so redelivery after a network/process interruption does not blindly repeat an already-recorded side effect.
 
