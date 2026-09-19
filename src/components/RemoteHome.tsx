@@ -26,6 +26,19 @@ function ageText(ageMs: number | null) {
   return `Updated ${hours}h ago`;
 }
 
+function nextReadyTime(value: string, now = new Date()) {
+  const match = value.match(/^(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return null;
+
+  const target = new Date(now);
+  target.setHours(hour, minute, 0, 0);
+  if (target.getTime() <= now.getTime()) target.setDate(target.getDate() + 1);
+  return target;
+}
+
 function commandResultSpa(result: unknown): SpaStatusDto | null {
   if (!result || typeof result !== 'object') return null;
   const candidate = result as Partial<SpaStatusDto>;
@@ -75,6 +88,8 @@ export function RemoteHome({ user }: { user: User }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [readyTime, setReadyTime] = useState('17:00');
+  const [readyMessage, setReadyMessage] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -172,6 +187,32 @@ export function RemoteHome({ user }: { user: User }) {
     }
   };
 
+  const scheduleReady = async () => {
+    const target = nextReadyTime(readyTime);
+    if (!target) {
+      setError('Choose a valid ready time.');
+      return;
+    }
+    if (!selectedId || busy) return;
+
+    setBusy('ready');
+    setError('');
+    setReadyMessage('');
+    try {
+      await remoteCloudApi.runCommand(user, selectedId, 'scheduleReadyAt', {
+        targetTime: target.getTime()
+      });
+      const sameDay = target.toDateString() === new Date().toDateString();
+      setReadyMessage(`Scheduled for ${sameDay ? 'today' : 'tomorrow'} at ${readyTime}.`);
+      window.setTimeout(() => void refresh(false), 750);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not schedule heating.');
+      void refresh(false);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-4 max-w-xl mx-auto">
@@ -206,6 +247,7 @@ export function RemoteHome({ user }: { user: User }) {
   const writableRole = snapshot?.role === 'owner' || snapshot?.role === 'member';
   const canControl = genuinelyLive && writableRole && busy === null;
   const supports = (command: CloudRemoteCommandType) => capabilities.size === 0 || capabilities.has(command);
+  const canScheduleReady = genuinelyLive && writableRole && busy === null && supports('scheduleReadyAt');
 
   return (
     <div className="p-4 max-w-xl mx-auto space-y-4">
@@ -322,6 +364,36 @@ export function RemoteHome({ user }: { user: User }) {
               Controls are paused until the home server and spa are both live.
             </p>
           )}
+        </section>
+      )}
+
+      {writableRole && supports('scheduleReadyAt') && (
+        <section className="rounded-2xl bg-white border border-slate-200 p-4">
+          <div className="flex items-center gap-3">
+            <label className="flex-1 min-w-0">
+              <span className="block text-sm font-black text-slate-600 mb-1">Ready by</span>
+              <input
+                type="time"
+                value={readyTime}
+                onChange={event => {
+                  setReadyTime(event.target.value);
+                  setReadyMessage('');
+                }}
+                aria-label="Ready time"
+                className="w-full min-h-12 rounded-xl bg-slate-100 px-3 text-lg font-black text-slate-950"
+              />
+            </label>
+            <button
+              type="button"
+              disabled={!canScheduleReady}
+              onClick={() => void scheduleReady()}
+              className="self-end min-h-12 px-5 rounded-xl bg-indigo-700 text-white font-black disabled:bg-slate-300 disabled:text-slate-600"
+            >
+              {busy === 'ready' ? 'Scheduling…' : 'Schedule'}
+            </button>
+          </div>
+          {readyMessage && <p role="status" className="mt-2 text-sm font-bold text-emerald-800">{readyMessage}</p>}
+          {!genuinelyLive && <p role="status" className="mt-2 text-sm font-bold text-slate-600">Scheduling is available when the home server and spa are live.</p>}
         </section>
       )}
 
