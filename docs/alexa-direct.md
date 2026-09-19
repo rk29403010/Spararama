@@ -4,12 +4,35 @@ Spararama supports an additive direct Alexa path while retaining the existing Vo
 
 ## Current boundary
 
-```text
-Voice commands
-You -> Echo/Alexa -> Spararama Alexa Lambda -> protected HTTPS route -> /api/alexa/direct
-    -> normal Spararama command/scheduler layer -> SpaAdapter -> spa
+The source now supports two Alexa transport paths.
 
-Announcements
+Permanent/reference path:
+
+```text
+You -> Echo/Alexa -> Spararama Alexa Lambda
+    -> managed Spararama cloud /api/integrations/alexa
+    -> typed Firestore command
+    -> outbound home agent
+    -> normal Spararama command/scheduler layer
+    -> SpaAdapter -> spa
+```
+
+Temporary development fallback:
+
+```text
+You -> Echo/Alexa -> Spararama Alexa Lambda
+    -> temporary HTTPS tunnel
+    -> Alexa-only loopback proxy
+    -> local /api/alexa/direct
+    -> normal Spararama command/scheduler layer
+    -> SpaAdapter -> spa
+```
+
+The Lambda prefers `SPARARAMA_ALEXA_CLOUD_URL` when configured and otherwise retains the existing `SPARARAMA_ALEXA_URL` tunnel path. The managed path is implemented in source but must not replace the working tunnel in the real Alexa configuration until the cloud deployment has passed the read-only and control smoke tests.
+
+Announcements still use:
+
+```text
 Spararama -> Voice Monkey -> Echo/Alexa
 ```
 
@@ -48,7 +71,7 @@ services/alexa/skill-package/interactionModels/custom/en-GB.json
 
 `ReadyAtIntent` creates a normal Spararama heating schedule. Bubble commands go through `BubbleSessionManager`, so firmware cooldown and the one-auto-restart policy are not bypassed.
 
-Ready-time estimation uses the same pure calculation in `src/domain/heating.ts` as the Heating UI. Both paths use the same volume adjustment, heat-soak allowance, temperature/wind/solar/precipitation adjustments and minimum effective heating-rate floor. Alexa obtains forecast data directly from the backend `WeatherService`; if weather is unavailable it deliberately falls back to the same neutral-weather assumptions as the UI.
+Ready-time estimation now goes through the provider-neutral `HeatingPlanner.scheduleReadyAt` application service. The local Alexa path and the remote `scheduleReadyAt` command therefore share the same `src/domain/heating.ts` calculation, weather handling and normal `HeatingScheduler` persistence/safety path rather than maintaining separate scheduling algorithms.
 
 The browser still owns user-editable app configuration, while Alexa runs without a browser, so Alexa needs server-side physical-profile values. Defaults mirror the current 800 L CleverSpa app profile: 1.5 C/hour at 800 L, 30-minute heat soak and 1800 W heater. They can be overridden with the `ALEXA_*` environment settings in `.env.example`. This is configuration duplication, not calculation duplication; the estimate algorithm itself has one implementation.
 
@@ -63,6 +86,31 @@ There are three separate checks in the first-test path:
 The LWA access token is removed from the Alexa event before the event is forwarded to the Spararama backend.
 
 The temporary Termux tunnel does **not** expose port 3000 directly. `services/alexa/local-proxy.mjs` binds to loopback and only accepts `POST /api/alexa/direct` (plus a local health check). The SSH tunnel points at that narrow proxy.
+
+## Stable cloud Alexa configuration
+
+After the managed cloud path in [cloud-deployment.md](cloud-deployment.md) has been deployed and its normal browser commands have passed real end-to-end tests, enable the cloud Alexa endpoint on the Cloud Run service:
+
+```env
+ALEXA_CLOUD_ENABLED="true"
+ALEXA_CLOUD_INSTALLATION_ID="home-spa"
+ALEXA_CLOUD_INTEGRATION_SECRET="<long random secret>"
+ALEXA_SKILL_ID="<amzn1.ask.skill...>"
+SPARARAMA_TIME_ZONE="Europe/London"
+```
+
+Configure Lambda with:
+
+```env
+SPARARAMA_ALEXA_CLOUD_URL="https://<host>/api/integrations/alexa"
+SPARARAMA_ALEXA_INTEGRATION_SECRET="<same long random secret>"
+ALEXA_SKILL_ID="<same skill id>"
+LWA_CLIENT_ID="<Login with Amazon client id>"
+```
+
+Keep `SPARARAMA_ALEXA_URL` and `SPARARAMA_ALEXA_PROXY_SECRET` available during the migration if you want an immediate fallback. The Lambda chooses the cloud URL when both paths are configured.
+
+The cloud endpoint does not expose arbitrary home HTTP. It accepts only Alexa requests authenticated with the integration secret/Skill ID and maps supported Alexa actions onto the typed remote command allowlist. Ready-by requests use `scheduleReadyAt`.
 
 ## First real Echo test - UK
 
