@@ -10,6 +10,8 @@ const result = spawnSync(
       ...process.env,
       VITE_SPARARAMA_RUNTIME: 'cloud'
     },
+    // Windows invokes .cmd shims through cmd.exe; direct spawning produces EINVAL.
+    shell: process.platform === 'win32',
     stdio: 'inherit'
   }
 );
