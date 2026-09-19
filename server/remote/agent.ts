@@ -16,6 +16,7 @@ export class RemoteAgent {
   private started = false;
   private lastCompletedCommandAt?: number;
   private lastCompletedCommandId?: string;
+  private commandCompletedHandler?: (result: import('./types').RemoteCommandResult) => Promise<void> | void;
 
   constructor(
     readonly installationId: string,
@@ -31,6 +32,13 @@ export class RemoteAgent {
         await this.transport.acknowledgeCommand(result);
         this.lastCompletedCommandAt = result.completedAt;
         this.lastCompletedCommandId = result.commandId;
+        if (this.commandCompletedHandler) {
+          try {
+            await this.commandCompletedHandler(result);
+          } catch {
+            // State publication is best effort; command acknowledgement has already completed.
+          }
+        }
       }
     });
     this.started = true;
@@ -40,6 +48,10 @@ export class RemoteAgent {
     if (!this.started) return;
     await this.transport.stop();
     this.started = false;
+  }
+
+  setCommandCompletedHandler(handler: (result: import('./types').RemoteCommandResult) => Promise<void> | void) {
+    this.commandCompletedHandler = handler;
   }
 
   publishPresence(presence: Omit<InstallationPresence, 'installationId'>) {
