@@ -6,5 +6,26 @@
       "indexes": "firestore.indexes.json",
       "rules": "firestore.rules"
     }
-  ]
+  ],
+  "hosting": {
+    "public": "dist/cloud-web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/api/**",
+        "run": {
+          "serviceId": "spararama-cloud-control",
+          "region": "europe-west2"
+        }
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
 }
