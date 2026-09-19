@@ -49,8 +49,7 @@ export type CloudRemoteCommandType =
   | 'setHeater'
   | 'setFilter'
   | 'setBubbles'
-  | 'scheduleReadyAt'
-  | 'createHeatingSchedule';
+  | 'scheduleReadyAt';
 
 export interface QueuedCloudCommand {
   commandId: string;
