@@ -1,0 +1,14 @@
+.git
+.github
+node_modules
+dist
+.env
+.env.*
+data
+coverage
+*.log
+*.pem
+*.key
+*.p12
+*.pfx
+**/firebase-admin*.json
