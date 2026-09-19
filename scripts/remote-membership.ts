@@ -11,7 +11,9 @@ function usage(): never {
   process.exit(2);
 }
 
-const [action, installationId, uid, extra] = process.argv.slice(2);
+const args = process.argv.slice(2);
+if (args[0] === '--') args.shift();
+const [action, installationId, uid, extra] = args;
 if (!action || !installationId || !uid) usage();
 if (!/^[A-Za-z0-9][A-Za-z0-9_-]{1,79}$/.test(installationId)) {
   throw new Error('Installation ID must be 2-80 characters using letters, numbers, _ or -.');
