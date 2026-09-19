@@ -43,6 +43,39 @@ export interface CloudInstallationState {
   runtime: CloudRuntimeSnapshot | null;
 }
 
+export type CloudRemoteCommandType =
+  | 'readStatus'
+  | 'setTargetTemperature'
+  | 'setHeater'
+  | 'setFilter'
+  | 'setBubbles'
+  | 'createHeatingSchedule';
+
+export interface QueuedCloudCommand {
+  commandId: string;
+  installationId: string;
+  type: CloudRemoteCommandType;
+  status: 'queued';
+  createdAt: number;
+  expiresAt: number;
+}
+
+export interface CloudCommandStatus {
+  commandId: string;
+  installationId: string;
+  type: CloudRemoteCommandType | string;
+  status: 'queued' | 'claimed' | 'succeeded' | 'failed' | 'expired' | 'rejected' | string;
+  createdAt: number;
+  expiresAt: number;
+  requestedBy?: unknown;
+  payload?: unknown;
+  result?: {
+    status?: string;
+    result?: SpaStatusDto | unknown;
+    error?: { code?: string; message?: string };
+  };
+}
+
 async function request<T>(user: User, path: string, init?: RequestInit): Promise<T> {
   const token = await user.getIdToken();
   const response = await fetch(`${cloudApiBaseUrl}${path}`, {
@@ -65,6 +98,10 @@ async function request<T>(user: User, path: string, init?: RequestInit): Promise
   return body as T;
 }
 
+function sleep(milliseconds: number) {
+  return new Promise(resolve => window.setTimeout(resolve, milliseconds));
+}
+
 export const remoteCloudApi = {
   async installations(user: User) {
     const response = await request<{ installations: CloudInstallationSummary[] }>(user, '/api/installations');
@@ -76,5 +113,53 @@ export const remoteCloudApi = {
       user,
       `/api/installations/${encodeURIComponent(installationId)}/state`
     );
+  },
+
+  submitCommand(
+    user: User,
+    installationId: string,
+    type: CloudRemoteCommandType,
+    payload: Record<string, unknown> = {}
+  ) {
+    return request<QueuedCloudCommand>(
+      user,
+      `/api/installations/${encodeURIComponent(installationId)}/commands`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ type, payload })
+      }
+    );
+  },
+
+  commandStatus(user: User, installationId: string, commandId: string) {
+    return request<CloudCommandStatus>(
+      user,
+      `/api/installations/${encodeURIComponent(installationId)}/commands/${encodeURIComponent(commandId)}`
+    );
+  },
+
+  async runCommand(
+    user: User,
+    installationId: string,
+    type: CloudRemoteCommandType,
+    payload: Record<string, unknown> = {}
+  ) {
+    const queued = await this.submitCommand(user, installationId, type, payload);
+    const timeoutAt = queued.expiresAt + 5_000;
+    let latest: CloudCommandStatus | null = null;
+
+    while (Date.now() <= timeoutAt) {
+      latest = await this.commandStatus(user, installationId, queued.commandId);
+      if (['succeeded', 'failed', 'expired', 'rejected'].includes(latest.status)) {
+        if (latest.status !== 'succeeded') {
+          const nested = latest.result?.error?.message;
+          throw new Error(nested || `Remote command ${latest.status}.`);
+        }
+        return latest;
+      }
+      await sleep(500);
+    }
+
+    throw new Error('The home Spararama server did not confirm the command before it expired.');
   }
 };
