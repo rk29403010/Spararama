@@ -181,6 +181,62 @@ test('remote bubbles pass through BubbleSessionManager safety handling', async (
   assert.equal((result.result as any).bubbleAutoRestartEnabled, true);
 });
 
+test('remote ready-at command delegates to the shared planner with caller metadata', async () => {
+  const { spa } = testAdapter();
+  const received: any[] = [];
+  const readyPlanner = {
+    scheduleReadyAt: async (input: any, now: number) => {
+      received.push({ input, now });
+      return { ...input, startTime: now, canMeetTarget: true };
+    }
+  };
+  const executor = new RemoteCommandExecutor({
+    installationId: 'home-spa',
+    spa,
+    readyPlanner,
+    now: () => NOW
+  });
+
+  const result = await executor.execute(command('cmd-ready', 'scheduleReadyAt', {
+    targetTime: NOW + 3_600_000,
+    targetTemperatureC: 39,
+    heatSoakMinutes: 30
+  }));
+
+  assert.equal(result.status, 'succeeded');
+  assert.equal(received.length, 1);
+  assert.equal(received[0].now, NOW);
+  assert.equal(received[0].input.targetTime, NOW + 3_600_000);
+  assert.equal(received[0].input.targetTemperatureC, 39);
+  assert.equal(received[0].input.heatSoakMinutes, 30);
+  assert.equal(received[0].input.sessionData.source, 'remote');
+  assert.deepEqual(received[0].input.sessionData.requestedBy, { kind: 'user', id: 'user-1' });
+});
+
+test('remote ready-at command rejects a target time that has already passed', async () => {
+  const { spa } = testAdapter();
+  let calls = 0;
+  const executor = new RemoteCommandExecutor({
+    installationId: 'home-spa',
+    spa,
+    readyPlanner: {
+      scheduleReadyAt: async () => {
+        calls += 1;
+        return {};
+      }
+    },
+    now: () => NOW
+  });
+
+  const result = await executor.execute(command('cmd-ready-old', 'scheduleReadyAt', {
+    targetTime: NOW - 1
+  }));
+
+  assert.equal(result.status, 'rejected');
+  assert.equal(result.error?.code, 'invalid_command');
+  assert.equal(calls, 0);
+});
+
 test('remote heating schedule uses the existing scheduler and a deterministic command-based id', async () => {
   const { spa } = testAdapter();
   const received: any[] = [];
