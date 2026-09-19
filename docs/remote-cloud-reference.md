@@ -50,10 +50,13 @@ setTargetTemperature
 setHeater
 setFilter
 setBubbles
+scheduleReadyAt
 createHeatingSchedule
 ```
 
 Commands have server-assigned IDs/timestamps and short expiries. The local executor also maintains a durable recent-command ledger under `REMOTE_STATE_DIR` so redelivery after a network/process interruption does not blindly repeat an already-recorded side effect.
+
+Ready-by requests use the provider-neutral `HeatingPlanner.scheduleReadyAt` path rather than asking a cloud/browser client to calculate heater start time. Remote ready-at schedules use a deterministic command-derived schedule ID as an additional replay safeguard.
 
 ### Presence/current-state publication
 
