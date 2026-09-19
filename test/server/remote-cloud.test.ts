@@ -240,3 +240,23 @@ test('ready-at command is validated at the cloud boundary without trusting clien
       && error.code === 'invalid_command'
   );
 });
+
+
+test('trusted integration command submission is typed, attributed and does not require a human membership', async () => {
+  const store = new FakeStore();
+  const service = new CloudControlService(store, { now: () => NOW });
+
+  const queued = await service.submitIntegrationCommand('home-spa', 'alexa', {
+    type: 'setFilter',
+    payload: { on: false }
+  });
+
+  assert.equal(queued.status, 'queued');
+  assert.equal(store.created.length, 1);
+  assert.equal(store.created[0].type, 'setFilter');
+  assert.deepEqual(store.created[0].payload, { on: false });
+  assert.deepEqual(store.created[0].requestedBy, { kind: 'integration', id: 'alexa' });
+
+  const stored = await service.getIntegrationCommand('home-spa', queued.commandId);
+  assert.equal(stored.commandId, queued.commandId);
+});
