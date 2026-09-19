@@ -23,18 +23,52 @@ function instrumentSnapshot(sample: BleC600Sample): InstrumentSnapshot {
     deviceName: sample.device.name,
     capturedAt: sample.capturedAt,
     measurements: [
-      { key: 'ph', value: sample.reading.ph, unit: 'pH' },
-      { key: 'orp', value: sample.reading.orpMv, unit: 'mV' },
-      { key: 'temperature', value: sample.reading.temperatureC, unit: '°C' },
-      { key: 'ec', value: sample.reading.ec, unit: 'µS/cm' },
-      { key: 'tds', value: sample.reading.tds, unit: 'ppm' },
-      { key: 'salinity', value: sample.reading.salinity, unit: 'ppm' },
-      { key: 'specific_gravity', value: sample.reading.specificGravity },
-      { key: 'battery', value: sample.reading.batteryPercent, unit: '%' }
+      { key: 'ph', value: sample.reading.ph, unit: 'pH', provenance: 'sensor' },
+      { key: 'orp', value: sample.reading.orpMv, unit: 'mV', provenance: 'sensor' },
+      { key: 'temperature', value: sample.reading.temperatureC, unit: '°C', provenance: 'sensor' },
+      {
+        key: 'ec',
+        value: sample.reading.ec,
+        unit: 'µS/cm',
+        provenance: 'sensor',
+        note: 'Meter-reported conductivity; firmware applies its configured temperature compensation.'
+      },
+      {
+        key: 'tds',
+        value: sample.reading.tds,
+        unit: 'ppm',
+        provenance: 'derived',
+        derivedFrom: ['ec'],
+        note: 'Meter-derived from conductivity using its configured TDS factor.'
+      },
+      {
+        key: 'salinity',
+        value: sample.reading.salinity,
+        unit: 'ppm',
+        provenance: 'derived',
+        derivedFrom: ['ec', 'temperature'],
+        note: 'Meter-derived conductivity conversion; exact firmware formula is not yet verified.'
+      },
+      {
+        key: 'specific_gravity',
+        value: sample.reading.specificGravity,
+        provenance: 'derived',
+        derivedFrom: ['salinity', 'temperature'],
+        note: 'Meter-reported derived value; exact firmware formula is not yet verified.'
+      },
+      {
+        key: 'battery',
+        value: sample.reading.batteryPercent,
+        unit: '%',
+        provenance: 'estimate',
+        derivedFrom: ['battery_raw']
+      }
     ],
     raw: {
       frameHex: sample.reading.rawHex,
       decodedHex: sample.reading.decodedHex,
+      protocolByte: sample.reading.protocolByte,
+      constantByte: sample.reading.constantByte,
       productCode: sample.reading.productCode,
       batteryRaw: sample.reading.batteryRaw,
       auxiliaryRaw: sample.reading.auxiliaryRaw,
