@@ -8,6 +8,7 @@ export const REMOTE_COMMAND_TYPES = [
   'setHeater',
   'setFilter',
   'setBubbles',
+  'scheduleReadyAt',
   'createHeatingSchedule'
 ] as const;
 
@@ -16,6 +17,14 @@ export type RemoteCommandType = typeof REMOTE_COMMAND_TYPES[number];
 export interface RemoteRequestedBy {
   kind: 'user' | 'integration' | 'system';
   id: string;
+}
+
+export interface ScheduleReadyAtPayload {
+  targetTime: number;
+  targetTemperatureC?: number;
+  heatSoakMinutes?: number;
+  alertOnTargetReached?: boolean;
+  alertOnHeatSoakComplete?: boolean;
 }
 
 export interface CreateHeatingSchedulePayload {
@@ -37,6 +46,7 @@ export interface RemoteCommandPayloads {
   setHeater: { on: boolean };
   setFilter: { on: boolean };
   setBubbles: { on: boolean; autoRestart?: boolean };
+  scheduleReadyAt: ScheduleReadyAtPayload;
   createHeatingSchedule: CreateHeatingSchedulePayload;
 }
 
