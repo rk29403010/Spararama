@@ -98,6 +98,14 @@ function requiredBoolean(payload: Record<string, unknown>, field: string) {
   return value;
 }
 
+function requiredString(payload: Record<string, unknown>, field: string) {
+  const value = payload[field];
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new CloudControlError(400, 'invalid_command', `Expected non-empty string payload field: ${field}`);
+  }
+  return value;
+}
+
 function optionalBoolean(payload: Record<string, unknown>, field: string) {
   const value = payload[field];
   if (value === undefined) return undefined;
@@ -164,6 +172,8 @@ export function validateCloudCommandRequest(type: unknown, rawPayload: unknown, 
     }
     case 'scheduleReadyAt':
       return { type: commandType, payload: readyAtPayload(payload, now) };
+    case 'cancelHeatingSchedule':
+      return { type: commandType, payload: { scheduleId: requiredString(payload, 'scheduleId') } };
     case 'createHeatingSchedule':
       throw new CloudControlError(
         400,
@@ -175,7 +185,7 @@ export function validateCloudCommandRequest(type: unknown, rawPayload: unknown, 
 
 export function defaultCommandTtlMs(type: RemoteCommandType) {
   if (type === 'readStatus') return 15_000;
-  if (type === 'createHeatingSchedule' || type === 'scheduleReadyAt') return 60_000;
+  if (type === 'createHeatingSchedule' || type === 'scheduleReadyAt' || type === 'cancelHeatingSchedule') return 60_000;
   return 30_000;
 }
 

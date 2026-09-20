@@ -72,6 +72,23 @@ test('connected schedule starts remotely without a manual start notification', a
   });
 });
 
+test('a pending schedule can be cancelled without starting the heater', async () => {
+  await withStore(async store => {
+    const { spa, calls } = adapter();
+    const scheduler = new HeatingScheduler(spa, store);
+    const now = Date.now();
+    const schedule = await scheduler.createSchedule({ startTime: now + 60_000, targetTime: now + 3_600_000, startTemperatureC: 30, targetTemperatureC: 39, autoStartPreferred: true });
+
+    const cancelled = await scheduler.cancelSchedule(schedule.id);
+    await scheduler.processDue(now + 60_000);
+
+    assert.equal(cancelled.status, 'cancelled');
+    assert.equal((await scheduler.listSchedules()).find(item => item.id === schedule.id)?.status, 'cancelled');
+    assert.deepEqual(calls.target, []);
+    assert.equal(calls.heater, 0);
+  });
+});
+
 test('remote failure gets two retries then requests manual start', async () => {
   await withStore(async store => {
     const { spa } = adapter({ connected: false });

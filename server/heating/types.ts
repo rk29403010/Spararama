@@ -67,6 +67,7 @@ export interface HeatingEvent {
     | 'remote_start_failed'
     | 'manual_start_requested'
     | 'manual_started'
+    | 'cancelled'
     | 'target_reached'
     | 'soak_reset'
     | 'soak_restarted'

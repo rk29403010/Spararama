@@ -14,6 +14,7 @@ import {
 
 interface HeatingSchedulerLike {
   createSchedule(input: CreateHeatingSchedulePayload & { id?: string }): Promise<unknown>;
+  cancelSchedule(scheduleId: string): Promise<unknown>;
 }
 
 interface HeatingReadyPlannerLike {
@@ -258,6 +259,17 @@ export class RemoteCommandExecutor {
             requestedBy: command.requestedBy
           }
         }, this.now());
+      }
+
+      case 'cancelHeatingSchedule': {
+        if (!this.options.heating) {
+          throw new RemoteExecutionError('scheduler_unavailable', 'Heating scheduler is not configured.');
+        }
+        const scheduleId = command.payload.scheduleId;
+        if (typeof scheduleId !== 'string' || !scheduleId.trim()) {
+          throw new RemoteExecutionError('invalid_command', 'scheduleId must be a non-empty string.');
+        }
+        return this.options.heating.cancelSchedule(scheduleId);
       }
 
       case 'createHeatingSchedule': {

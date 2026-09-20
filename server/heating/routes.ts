@@ -61,4 +61,12 @@ export function registerHeatingRoutes(app: Express, scheduler: HeatingScheduler,
     }
     res.json(await scheduler.confirmManualStart(req.params.id, temperatureC));
   }));
+
+  app.post('/api/heating/schedules/:id/cancel', asyncRoute(async (req, res) => {
+    try {
+      res.json(await scheduler.cancelSchedule(req.params.id));
+    } catch (error: any) {
+      res.status(400).json({ error: error?.message || 'Heating schedule could not be cancelled.' });
+    }
+  }));
 }

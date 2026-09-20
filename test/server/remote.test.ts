@@ -238,6 +238,28 @@ test('remote ready-at command rejects a target time that has already passed', as
   assert.equal(calls, 0);
 });
 
+test('remote cancellation delegates to the heating scheduler without touching spa equipment', async () => {
+  const { spa, calls } = testAdapter();
+  const cancelled: string[] = [];
+  const executor = new RemoteCommandExecutor({
+    installationId: 'home-spa',
+    spa,
+    heating: {
+      createSchedule: async () => ({}),
+      cancelSchedule: async scheduleId => {
+        cancelled.push(scheduleId);
+        return { id: scheduleId, status: 'cancelled' };
+      }
+    },
+    now: () => NOW
+  });
+
+  const result = await executor.execute(command('cmd-cancel', 'cancelHeatingSchedule', { scheduleId: 'remote-cmd-ready' }));
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(cancelled, ['remote-cmd-ready']);
+  assert.equal(calls.heater, 0);
+});
+
 test('remote heating schedule uses the existing scheduler and a deterministic command-based id', async () => {
   const { spa } = testAdapter();
   const received: any[] = [];
@@ -245,7 +267,8 @@ test('remote heating schedule uses the existing scheduler and a deterministic co
     createSchedule: async (input: any) => {
       received.push(input);
       return { ...input, status: 'scheduled' };
-    }
+    },
+    cancelSchedule: async () => ({ status: 'cancelled' })
   };
   const executor = new RemoteCommandExecutor({
     installationId: 'home-spa',

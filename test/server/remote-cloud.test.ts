@@ -245,6 +245,27 @@ test('ready-at command is validated at the cloud boundary without trusting clien
   );
 });
 
+test('cloud cancellation accepts only a schedule id and uses the longer scheduler command lease', async () => {
+  const store = new FakeStore();
+  const service = new CloudControlService(store, { now: () => NOW });
+
+  await service.submitCommand(principal, 'home-spa', {
+    type: 'cancelHeatingSchedule',
+    payload: { scheduleId: 'remote-command-1' }
+  });
+
+  assert.equal(store.created[0].type, 'cancelHeatingSchedule');
+  assert.deepEqual(store.created[0].payload, { scheduleId: 'remote-command-1' });
+  assert.equal(store.created[0].expiresAt, NOW + 60_000);
+
+  await assert.rejects(
+    service.submitCommand(principal, 'home-spa', { type: 'cancelHeatingSchedule', payload: {} }),
+    (error: any) => error instanceof CloudControlError
+      && error.statusCode === 400
+      && error.code === 'invalid_command'
+  );
+});
+
 
 test('trusted integration command submission is typed, attributed and does not require a human membership', async () => {
   const store = new FakeStore();

@@ -140,6 +140,27 @@ export class HeatingScheduler {
     return schedule;
   }
 
+  async cancelSchedule(scheduleId: string) {
+    const state = await this.store.load();
+    const schedule = state.schedules.find(item => item.id === scheduleId);
+    if (!schedule) throw new Error('Heating schedule not found.');
+    if (schedule.status === 'cancelled') return schedule;
+    if (!['scheduled', 'retrying', 'awaiting-manual-confirmation'].includes(schedule.status)) {
+      throw new Error('Only a heating plan that has not started can be cancelled.');
+    }
+
+    const now = Date.now();
+    schedule.status = 'cancelled';
+    schedule.updatedAt = now;
+    schedule.nextAttemptAt = undefined;
+    for (const notification of state.notifications) {
+      if (notification.scheduleId === scheduleId && !notification.resolvedAt) notification.resolvedAt = now;
+    }
+    await this.store.save(state);
+    await this.store.appendEvent({ id: crypto.randomUUID(), scheduleId, timestamp: now, type: 'cancelled' });
+    return schedule;
+  }
+
   processDue(now = Date.now()) {
     const next = this.operation.then(() => this.processDueInternal(now), () => this.processDueInternal(now));
     this.operation = next.then(() => undefined, () => undefined);

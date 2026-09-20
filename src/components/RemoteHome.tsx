@@ -213,6 +213,25 @@ export function RemoteHome({ user }: { user: User }) {
     }
   };
 
+  const cancelReady = async () => {
+    if (!selectedId || !activeHeating || busy) return;
+    setBusy('cancel-ready');
+    setError('');
+    setReadyMessage('');
+    try {
+      await remoteCloudApi.runCommand(user, selectedId, 'cancelHeatingSchedule', {
+        scheduleId: activeHeating.id
+      });
+      setReadyMessage('Heating plan cancelled.');
+      window.setTimeout(() => void refresh(false), 750);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not cancel heating.');
+      void refresh(false);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-4 max-w-xl mx-auto">
@@ -417,6 +436,16 @@ export function RemoteHome({ user }: { user: User }) {
               {new Date(activeHeating.targetTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </p>
           </div>
+          {writableRole && supports('cancelHeatingSchedule') && (
+            <button
+              type="button"
+              disabled={!canControl}
+              onClick={() => void cancelReady()}
+              className="min-h-12 px-4 rounded-xl border border-rose-300 bg-white text-rose-800 font-black disabled:border-slate-200 disabled:text-slate-500"
+            >
+              {busy === 'cancel-ready' ? 'Cancelling…' : 'Cancel plan'}
+            </button>
+          )}
         </section>
       )}
 

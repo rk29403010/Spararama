@@ -9,6 +9,7 @@ export const REMOTE_COMMAND_TYPES = [
   'setFilter',
   'setBubbles',
   'scheduleReadyAt',
+  'cancelHeatingSchedule',
   'createHeatingSchedule'
 ] as const;
 
@@ -47,6 +48,7 @@ export interface RemoteCommandPayloads {
   setFilter: { on: boolean };
   setBubbles: { on: boolean; autoRestart?: boolean };
   scheduleReadyAt: ScheduleReadyAtPayload;
+  cancelHeatingSchedule: { scheduleId: string };
   createHeatingSchedule: CreateHeatingSchedulePayload;
 }
 
