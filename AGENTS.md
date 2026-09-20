@@ -1,5 +1,21 @@
 # AGENTS.md
 
+<!-- BEGIN AWS Agent Toolkit rules -->
+# AWS Guidance
+
+- Where these AWS rules conflict with the project's own instructions, the project's instructions take precedence.
+- Prefer the AWS MCP Server for AWS interactions. If unavailable, use the AWS CLI directly.
+- Before starting an AWS task, check whether a relevant AWS skill is available and prefer its guidance.
+- Verify uncertain AWS details against documentation rather than guessing.
+- When creating infrastructure, prefer infrastructure-as-code (AWS CDK or CloudFormation) over direct CLI commands.
+- Do not use em dashes in AWS resource names or descriptions. Use hyphens instead.
+
+## Secret Safety
+
+- Load the `aws-secrets-manager` skill first for any secret, credential, API key, token, or password task.
+- Never retrieve secret values through Secrets Manager APIs. Use runtime secret resolution instead.
+<!-- END AWS Agent Toolkit rules -->
+
 Before architectural, Firebase, telemetry, spa-control, persistence, networking or authentication changes, read [`architecture.md`](./architecture.md).
 
 Before Android/Termux phone-runner, `spar`, phone launcher or phone-local hosting changes, also read [`docs/termux-phone.md`](./docs/termux-phone.md).

@@ -1,7 +1,7 @@
 {
   "interactionModel": {
     "languageModel": {
-      "invocationName": "spararama",
+      "invocationName": "spar control",
       "intents": [
         {
           "name": "ReadyAtIntent",
