@@ -441,7 +441,7 @@ export function RemoteHome({ user }: { user: User }) {
               type="button"
               disabled={!canControl}
               onClick={() => void cancelReady()}
-              className="min-h-12 px-4 rounded-xl border border-rose-300 bg-white text-rose-800 font-black disabled:border-slate-200 disabled:text-slate-500"
+              className="min-h-12 px-4 rounded-xl border border-rose-800 bg-rose-700 text-white font-black hover:bg-rose-800 disabled:border-slate-200 disabled:bg-slate-300 disabled:text-slate-600"
             >
               {busy === 'cancel-ready' ? 'Cancelling…' : 'Cancel plan'}
             </button>
