@@ -80,7 +80,8 @@ export class RemoteSnapshotPublisher {
           'setHeater',
           'setFilter',
           'setBubbles',
-          'scheduleReadyAt'
+          'scheduleReadyAt',
+          'cancelHeatingSchedule'
         ]
       });
     } catch (error) {
