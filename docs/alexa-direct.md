@@ -57,11 +57,11 @@ The capabilities are `retrievable` but not yet `proactivelyReported`. Do not ena
 
 ## Spararama custom voice model
 
-The Multi-Capability Skill also has a UK custom model with invocation name `spar control`. It adds requests the Smart Home model does not represent naturally, notably:
+The Multi-Capability Skill also has a UK custom model with invocation name `spa control`. It adds requests the Smart Home model does not represent naturally, notably:
 
-- "Alexa, ask Spar Control to have the hot tub ready for five p m."
-- "Alexa, ask Spar Control to have the hot tub at 38 degrees by five p m."
-- "Alexa, ask Spar Control to turn on the heater."
+- "Alexa, ask Spa Control to have the hot tub ready for five p m."
+- "Alexa, ask Spa Control to have the hot tub at 38 degrees by five p m."
+- "Alexa, ask Spa Control to turn on the heater."
 - temperature/bubbles/filter/heater fallback commands.
 
 The model is in:
@@ -199,7 +199,7 @@ Back in the Alexa Developer Console:
 4. Save and build the model.
 5. Make sure the Smart Home endpoint also uses the `eu-west-1` Lambda ARN.
 
-The shipped Custom model invokes as `spar control`. After changing an invocation name, save and build the Custom model, then disable and re-enable the development skill in the Alexa app if Alexa continues to use the old model.
+The shipped Custom model invokes as `spa control`. After changing an invocation name, save and build the Custom model, then disable and re-enable the development skill in the Alexa app if Alexa continues to use the old model.
 
 The same Lambda handles both model types and forwards all actual spa behaviour to Spararama.
 
