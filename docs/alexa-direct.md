@@ -28,7 +28,7 @@ You -> Echo/Alexa -> Spararama Alexa Lambda
     -> SpaAdapter -> spa
 ```
 
-The Lambda prefers `SPARARAMA_ALEXA_CLOUD_URL` when configured and otherwise retains the existing `SPARARAMA_ALEXA_URL` tunnel path. The managed cloud path has now passed real owner/member remote-control, Ready-by, replay/idempotency and off-LAN/mobile-data validation, so Alexa migration to the stable cloud endpoint is the next operational step. Keep the tunnel path only as a temporary rollback/development fallback during cut-over.
+The source prefers `SPARARAMA_ALEXA_CLOUD_URL` when configured and can retain `SPARARAMA_ALEXA_URL` as a temporary development fallback. The deployed reference Lambda now uses only the managed cloud endpoint: its normal-use tunnel URL and proxy-secret variables were removed after real Echo discovery, reads, equipment control, filter-first heater interlock and Ready-by validation.
 
 Announcements still use:
 
@@ -115,7 +115,7 @@ SPARARAMA_ALEXA_CLOUD_TIMEOUT_MS="12000"
 
 Set the Lambda timeout to at least 15 seconds for the managed path. This accommodates the real filter-first heater interlock without returning an Alexa timeout after the tub has started heating.
 
-Keep `SPARARAMA_ALEXA_URL` and `SPARARAMA_ALEXA_PROXY_SECRET` available during the migration if you want an immediate fallback. The Lambda chooses the cloud URL when both paths are configured.
+The source can keep `SPARARAMA_ALEXA_URL` and `SPARARAMA_ALEXA_PROXY_SECRET` during an intentionally staged migration. The reference deployment removed both variables after the managed path was proved; reintroduce them only for a deliberate rollback.
 
 The cloud endpoint does not expose arbitrary home HTTP. It accepts only Alexa requests authenticated with the integration secret/Skill ID and maps supported Alexa actions onto the typed remote command allowlist. Ready-by requests use `scheduleReadyAt`.
 
