@@ -36,7 +36,7 @@ Announcements still use:
 Spararama -> Voice Monkey -> Echo/Alexa
 ```
 
-Voice Monkey is deliberately not removed yet. The direct integration must first be tested against the real Alexa account and Echo devices. Once direct proactive Alexa announcements/state events are proven to cover the required cases, Voice Monkey can be retired without changing spa-control code.
+Voice Monkey is deliberately not removed yet. Direct Alexa **control** is now proven against the real Alexa account and Echo devices; Voice Monkey remains only for announcements. If native proactive Alexa announcements/state events are later proven to cover the required cases, Voice Monkey can be retired without changing spa-control code.
 
 ## Native Smart Home endpoints
 
@@ -78,15 +78,35 @@ The browser still owns user-editable app configuration, while Alexa runs without
 
 ## Security
 
-There are three separate checks in the first-test path:
+The deployed managed path has three separate checks:
 
 1. Alexa invokes the Lambda configured for the specific Skill ID.
 2. Lambda validates the linked-account token with Login with Amazon (LWA) and checks that the token belongs to `LWA_CLIENT_ID`.
-3. Lambda calls Spararama with a long random `SPARARAMA_ALEXA_PROXY_SECRET`; the local route rejects requests without it.
+3. Lambda calls the managed Spararama Alexa endpoint with the long random cloud integration secret and Skill ID; the cloud route rejects requests that do not match.
 
-The LWA access token is removed from the Alexa event before the event is forwarded to the Spararama backend.
+The LWA access token is removed from the Alexa event before it is forwarded to Spararama.
 
-The temporary Termux tunnel does **not** expose port 3000 directly. `services/alexa/local-proxy.mjs` binds to loopback and only accepts `POST /api/alexa/direct` (plus a local health check). The SSH tunnel points at that narrow proxy.
+The old Termux tunnel is no longer part of the deployed Lambda configuration. Its development/recovery helper remains narrow by design: `services/alexa/local-proxy.mjs` binds to loopback and accepts only `POST /api/alexa/direct` plus a local health check. It must not be treated as the normal production path.
+
+## Verified production cut-over
+
+The stable cloud path has now been exercised with the real Echo and CleverSpa.
+
+Verified production characteristics:
+
+- Lambda region: `eu-west-1`.
+- Lambda runtime: Node.js 24.
+- Lambda timeout: 15 seconds.
+- Custom invocation: **Spa Control**.
+- Cloud path: Lambda -> managed Cloud Run Alexa endpoint -> Firestore -> outbound A71 agent.
+- Deployed Lambda variables are limited to the LWA client ID, managed cloud URL, cloud integration secret and Skill ID.
+- The old tunnel URL and proxy secret were removed from the deployed Lambda after cut-over.
+- Discovery and live temperature reads work.
+- Target temperature, filter, bubbles and heater controls work through the cloud path.
+- Heater control preserves the filter-first interlock; the acknowledgement window was increased after a real command took just over seven seconds to complete physically.
+- Ready-by uses `scheduleReadyAt` and the shared `HeatingPlanner`.
+
+The tunnel tooling remains in the repository only for development/recovery.
 
 ## Stable cloud Alexa configuration
 
@@ -119,9 +139,9 @@ The source can keep `SPARARAMA_ALEXA_URL` and `SPARARAMA_ALEXA_PROXY_SECRET` dur
 
 The cloud endpoint does not expose arbitrary home HTTP. It accepts only Alexa requests authenticated with the integration secret/Skill ID and maps supported Alexa actions onto the typed remote command allowlist. Ready-by requests use `scheduleReadyAt`.
 
-## First real Echo test - UK
+## Legacy/private first-test setup - UK
 
-These steps are deliberately aimed at the quickest private development test rather than publishing a public skill.
+The reference deployment no longer needs this tunnel-based setup. These steps are retained only for recreating a private development/rollback path from scratch.
 
 ### 1. Create the Alexa skill
 
@@ -270,24 +290,29 @@ bash scripts/termux/alexa-test.sh tunnel
 bash scripts/termux/alexa-test.sh disable
 ```
 
-## Normal backend variables
+## Production variables
 
-For a later permanent HTTPS deployment, Spararama itself still uses:
+The managed cloud service uses:
 
 ```text
-ALEXA_DIRECT_ENABLED=true
-ALEXA_DIRECT_PROXY_SECRET=<long random value>
+ALEXA_CLOUD_ENABLED=true
+ALEXA_CLOUD_INSTALLATION_ID=home-spa
+ALEXA_CLOUD_INTEGRATION_SECRET=<managed secret>
 ALEXA_SKILL_ID=<amzn1.ask.skill...>
 SPARARAMA_TIME_ZONE=Europe/London
+ALEXA_CLOUD_COMMAND_TIMEOUT_MS=10000
 ```
 
-The Lambda uses:
+The deployed Lambda uses:
 
 ```text
-SPARARAMA_ALEXA_URL=https://<host>/api/alexa/direct
-SPARARAMA_ALEXA_PROXY_SECRET=<same long random value>
+SPARARAMA_ALEXA_CLOUD_URL=https://<managed-host>/api/integrations/alexa
+SPARARAMA_ALEXA_INTEGRATION_SECRET=<same managed secret>
 ALEXA_SKILL_ID=<same skill id>
 LWA_CLIENT_ID=<Login with Amazon client ID>
+SPARARAMA_ALEXA_CLOUD_TIMEOUT_MS=12000
 ```
+
+The Lambda function timeout is 15 seconds. Do not re-add the old tunnel URL/proxy-secret variables unless deliberately entering rollback/development mode.
 
 Do not expose the CleverSpa adapter or its port to the internet.
