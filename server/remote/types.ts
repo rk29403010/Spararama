@@ -108,7 +108,7 @@ export interface RemoteInstallationState {
     status: string;
     targetTime: number;
     targetTemperatureC: number;
-  };
+  } | null;
   capabilities?: string[];
 }
 

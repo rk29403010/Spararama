@@ -66,14 +66,12 @@ export class RemoteSnapshotPublisher {
       await this.agent.publishState({
         observedAt,
         spa,
-        ...(active ? {
-          activeHeatingSchedule: {
+        activeHeatingSchedule: active ? {
             id: active.id,
             status: active.status,
             targetTime: active.targetTime,
             targetTemperatureC: active.targetTemperatureC
-          }
-        } : {}),
+          } : null,
         capabilities: [
           'readStatus',
           'setTargetTemperature',

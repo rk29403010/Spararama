@@ -27,7 +27,7 @@ export interface CloudRuntimeSnapshot {
       status: string;
       targetTime: number;
       targetTemperatureC: number;
-    };
+    } | null;
     capabilities?: string[];
   };
 }
