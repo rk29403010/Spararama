@@ -220,6 +220,42 @@ local agent/adapter  <secure sync> backend + account + UI
 
 A hosted design must preserve local operation and avoid exposing spa control ports directly to the internet.
 
+## Managed remote control plane
+
+The reference remote-control deployment keeps the home network private. Internet clients do not connect to the A71 or CleverSpa adapter directly.
+
+```text
+Hosted browser / Alexa
+        |
+        v
+managed HTTPS cloud API
+        |
+        v
+     Firestore
+        ^
+        | outbound authenticated listener
+        |
+always-on A71 Spararama backend
+        |
+        +--> HeatingPlanner / HeatingScheduler
+        +--> BubbleSessionManager
+        +--> SpaAdapter
+                 |
+                 v
+          CleverSpa adapter
+                 |
+                 v
+                tub
+```
+
+The deployed reference path uses Firebase Hosting, Cloud Run, Firestore and an AWS Lambda for Alexa. The A71 establishes the outbound connection; there is no router port-forward, DDNS dependency or publicly reachable CleverSpa service.
+
+Remote commands are typed, short-lived and idempotent. The local node remains the final execution authority and keeps a durable recent-command ledger so cloud redelivery does not blindly repeat physical actions. High-level Ready-by requests are planned locally through the shared `HeatingPlanner` and persisted through the normal `HeatingScheduler`.
+
+The hosted browser uses human Firebase identity and installation membership. The A71 uses machine/server Firebase credentials. Alexa uses a separate integration identity through the managed cloud endpoint. These identities must remain distinct.
+
+Loss of Firebase/cloud connectivity must not stop LAN control, local schedules, chemistry workflows or durable local telemetry. Remote state becomes stale/offline until the outbound agent reconnects.
+
 ## Always-on telemetry collector
 
 The collector is independent of any browser session. It polls the selected `SpaAdapter` at a backend-owned configurable interval and records samples locally before cloud upload.
