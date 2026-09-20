@@ -70,6 +70,11 @@ function eventWithoutAccessToken(event) {
   return forwarded;
 }
 
+function timeoutMs(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 1_000 ? parsed : fallback;
+}
+
 export async function handler(event) {
   const cloudEndpoint = String(process.env.SPARARAMA_ALEXA_CLOUD_URL || '').trim();
   const localEndpoint = String(process.env.SPARARAMA_ALEXA_URL || '').trim();
@@ -79,6 +84,9 @@ export async function handler(event) {
   const proxySecret = String(process.env.SPARARAMA_ALEXA_PROXY_SECRET || '').trim();
   const skillId = String(process.env.ALEXA_SKILL_ID || '').trim();
   const lwaClientId = String(process.env.LWA_CLIENT_ID || '').trim();
+  const upstreamTimeoutMs = useCloud
+    ? timeoutMs(process.env.SPARARAMA_ALEXA_CLOUD_TIMEOUT_MS, 12_000)
+    : 7_000;
 
   if (!endpoint) throw new Error('No Spararama Alexa endpoint is configured.');
   if (useCloud && !integrationSecret) throw new Error('SPARARAMA_ALEXA_INTEGRATION_SECRET is not configured.');
@@ -104,7 +112,7 @@ export async function handler(event) {
         'X-Spararama-Alexa-Skill-Id': skillId
       },
       body: JSON.stringify(eventWithoutAccessToken(event)),
-      signal: AbortSignal.timeout(7000)
+      signal: AbortSignal.timeout(upstreamTimeoutMs)
     });
     const text = await response.text();
     if (!response.ok) {

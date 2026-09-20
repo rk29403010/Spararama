@@ -98,6 +98,8 @@ ALEXA_CLOUD_INSTALLATION_ID="home-spa"
 ALEXA_CLOUD_INTEGRATION_SECRET="<long random secret>"
 ALEXA_SKILL_ID="<amzn1.ask.skill...>"
 SPARARAMA_TIME_ZONE="Europe/London"
+# Allow the filter-first heater flow interlock to confirm before Alexa responds.
+ALEXA_CLOUD_COMMAND_TIMEOUT_MS="10000"
 ```
 
 Configure Lambda with:
@@ -107,7 +109,11 @@ SPARARAMA_ALEXA_CLOUD_URL="https://<host>/api/integrations/alexa"
 SPARARAMA_ALEXA_INTEGRATION_SECRET="<same long random secret>"
 ALEXA_SKILL_ID="<same skill id>"
 LWA_CLIENT_ID="<Login with Amazon client id>"
+# Must exceed ALEXA_CLOUD_COMMAND_TIMEOUT_MS plus normal Cloud Run latency.
+SPARARAMA_ALEXA_CLOUD_TIMEOUT_MS="12000"
 ```
+
+Set the Lambda timeout to at least 15 seconds for the managed path. This accommodates the real filter-first heater interlock without returning an Alexa timeout after the tub has started heating.
 
 Keep `SPARARAMA_ALEXA_URL` and `SPARARAMA_ALEXA_PROXY_SECRET` available during the migration if you want an immediate fallback. The Lambda chooses the cloud URL when both paths are configured.
 

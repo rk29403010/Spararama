@@ -78,7 +78,10 @@ export class AlexaCloudCommandService implements AlexaCommandServiceLike {
     options: { timeZone?: string; timeoutMs?: number } = {}
   ) {
     this.timeZone = options.timeZone || process.env.SPARARAMA_TIME_ZONE || 'Europe/London';
-    this.timeoutMs = Math.max(1_000, Number(options.timeoutMs || process.env.ALEXA_CLOUD_COMMAND_TIMEOUT_MS || 5_500));
+    // A heater start can first enable filtration and wait for the physical flow
+    // interlock. The observed real-device path takes longer than the old 5.5s
+    // default, so retain the synchronous Alexa acknowledgement until it confirms.
+    this.timeoutMs = Math.max(1_000, Number(options.timeoutMs || process.env.ALEXA_CLOUD_COMMAND_TIMEOUT_MS || 10_000));
   }
 
   async status(): Promise<BubbleAwareSpaStatus | SpaStatus> {

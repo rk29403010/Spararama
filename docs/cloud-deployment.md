@@ -353,6 +353,7 @@ SPARARAMA_ALEXA_CLOUD_URL="https://<host>/api/integrations/alexa"
 SPARARAMA_ALEXA_INTEGRATION_SECRET="<same secret>"
 ALEXA_SKILL_ID="<skill id>"
 LWA_CLIENT_ID="<LWA client id>"
+SPARARAMA_ALEXA_CLOUD_TIMEOUT_MS="12000"
 ```
 
 The Lambda prefers the cloud URL when configured and keeps the temporary `SPARARAMA_ALEXA_URL` tunnel path as a fallback. Ready-by Alexa requests are converted to the typed `scheduleReadyAt` command and use the same provider-neutral heating planner as the hosted UI/local backend.
