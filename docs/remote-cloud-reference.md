@@ -1,6 +1,6 @@
 # Firebase reference remote control plane
 
-Status: **Managed cloud deployment is live and the A71 outbound agent/read-only round trip are verified. Physical remote-control, mobile-data and viewer-role validation remain.**
+Status: **Remote web control is live and end-to-end verified through the deployed cloud path and A71 agent. Viewer-role validation remains deferred; Alexa migration is next.**
 
 This is the reference remote-access implementation described by
 [remote-access-cloud-architecture.md](remote-access-cloud-architecture.md). It is intentionally optional. A normal local Spararama installation still defaults to:
@@ -308,17 +308,28 @@ The reference deployment is live:
 - Local live spa operation, telemetry, and phone-local `http://localhost:3000` remain healthy.
 - BLE-C600 decoder tests continue to pass.
 
-## Still to validate
+## End-to-end validation completed
 
-The remaining sequence is:
+The deployed remote path has now been exercised against the real CleverSpa through the hosted owner/member flow.
 
-1. verify the hosted signed-in UI shows the live A71 state and the stale/offline transitions honestly;
-2. issue owner/member physical commands through the hosted UI one at a time and verify cloud result, local status and actual spa state agree;
-3. validate `scheduleReadyAt`, deterministic replay/idempotency, and cancellation/cleanup of a test schedule;
-4. verify the hosted path over mobile data;
-5. verify viewer-role server-side and UI read-only enforcement;
-6. migrate Alexa Lambda from the temporary tunnel to the cloud control path;
-7. add further deployment automation only where the real deployment showed value;
-8. prove the provider boundary with a small self-hosted alternative after the Firebase path is stable.
+Verified behaviours include:
 
-See [cloud-deployment.md](cloud-deployment.md) for the deployment/operations path.
+- target-temperature change and restore;
+- filter on/off;
+- heater on/off while preserving the local filter/flow interlock;
+- bubbles on/off through `BubbleSessionManager`;
+- `scheduleReadyAt` through the shared `HeatingPlanner` and normal local `HeatingScheduler`;
+- cancellation of the resulting remote plan;
+- replay/idempotency of an already-completed Ready-by command without creating a duplicate schedule or physical action;
+- off-LAN/mobile-data control through Firebase Hosting -> Cloud Run -> Firestore -> A71;
+- agreement between cloud command results, hosted state, A71 live CleverSpa status and the physical tub.
+
+The final validation run left the tub at 36 C water / 40 C target with heater, filter and bubbles off.
+
+Viewer-role validation is still deferred because it requires a second temporary signed-in Firebase identity; the owner account was deliberately not modified just to exercise that role.
+
+## Next work
+
+The next operational phase is Alexa migration from the temporary tunnel to the stable cloud endpoint. After Alexa is stable, remaining optional work includes viewer-role verification, further deployment automation where useful, and a small self-hosted transport proof.
+
+See [cloud-deployment.md](cloud-deployment.md) and [alexa-direct.md](alexa-direct.md).
