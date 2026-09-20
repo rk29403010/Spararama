@@ -28,7 +28,7 @@ You -> Echo/Alexa -> Spararama Alexa Lambda
     -> SpaAdapter -> spa
 ```
 
-The Lambda prefers `SPARARAMA_ALEXA_CLOUD_URL` when configured and otherwise retains the existing `SPARARAMA_ALEXA_URL` tunnel path. The managed path is implemented in source but must not replace the working tunnel in the real Alexa configuration until the cloud deployment has passed the read-only and control smoke tests.
+The Lambda prefers `SPARARAMA_ALEXA_CLOUD_URL` when configured and otherwise retains the existing `SPARARAMA_ALEXA_URL` tunnel path. The managed cloud path has now passed real owner/member remote-control, Ready-by, replay/idempotency and off-LAN/mobile-data validation, so Alexa migration to the stable cloud endpoint is the next operational step. Keep the tunnel path only as a temporary rollback/development fallback during cut-over.
 
 Announcements still use:
 
