@@ -1,6 +1,6 @@
 # Firebase reference remote control plane
 
-Status: **Remote web control is live and end-to-end verified through the deployed cloud path and A71 agent. Viewer-role validation remains deferred; Alexa migration is next.**
+Status: **Remote web control and Alexa voice control are live and end-to-end verified through the managed cloud path and outbound A71 agent. Viewer-role validation remains deferred.**
 
 This is the reference remote-access implementation described by
 [remote-access-cloud-architecture.md](remote-access-cloud-architecture.md). It is intentionally optional. A normal local Spararama installation still defaults to:
@@ -328,8 +328,29 @@ The final validation run left the tub at 36 C water / 40 C target with heater, f
 
 Viewer-role validation is still deferred because it requires a second temporary signed-in Firebase identity; the owner account was deliberately not modified just to exercise that role.
 
-## Next work
+## Alexa validation completed
 
-The next operational phase is Alexa migration from the temporary tunnel to the stable cloud endpoint. After Alexa is stable, remaining optional work includes viewer-role verification, further deployment automation where useful, and a small self-hosted transport proof.
+The deployed Alexa path is now:
+
+```text
+Echo/Alexa
+  -> AWS Lambda (eu-west-1)
+  -> managed Spararama cloud API
+  -> Firestore command
+  -> outbound A71 agent
+  -> normal local command/scheduler services
+  -> CleverSpa
+```
+
+Real Echo validation covered discovery, temperature reads, target temperature, filter, bubbles, heater with the filter-first interlock, and Ready-by scheduling. The deployed Lambda no longer uses the temporary home tunnel. A real heater command exposed an acknowledgement-window issue; the cloud/Lambda timing was adjusted and the command was successfully retested through Alexa.
+
+## Remaining optional work
+
+Remaining non-blocking work includes:
+
+1. a real second-account `viewer` role smoke test;
+2. deciding whether native Alexa proactive events can replace Voice Monkey announcements;
+3. further deployment automation where useful;
+4. a small self-hosted transport proof after the Firebase reference path is stable.
 
 See [cloud-deployment.md](cloud-deployment.md) and [alexa-direct.md](alexa-direct.md).
