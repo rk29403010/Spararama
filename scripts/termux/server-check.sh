@@ -16,6 +16,7 @@ if [ -f "$CONFIG_FILE" ]; then
 fi
 URL="http://127.0.0.1:${SPAR_PORT}"
 CADDY_SERVICE_DIR="$PREFIX/var/service/spararama-caddy"
+SSH_SERVICE_DIR="$PREFIX/var/service/sshd"
 
 echo "Spararama old-phone server check"
 echo "================================"
@@ -29,7 +30,7 @@ echo
 
 if command -v sv >/dev/null 2>&1; then
   echo "SSH service:"
-  sv status sshd 2>&1 || true
+  sv status "$SSH_SERVICE_DIR" 2>&1 || true
 else
   echo "SSH service: termux-services not installed"
 fi
