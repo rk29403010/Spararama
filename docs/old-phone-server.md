@@ -542,6 +542,12 @@ The normal bare `spar` path updates `chatgpt-dev` before restarting. If GitHub i
 unavailable, the update is attempted before the working server is stopped, so an
 existing instance is not needlessly taken down.
 
+The always-on A71 normally uses `spar production`. This runs the built frontend
+and bundled server with `NODE_ENV=production`; it does not leave Vite or `tsx`
+running. `spar dev` remains available as a deliberate, persisted development
+mode. A changed production build is completed and health-checked only after the
+update/dependency work succeeds, before the old running server is stopped.
+
 ## 10. HTTPS for browser sign-in and LAN use
 
 The original HTTP address is still supported. It is useful for a simple private
@@ -569,6 +575,7 @@ The generated Caddyfile and logs are phone-local:
 ~/.config/spararama/phone.conf       host, mode and optional cert paths (mode 600)
 ~/.config/spararama/Caddyfile        generated proxy configuration (mode 600)
 ~/.local/state/spararama-phone/caddy.log
+~/.local/state/spararama-phone/caddy-service.log
 ```
 
 No hostname, private key, certificate, or DNS token is committed to the repo.
@@ -646,23 +653,77 @@ build/deploy that provider-specific Caddy separately and keep its API token in a
 mode-600 phone-local secret; this repository intentionally has no generic token
 setting.
 
+### Current A71 / Cloudflare setup
+
+The deployed A71 uses:
+
+```text
+Hostname:       spa.spararama.uk
+LAN address:    192.168.0.126
+Browser URL:    https://spa.spararama.uk:8443
+Certificate:    Let's Encrypt, DNS-01 through Cloudflare
+TLS directory:  ~/.spararama/tls/ (700; certificate and key files 600)
+```
+
+The public DNS record is DNS-only and points to the private LAN address. No
+router ports are forwarded. Caddy deliberately disables its automatic port-80
+redirect listener because unprivileged Termux cannot bind port 80 and the app's
+intended origin includes port 8443.
+
+The Cloudflare API token is stored only at
+`~/.spararama/cloudflare/dns-token` (mode 600). It has Zone/DNS/Edit and
+Zone/Zone/Read for `spararama.uk`. Never print the token or put it in a tracked
+file. The first failed issuance was caused by the token value being pasted twice
+back-to-back; Cloudflare returned error 6111 (invalid Authorization header),
+which acme.sh surfaced only as `invalid domain`.
+
+The deployed certificate paths are:
+
+```text
+~/.spararama/tls/fullchain.pem
+~/.spararama/tls/privkey.pem
+```
+
+acme.sh's scheduled command is installed in the Termux crontab. The `crond`
+runit service must remain enabled. acme.sh copies renewed material to the paths
+above and its recorded reload command restarts the absolute
+`$PREFIX/var/service/spararama-caddy` service. Renewal therefore does not restart
+the Spararama backend or require an inbound connection. Check it without forcing
+a new certificate order:
+
+```bash
+sv status "$PREFIX/var/service/crond"
+~/.acme.sh/acme.sh --cron --home ~/.acme.sh
+sv status "$PREFIX/var/service/spararama-caddy"
+curl -fsS https://spa.spararama.uk:8443/api/health
+```
+
+The issued certificate remains usable during a Cloudflare/WAN outage until its
+expiry. Local Spararama, telemetry archival and CleverSpa control do not depend
+on Cloudflare being reachable.
+
 ### Google Cloud and Firebase Console setup
 
 After real-domain HTTPS works in a browser, add the **exact** browser origin in
 the Google OAuth client that owns the client ID in `src/lib/firebase.ts`:
 
 ```text
-https://spararama.example.co.uk:8443
+https://spa.spararama.uk:8443
 ```
 
 The scheme, hostname and non-default port are all part of the origin. Do not add
 `http://PHONE_IP:3000` as a production substitute.
 
-Also add `spararama.example.co.uk` (hostname only; no scheme or port) to Firebase
+Also add `spa.spararama.uk` (hostname only; no scheme or port) to Firebase
 Authentication's **Authorized domains** list for the same Firebase project and
 named Firestore database used by the app. No application-code change or browser
 secret is required: the client uses its existing Google client ID and Firebase
 configuration, while the server keeps using its independent Admin credential.
+
+For the current deployment, `spa.spararama.uk` is already present in Firebase
+Authentication's authorized-domain list. Google Identity Services still requires
+the exact `https://spa.spararama.uk:8443` origin on the web OAuth client; the
+callback-based sign-in used here does not require an authorized redirect URI.
 
 ### Diagnose HTTPS and reboot
 
@@ -671,8 +732,9 @@ On the phone:
 ```bash
 spar status
 bash scripts/termux/server-check.sh
-sv status spararama-caddy
+sv status "$PREFIX/var/service/spararama-caddy"
 tail -n 80 ~/.local/state/spararama-phone/caddy.log
+tail -n 80 ~/.local/state/spararama-phone/caddy-service.log
 ```
 
 `server-check.sh` tests the local Caddy-to-backend path with certificate checking

@@ -8,10 +8,13 @@ SERVER_LOG_FILE="$STATE_DIR/server.log"
 ADAPTER_PID_FILE="$STATE_DIR/cleverspa.pid"
 ADAPTER_LOG_FILE="$STATE_DIR/cleverspa.log"
 WAKE_LOCK_FILE="$STATE_DIR/wake-lock"
+PRODUCTION_BUILD_MARKER="$STATE_DIR/production-build.commit"
+CADDY_SERVICE_DIR="$PREFIX/var/service/spararama-caddy"
 
 SPAR_REPO="${SPAR_REPO:-$HOME/Spararama}"
 SPAR_BRANCH="${SPAR_BRANCH:-chatgpt-dev}"
 SPAR_ADAPTER="${SPAR_ADAPTER:-mock}"
+SPAR_RUNTIME_MODE="${SPAR_RUNTIME_MODE:-production}"
 SPAR_PORT="${SPAR_PORT:-3000}"
 SPAR_BIND_HOST="${SPAR_BIND_HOST:-0.0.0.0}"
 SPAR_HTTPS_ENABLED="${SPAR_HTTPS_ENABLED:-0}"
@@ -51,12 +54,12 @@ caddy_healthy() {
 
 caddy_up() {
   [ "$SPAR_HTTPS_ENABLED" = "1" ] || return 0
-  if command -v sv >/dev/null 2>&1; then sv up spararama-caddy >/dev/null 2>&1 || true; fi
+  if command -v sv >/dev/null 2>&1; then sv up "$CADDY_SERVICE_DIR" >/dev/null 2>&1 || true; fi
 }
 
 caddy_down() {
   [ "$SPAR_HTTPS_ENABLED" = "1" ] || return 0
-  if command -v sv >/dev/null 2>&1; then sv down spararama-caddy >/dev/null 2>&1 || true; fi
+  if command -v sv >/dev/null 2>&1; then sv down "$CADDY_SERVICE_DIR" >/dev/null 2>&1 || true; fi
 }
 
 # The installed home-screen shortcut invokes bare `spar`. Keep failures visible
@@ -156,7 +159,7 @@ stop_process_group() {
 }
 
 stop_server() {
-  stop_process_group "$SERVER_PID_FILE" "$SPAR_REPO/.*server[.]ts"
+  stop_process_group "$SERVER_PID_FILE" "$SPAR_REPO/.*(server[.]ts|dist/server[.]cjs)"
 }
 
 stop_adapter() {
@@ -202,6 +205,30 @@ ensure_dependencies() {
   fi
 }
 
+ensure_runtime_ready() {
+  case "$SPAR_RUNTIME_MODE" in
+    production) ;;
+    development) return 0 ;;
+    *) fail "SPAR_RUNTIME_MODE must be production or development." ;;
+  esac
+
+  cd "$SPAR_REPO" || exit 1
+  local commit marker dirty
+  commit="$(git rev-parse HEAD)"
+  marker="$(cat "$PRODUCTION_BUILD_MARKER" 2>/dev/null || true)"
+  dirty="$(git status --porcelain --untracked-files=no)"
+  if [ -z "$dirty" ] && [ "$marker" = "$commit" ] && [ -f dist/server.cjs ] && [ -f dist/index.html ]; then
+    printf 'Production build is current.\n'
+    return 0
+  fi
+
+  say "Building the production frontend and server..."
+  pnpm build:local || fail "production build failed. Existing server has not been stopped."
+  local tmp="$PRODUCTION_BUILD_MARKER.tmp"
+  printf '%s\n' "$commit" > "$tmp"
+  mv "$tmp" "$PRODUCTION_BUILD_MARKER"
+}
+
 start_adapter() {
   require_repo
   cd "$SPAR_REPO" || exit 1
@@ -245,13 +272,24 @@ start_server() {
   cd "$SPAR_REPO" || exit 1
   command -v setsid >/dev/null 2>&1 || fail "setsid is missing. Re-run: bash scripts/termux/install.sh"
 
-  say "Starting Spararama (${SPAR_ADAPTER} adapter)..."
-  nohup setsid env \
-    SPA_ADAPTER="$SPAR_ADAPTER" \
-    PORT="$SPAR_PORT" \
-    SPAR_BIND_HOST="$SPAR_BIND_HOST" \
-    CLEVERSPA_BRIDGE_URL="$ADAPTER_URL" \
-    pnpm dev </dev/null >"$SERVER_LOG_FILE" 2>&1 &
+  say "Starting Spararama (${SPAR_ADAPTER} adapter, ${SPAR_RUNTIME_MODE} runtime)..."
+  if [ "$SPAR_RUNTIME_MODE" = "production" ]; then
+    nohup setsid env \
+      NODE_ENV=production \
+      SPA_ADAPTER="$SPAR_ADAPTER" \
+      PORT="$SPAR_PORT" \
+      SPAR_BIND_HOST="$SPAR_BIND_HOST" \
+      CLEVERSPA_BRIDGE_URL="$ADAPTER_URL" \
+      node "$SPAR_REPO/dist/server.cjs" </dev/null >"$SERVER_LOG_FILE" 2>&1 &
+  else
+    nohup setsid env \
+      NODE_ENV=development \
+      SPA_ADAPTER="$SPAR_ADAPTER" \
+      PORT="$SPAR_PORT" \
+      SPAR_BIND_HOST="$SPAR_BIND_HOST" \
+      CLEVERSPA_BRIDGE_URL="$ADAPTER_URL" \
+      pnpm dev </dev/null >"$SERVER_LOG_FILE" 2>&1 &
+  fi
   local pid=$!
   printf '%s\n' "$pid" > "$SERVER_PID_FILE"
 
@@ -328,6 +366,7 @@ show_live_connection() {
 
 status() {
   printf 'Mode: %s\n' "$SPAR_ADAPTER"
+  printf 'Runtime: %s\n' "$SPAR_RUNTIME_MODE"
   if server_healthy; then
     printf 'Spararama backend: running at %s\n' "$URL"
     printf 'User-facing URL: %s\n' "$(public_url)"
@@ -340,7 +379,7 @@ status() {
   fi
   if [ "$SPAR_HTTPS_ENABLED" = "1" ]; then
     printf 'HTTPS: enabled (%s CA, host %s, port %s)\n' "$SPAR_HTTPS_MODE" "$SPAR_HTTPS_HOST" "$SPAR_HTTPS_PORT"
-    if command -v sv >/dev/null 2>&1; then printf 'Caddy service: '; sv status spararama-caddy 2>&1 || true; fi
+    if command -v sv >/dev/null 2>&1; then printf 'Caddy service: '; sv status "$CADDY_SERVICE_DIR" 2>&1 || true; fi
     if caddy_healthy; then printf 'HTTPS endpoint: OK\n'; else printf 'HTTPS endpoint: unavailable or certificate trust not checked locally\n'; fi
   else
     printf 'HTTPS: disabled (LAN HTTP remains enabled)\n'
@@ -377,10 +416,23 @@ switch_mode() {
   SPAR_ADAPTER="$mode"
   persist_setting SPAR_ADAPTER "$SPAR_ADAPTER"
   ensure_dependencies
+  ensure_runtime_ready
   stop_server
   stop_adapter
   start_for_mode || exit 1
   if [ "$mode" = "bridge" ]; then show_live_connection; fi
+  open_app
+}
+
+switch_runtime() {
+  SPAR_RUNTIME_MODE="$1"
+  persist_setting SPAR_RUNTIME_MODE "$SPAR_RUNTIME_MODE"
+  ensure_dependencies
+  ensure_runtime_ready
+  stop_server
+  stop_adapter
+  start_for_mode || exit 1
+  case "$SPAR_ADAPTER" in bridge|cleverspa) show_live_connection ;; esac
   open_app
 }
 
@@ -428,6 +480,8 @@ Spararama phone runner
   spar live        switch persistently to the real CleverSpa adapter and restart
   spar mock        switch persistently to the simulated spa and restart
   spar live-setup  optionally store a known spa IP/passcode in phone-local config
+  spar production  use the built production frontend/server (default)
+  spar dev         deliberately use the Vite development runtime
   spar start       start the existing checkout without pulling
   spar restart     restart the existing checkout without pulling
   spar stop        stop Spararama and the phone CleverSpa adapter
@@ -460,6 +514,8 @@ case "$command" in
     update_repo
     CURRENT_STAGE="checking dependencies"
     ensure_dependencies
+    CURRENT_STAGE="preparing the runtime"
+    ensure_runtime_ready
     CURRENT_STAGE="stopping the previous services"
     say "Restarting Spararama..."
     stop_server
@@ -482,9 +538,18 @@ case "$command" in
   live-setup)
     live_setup
     ;;
+  production|prod)
+    printf 'Switching to the production runtime.\n'
+    switch_runtime production
+    ;;
+  development|dev)
+    printf 'Switching to the Vite development runtime.\n'
+    switch_runtime development
+    ;;
   start)
     require_repo
     ensure_dependencies
+    ensure_runtime_ready
     if server_healthy; then
       printf 'Spararama is already running: %s\n' "$URL"
       acquire_wake_lock
@@ -499,6 +564,7 @@ case "$command" in
   restart)
     require_repo
     ensure_dependencies
+    ensure_runtime_ready
     stop_server
     stop_adapter
     start_for_mode || exit 1

@@ -15,6 +15,7 @@ if [ -f "$CONFIG_FILE" ]; then
   source "$CONFIG_FILE"
 fi
 URL="http://127.0.0.1:${SPAR_PORT}"
+CADDY_SERVICE_DIR="$PREFIX/var/service/spararama-caddy"
 
 echo "Spararama old-phone server check"
 echo "================================"
@@ -61,7 +62,7 @@ if [ "$SPAR_HTTPS_ENABLED" = "1" ]; then
   printf 'HTTPS URL: %s\n' "$HTTPS_URL"
   if command -v sv >/dev/null 2>&1; then
     echo 'Caddy service:'
-    sv status spararama-caddy 2>&1 || true
+    sv status "$CADDY_SERVICE_DIR" 2>&1 || true
   else
     echo 'Caddy service: termux-services not installed'
   fi
@@ -71,6 +72,11 @@ if [ "$SPAR_HTTPS_ENABLED" = "1" ]; then
     echo 'HTTPS proxy endpoint: FAILED (backend down, Caddy down, or TLS configuration invalid)'
   fi
   if [ "$SPAR_HTTPS_MODE" = external ] && command -v openssl >/dev/null 2>&1; then
+    if curl -fsS --max-time 3 --resolve "${SPAR_HTTPS_HOST}:${SPAR_HTTPS_PORT}:127.0.0.1" "$HTTPS_URL/api/health" >/dev/null 2>&1; then
+      echo 'Certificate trust: OK'
+    else
+      echo 'Certificate trust: FAILED'
+    fi
     expiry="$(printf '' | openssl s_client -connect "127.0.0.1:${SPAR_HTTPS_PORT}" -servername "$SPAR_HTTPS_HOST" 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null || true)"
     [ -n "$expiry" ] && printf 'Certificate expiry: %s\n' "$expiry" || echo 'Certificate expiry: unavailable'
   elif [ "$SPAR_HTTPS_MODE" = internal ]; then

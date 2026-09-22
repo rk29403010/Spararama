@@ -69,8 +69,11 @@ export async function syncPushRegistration(options: { requestPermission?: boolea
     return { status: 'permission-required', message: 'Notification permission has not been granted yet.' };
   }
 
-  const serviceWorkerRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
-  await navigator.serviceWorker.ready;
+  // Keep Firebase push on a narrow, non-navigation scope. Registering it at '/'
+  // would replace the PWA app-shell worker and break offline launch/update logic.
+  const serviceWorkerRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
+    scope: '/firebase-cloud-messaging-push-scope'
+  });
   const messaging = getMessaging(firebaseApp);
   const token = await getToken(messaging, {
     vapidKey: config.vapidKey,

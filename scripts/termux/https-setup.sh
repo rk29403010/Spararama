@@ -41,7 +41,7 @@ persist() {
 disable_https() {
   persist SPAR_HTTPS_ENABLED 0
   persist SPAR_BIND_HOST 0.0.0.0
-  if command -v sv >/dev/null 2>&1; then sv down spararama-caddy >/dev/null 2>&1 || true; fi
+  if command -v sv >/dev/null 2>&1; then sv down "$SERVICE_DIR" >/dev/null 2>&1 || true; fi
   rm -rf "$SERVICE_DIR"
   echo 'HTTPS disabled. Spararama will use the existing LAN HTTP binding after: spar restart'
 }
@@ -65,6 +65,7 @@ esac
 SPAR_HTTPS_ENABLED=1
 SPAR_PORT="${SPAR_PORT:-3000}"
 SPAR_CADDY_LOG_FILE="$STATE_DIR/caddy.log"
+SPAR_CADDY_SERVICE_LOG_FILE="$STATE_DIR/caddy-service.log"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/https-config.sh"
 spar_https_validate
@@ -77,7 +78,7 @@ if [ "$SPAR_HTTPS_MODE" = external ]; then chmod 600 "$SPAR_TLS_KEY_FILE"; fi
 
 cat > "$SERVICE_DIR/run" <<EOF
 #!/data/data/com.termux/files/usr/bin/sh
-exec caddy run --config '$CADDYFILE' --adapter caddyfile
+exec '$PREFIX/bin/caddy' run --config '$CADDYFILE' --adapter caddyfile >> '$SPAR_CADDY_SERVICE_LOG_FILE' 2>&1
 EOF
 chmod 700 "$SERVICE_DIR/run"
 
@@ -93,7 +94,6 @@ if [ -f "$PREFIX/etc/profile.d/start-services.sh" ]; then
   # shellcheck disable=SC1090
   source "$PREFIX/etc/profile.d/start-services.sh"
 fi
-sv up spararama-caddy >/dev/null 2>&1 || true
+sv up "$SERVICE_DIR" >/dev/null 2>&1 || true
 printf 'HTTPS configured at %s\n' "$(spar_https_url)"
 printf 'Restart Spararama so its backend becomes loopback-only: spar restart\n'
-

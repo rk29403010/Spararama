@@ -16,6 +16,7 @@ SPAR_CADDY_LOG_FILE="$TEMP_DIR/caddy.log"
 SPAR_TLS_CERT_FILE=''
 SPAR_TLS_KEY_FILE=''
 spar_https_write_caddyfile "$TEMP_DIR/Caddyfile"
+grep -Fq 'auto_https disable_redirects' "$TEMP_DIR/Caddyfile"
 grep -Fq 'https://spararama.home.arpa:8443 {' "$TEMP_DIR/Caddyfile"
 grep -Fq 'tls internal' "$TEMP_DIR/Caddyfile"
 grep -Fq 'reverse_proxy 127.0.0.1:3000 {' "$TEMP_DIR/Caddyfile"

@@ -147,15 +147,21 @@ Running `spar` with no arguments keeps the currently selected connector mode and
 3. runs `pnpm install` only when dependencies have changed or are missing;
 4. stops the previous phone processes;
 5. if live mode is selected, starts the CleverSpa adapter on port 8787;
-6. starts `pnpm dev` on port 3000 with the selected adapter mode in a detached session;
-7. waits for `/api/health` to respond and verifies it remains alive briefly;
-8. opens `http://localhost:3000` on the phone. Backend health checks still use `127.0.0.1`; the browser-facing localhost origin is deliberate because Android Chrome has been verified to expose Web Bluetooth there.
+6. builds the production frontend/server when the checked-out commit changed, before stopping the working instance;
+7. starts the built production server on port 3000 with the selected adapter mode in a detached session;
+8. waits for `/api/health` to respond and verifies it remains alive briefly;
+9. opens the configured HTTPS URL, or `http://localhost:3000` when HTTPS is disabled. Backend health checks still use `127.0.0.1`; the browser-facing localhost origin remains available as a deliberate Web Bluetooth/development fallback on the A71 itself.
 
 The update happens **before** the old processes are stopped. If GitHub is unavailable
 or the current Wi-Fi blocks it, the already-running version is left alone.
 
 The long-running processes are launched with `setsid` and `nohup` so moving from
 Termux to the browser does not normally terminate their Node process trees.
+
+Normal always-on hosting uses `SPAR_RUNTIME_MODE=production`: Vite and `tsx` are
+not left running. Use `spar dev` only when live source transformation/HMR is
+deliberately needed, and return to normal hosting with `spar production`. The
+selected runtime mode is persisted in the same mode-600 phone configuration.
 
 ## Update from the Spararama UI
 
@@ -184,6 +190,8 @@ spar              update, restart current mode and open Spararama
 spar live         persistently switch to the real CleverSpa adapter and restart
 spar mock         persistently switch to the simulated spa and restart
 spar live-setup   optionally store a known spa IP/passcode outside the repo
+spar production   persistently use the built production runtime (default)
+spar dev          persistently use the Vite development runtime
 spar start        start without pulling
 spar restart      restart without pulling
 spar stop         stop Spararama and the phone CleverSpa adapter

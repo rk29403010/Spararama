@@ -28,6 +28,9 @@ spar_https_write_caddyfile() {
   {
     printf '{\n'
     printf '  admin off\n'
+    # Termux cannot bind the privileged port 80 that Caddy otherwise opens for
+    # automatic redirects, and the public Spararama URL deliberately uses 8443.
+    printf '  auto_https disable_redirects\n'
     printf '}\n\n'
     printf 'https://%s:%s {\n' "$SPAR_HTTPS_HOST" "$SPAR_HTTPS_PORT"
     printf '  log {\n    output file %s\n  }\n' "$SPAR_CADDY_LOG_FILE"

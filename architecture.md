@@ -127,7 +127,8 @@ Mock mode:
 Android phone
   Termux
     ~/Spararama checkout (chatgpt-dev)
-    Spararama pnpm dev / server.ts :3000
+    built Spararama frontend + server :3000 (normal hosting)
+    optional Vite development runtime (`spar dev`)
     SPA_ADAPTER=mock
     scripts/termux/spar lifecycle runner
 
@@ -180,9 +181,10 @@ Normal `spar` behaviour keeps the currently selected mode and:
 3. installs dependencies only when needed;
 4. **only after the update succeeds**, stops the previous phone processes;
 5. in `bridge` mode, starts `services/cleverspa` on loopback port 8787 and asks it to discover/connect;
-6. starts the main backend on port 3000 with the selected `SPA_ADAPTER`;
-7. waits for `/api/health`, then re-checks after a settling delay;
-8. opens `http://127.0.0.1:3000` in the Android browser.
+6. builds the production frontend/server before stopping the working instance when the checked-out commit changed;
+7. starts the main backend on port 3000 with the selected `SPA_ADAPTER`;
+8. waits for `/api/health`, then re-checks after a settling delay;
+9. opens the configured HTTPS URL, or `http://localhost:3000` when HTTPS is disabled.
 
 The pull-before-stop ordering is deliberate: if GitHub is unavailable or the current network blocks it, the already-running version remains available.
 
@@ -191,11 +193,33 @@ Connector switching is persistent and explicit:
 ```text
 spar live   -> SPAR_ADAPTER=bridge; manage both :8787 adapter + :3000 app
 spar mock   -> SPAR_ADAPTER=mock; stop the phone adapter and run simulation only
+spar production -> built frontend/server; normal always-on mode
+spar dev        -> explicit Vite development runtime
 ```
 
 `live-setup` may store a known CleverSpa IP/passcode in `phone.conf`; those values must never be committed to the repository. The installer preserves the selected mode and phone-local live settings when rerun.
 
 The phone runner is separate from `scripts/local.mjs` on purpose. `scripts/local.mjs` is the general laptop/headless production-style lifecycle runner. `scripts/termux/spar` is the Android-specific runner, with mock/live switching and Android process/session handling.
+
+## Local PWA and browser capabilities
+
+The local frontend is installable as a standalone PWA when served from a secure
+origin such as `https://spa.spararama.uk:8443`. Its service worker precaches the
+built app shell and same-origin static assets for launch/resume, but deliberately
+does not intercept or cache `/api/*`; live spa, telemetry and account data must
+always retain their real freshness and offline state.
+
+Service-worker updates are checked on load, hourly, and when the app returns to
+the foreground or comes back online. A ready update is offered to the user and
+only activates/reloads after that explicit action, so an in-progress poolside
+workflow is not silently interrupted. Firebase Messaging uses a separate narrow
+service-worker scope and must not replace the root PWA worker.
+
+Web Bluetooth remains browser-local. It is available only where the browser
+implements Web Bluetooth and reports a secure context; public HTTPS and the
+special `localhost`/`127.0.0.1` origins satisfy the context requirement. The
+BLE-C600 protocol remains in the browser and is not moved into Caddy, Firebase,
+the cloud control plane or the CleverSpa adapter.
 
 Detailed installation, connector switching, launcher and troubleshooting notes are in [`docs/termux-phone.md`](./docs/termux-phone.md).
 

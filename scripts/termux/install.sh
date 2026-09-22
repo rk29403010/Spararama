@@ -36,6 +36,7 @@ chmod 700 "$SHORTCUT_DIR"
 # installer is rerun. The checkout path is refreshed in case the repo moved.
 SPAR_BRANCH="chatgpt-dev"
 SPAR_ADAPTER="mock"
+SPAR_RUNTIME_MODE="production"
 SPAR_PORT="3000"
 SPAR_BIND_HOST="0.0.0.0"
 SPAR_HTTPS_ENABLED="0"
@@ -58,6 +59,7 @@ fi
   printf 'SPAR_REPO=%q\n' "$REPO"
   printf 'SPAR_BRANCH=%q\n' "$SPAR_BRANCH"
   printf 'SPAR_ADAPTER=%q\n' "$SPAR_ADAPTER"
+  printf 'SPAR_RUNTIME_MODE=%q\n' "$SPAR_RUNTIME_MODE"
   printf 'SPAR_PORT=%q\n' "$SPAR_PORT"
   printf 'SPAR_BIND_HOST=%q\n' "$SPAR_BIND_HOST"
   printf 'SPAR_HTTPS_ENABLED=%q\n' "$SPAR_HTTPS_ENABLED"
@@ -109,6 +111,8 @@ Switch connector mode:
 
   spar live    # real CleverSpa; phone must be able to reach the spa/home LAN
   spar mock    # simulated spa; safe for development away from home
+  spar production  # built production runtime (default for always-on hosting)
+  spar dev         # deliberate Vite development runtime
 
 Optional live setup for a known IP/passcode:
 
