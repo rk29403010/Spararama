@@ -704,8 +704,8 @@ on Cloudflare being reachable.
 
 ### Google Cloud and Firebase Console setup
 
-After real-domain HTTPS works in a browser, add the **exact** browser origin in
-the Google OAuth client that owns the client ID in `src/lib/firebase.ts`:
+The Google OAuth client that owns the client ID in `src/lib/firebase.ts` must
+contain the **exact** browser origin:
 
 ```text
 https://spa.spararama.uk:8443
@@ -714,16 +714,18 @@ https://spa.spararama.uk:8443
 The scheme, hostname and non-default port are all part of the origin. Do not add
 `http://PHONE_IP:3000` as a production substitute.
 
-Also add `spa.spararama.uk` (hostname only; no scheme or port) to Firebase
-Authentication's **Authorized domains** list for the same Firebase project and
-named Firestore database used by the app. No application-code change or browser
-secret is required: the client uses its existing Google client ID and Firebase
-configuration, while the server keeps using its independent Admin credential.
+Firebase Authentication's **Authorized domains** list must also contain
+`spa.spararama.uk` (hostname only; no scheme or port) for the same Firebase
+project and named Firestore database used by the app. No application-code change
+or browser secret is required: the client uses its existing Google client ID and
+Firebase configuration, while the server keeps using its independent Admin
+credential.
 
-For the current deployment, `spa.spararama.uk` is already present in Firebase
-Authentication's authorized-domain list. Google Identity Services still requires
-the exact `https://spa.spararama.uk:8443` origin on the web OAuth client; the
-callback-based sign-in used here does not require an authorized redirect URI.
+For the current deployment, both entries are configured. A live browser check
+confirmed that Google Identity Services renders the sign-in button without an
+origin-policy error and opens Google's account-selection flow from
+`https://spa.spararama.uk:8443`. The callback-based sign-in used here does not
+require an authorized redirect URI.
 
 ### Diagnose HTTPS and reboot
 
