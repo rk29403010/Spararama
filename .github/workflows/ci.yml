@@ -23,6 +23,7 @@ jobs:
         run: |
           node --check scripts/local.mjs
           node scripts/local.mjs help
+          node --test test/build/production-build-key.test.mjs
           bash -n scripts/termux/spar scripts/termux/install.sh scripts/termux/https-setup.sh scripts/termux/https-config.sh
           bash test/termux/https-config.test.sh
 
