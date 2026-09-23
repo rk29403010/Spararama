@@ -159,7 +159,7 @@ stop_process_group() {
 }
 
 stop_server() {
-  stop_process_group "$SERVER_PID_FILE" "$SPAR_REPO/.*(server[.]ts|dist/server[.]cjs)"
+  stop_process_group "$SERVER_PID_FILE" "$SPAR_REPO/.*(server[.]ts|[.]local/runtime/server[.]cjs)"
 }
 
 stop_adapter() {
@@ -219,7 +219,7 @@ ensure_runtime_ready() {
     || fail "could not calculate the production Vite environment fingerprint. Existing server has not been stopped."
   marker="$(cat "$PRODUCTION_BUILD_MARKER" 2>/dev/null || true)"
   dirty="$(git status --porcelain --untracked-files=no)"
-  if [ -z "$dirty" ] && [ "$marker" = "$build_key" ] && [ -f dist/server.cjs ] && [ -f dist/index.html ]; then
+  if [ -z "$dirty" ] && [ "$marker" = "$build_key" ] && [ -f .local/runtime/server.cjs ] && [ -f dist/index.html ]; then
     printf 'Production build is current.\n'
     return 0
   fi
@@ -282,7 +282,7 @@ start_server() {
       PORT="$SPAR_PORT" \
       SPAR_BIND_HOST="$SPAR_BIND_HOST" \
       CLEVERSPA_BRIDGE_URL="$ADAPTER_URL" \
-      node "$SPAR_REPO/dist/server.cjs" </dev/null >"$SERVER_LOG_FILE" 2>&1 &
+      node "$SPAR_REPO/.local/runtime/server.cjs" </dev/null >"$SERVER_LOG_FILE" 2>&1 &
   else
     nohup setsid env \
       NODE_ENV=development \
@@ -322,7 +322,7 @@ start_server() {
 
   printf '\nSpararama did not become healthy within the startup window. Last log lines:\n' >&2
   tail -n 60 "$SERVER_LOG_FILE" >&2 2>/dev/null || true
-  stop_process_group "$SERVER_PID_FILE" "$SPAR_REPO/.*server[.]ts"
+  stop_process_group "$SERVER_PID_FILE" "$SPAR_REPO/.*(server[.]ts|[.]local/runtime/server[.]cjs)"
   return 1
 }
 
