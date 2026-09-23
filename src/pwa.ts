@@ -27,7 +27,7 @@ export function registerPwaServiceWorker() {
   if (import.meta.env.DEV || !('serviceWorker' in navigator)) return;
 
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').then(candidate => {
+    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then(candidate => {
       registration = candidate;
       announceWaitingWorker(candidate);
 
