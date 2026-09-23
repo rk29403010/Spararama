@@ -18,8 +18,8 @@ ENV PORT=8080
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile --prod
 
-COPY --from=build /app/dist/cloud-server.cjs ./dist/cloud-server.cjs
-COPY --from=build /app/dist/cloud-server.cjs.map ./dist/cloud-server.cjs.map
+COPY --from=build /app/build/cloud/cloud-server.cjs ./build/cloud/cloud-server.cjs
+COPY --from=build /app/build/cloud/cloud-server.cjs.map ./build/cloud/cloud-server.cjs.map
 
 EXPOSE 8080
-CMD ["node", "dist/cloud-server.cjs"]
+CMD ["node", "build/cloud/cloud-server.cjs"]
