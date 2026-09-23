@@ -1,4 +1,5 @@
 import type { HeatingSession } from '../types';
+import { fetchLocalControl } from './localControlAuth';
 
 export type HeatingScheduleStatus = 'scheduled' | 'retrying' | 'running-remote' | 'awaiting-manual-confirmation' | 'running-manual' | 'ready' | 'cancelled';
 
@@ -78,10 +79,15 @@ export interface HeatingAlertOptions {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const requestInit = {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) }
-  });
+  };
+  const method = String(init?.method || 'GET').toUpperCase();
+  const controlsPhysicalHeating = path.startsWith('/api/heating/schedules') && method !== 'GET' && method !== 'HEAD';
+  const response = controlsPhysicalHeating
+    ? await fetchLocalControl(path, requestInit)
+    : await fetch(path, requestInit);
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.error || `Heating request failed (${response.status})`);
