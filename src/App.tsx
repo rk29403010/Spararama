@@ -46,6 +46,32 @@ function initialTab(): AppTab {
   }
 }
 
+function UserMenu({ user }: { user: User }) {
+  return (
+    <details className="relative">
+      <summary
+        aria-label="Account menu"
+        title="Account"
+        className="w-11 h-11 list-none cursor-pointer bg-emerald-100 rounded-full flex items-center justify-center text-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden"
+      >
+        <UserIcon className="w-5 h-5" aria-hidden="true" />
+      </summary>
+      <div className="absolute right-0 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-2xl border border-slate-200 bg-white p-4 shadow-lg z-50">
+        <p className="font-black text-slate-950 truncate">{user.displayName || 'Signed in user'}</p>
+        <p className="mt-0.5 text-sm font-bold text-slate-600 break-all">{user.email || 'Email unavailable'}</p>
+        <button
+          type="button"
+          className="mt-4 min-h-11 w-full px-4 rounded-xl bg-slate-100 text-slate-800 font-black flex items-center justify-center gap-2 hover:bg-slate-200"
+          onClick={() => void signOutUser()}
+        >
+          <LogOut className="w-5 h-5" aria-hidden="true" />
+          Log out
+        </button>
+      </div>
+    </details>
+  );
+}
+
 function CloudApp({ user }: { user: User | null }) {
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans text-slate-950">
@@ -60,16 +86,7 @@ function CloudApp({ user }: { user: User | null }) {
               <p className="text-sm leading-tight font-bold text-slate-600">Remote access</p>
             </div>
           </div>
-          {user && (
-            <button
-              type="button"
-              className="min-h-11 px-3 rounded-xl bg-slate-100 text-slate-800 font-black flex items-center gap-2"
-              onClick={() => void signOutUser()}
-            >
-              <LogOut className="w-5 h-5" aria-hidden="true" />
-              Sign out
-            </button>
-          )}
+          {user && <UserMenu user={user} />}
         </div>
       </header>
 
@@ -198,17 +215,16 @@ export default function App() {
             {!user ? (
               <ErrorBoundary resetKey="header-auth" title="Sign-in unavailable"><GoogleSignInButton /></ErrorBoundary>
             ) : (
-              <span aria-label="Signed in" title="Signed in" className="w-11 h-11 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-800">
-                <UserIcon className="w-5 h-5" aria-hidden="true" />
-              </span>
+              <UserMenu user={user} />
             )}
             <button
               type="button"
-              onClick={() => setShowManualLog(true)}
-              className="min-h-12 px-3.5 rounded-xl bg-indigo-700 text-white flex items-center justify-center gap-2 font-black active:scale-[0.98] transition-transform"
+              aria-current={activeTab === 'settings' ? 'page' : undefined}
+              onClick={() => setActiveTab('settings')}
+              className={`min-h-12 px-3.5 rounded-xl flex items-center justify-center gap-2 font-black active:scale-[0.98] transition-colors ${activeTab === 'settings' ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'}`}
             >
-              <ClipboardPlus className="w-5 h-5" aria-hidden="true" />
-              <span>Log</span>
+              <Settings className="w-5 h-5" aria-hidden="true" />
+              <span>Settings</span>
             </button>
           </div>
         </div>
@@ -297,7 +313,7 @@ export default function App() {
           <button type="button" aria-current={activeTab === 'heating' ? 'page' : undefined} onClick={() => setActiveTab('heating')} className={`min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTab === 'heating' ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700 hover:bg-slate-50'}`}><Flame className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">Heating</span></button>
           <button type="button" aria-current={activeTab === 'chemicals' ? 'page' : undefined} onClick={() => setActiveTab('chemicals')} className={`min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTab === 'chemicals' ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700 hover:bg-slate-50'}`}><Droplets className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">Water</span></button>
           <button type="button" aria-current={activeTab === 'logs' ? 'page' : undefined} onClick={() => setActiveTab('logs')} className={`min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTab === 'logs' ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700 hover:bg-slate-50'}`}><List className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">History</span></button>
-          <button type="button" aria-current={activeTab === 'settings' ? 'page' : undefined} onClick={() => setActiveTab('settings')} className={`min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTab === 'settings' ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700 hover:bg-slate-50'}`}><Settings className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">Settings</span></button>
+          <button type="button" onClick={() => setShowManualLog(true)} className="min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 bg-indigo-50 text-indigo-900 hover:bg-indigo-100 transition-colors"><ClipboardPlus className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">Log</span></button>
         </nav>
       </footer>
 
