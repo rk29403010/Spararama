@@ -23,9 +23,9 @@ const WeatherConfiguration = lazy(() => import('./components/WeatherConfiguratio
 const BleC600Settings = lazy(() => import('./components/BleC600Settings').then(module => ({ default: module.BleC600Settings })));
 const RemoteHome = lazy(() => import('./components/RemoteHome').then(module => ({ default: module.RemoteHome })));
 
-type AppTab = 'home' | 'heating' | 'chemicals' | 'logs' | 'settings';
+type AppTab = 'home' | 'heating' | 'chemicals' | 'logs' | 'log' | 'settings';
 
-const TAB_ORDER: AppTab[] = ['home', 'heating', 'chemicals', 'logs', 'settings'];
+const TAB_ORDER: AppTab[] = ['home', 'heating', 'chemicals', 'logs', 'log', 'settings'];
 const ACTIVE_TAB_STORAGE_KEY = 'spararama.activeTab';
 
 function RouteFallback() {
@@ -131,7 +131,6 @@ function blocksTabSwipe(target: EventTarget | null) {
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>(initialTab);
-  const [showManualLog, setShowManualLog] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [authInitialized, setAuthInitialized] = useState(false);
   const swipeStart = useRef<{ x: number; y: number; blocked: boolean } | null>(null);
@@ -219,12 +218,13 @@ export default function App() {
             )}
             <button
               type="button"
+              aria-label="Settings"
+              title="Settings"
               aria-current={activeTab === 'settings' ? 'page' : undefined}
               onClick={() => setActiveTab('settings')}
-              className={`min-h-12 px-3.5 rounded-xl flex items-center justify-center gap-2 font-black active:scale-[0.98] transition-colors ${activeTab === 'settings' ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'}`}
+              className={`w-12 h-12 rounded-xl flex items-center justify-center active:scale-[0.98] transition-colors ${activeTab === 'settings' ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'}`}
             >
               <Settings className="w-5 h-5" aria-hidden="true" />
-              <span>Settings</span>
             </button>
           </div>
         </div>
@@ -238,6 +238,7 @@ export default function App() {
             {activeTab === 'heating' && <Heating state={state} updateState={updateState} />}
             {activeTab === 'chemicals' && <Chemicals state={state} updateState={updateState} />}
             {activeTab === 'logs' && <Logs state={state} />}
+            {activeTab === 'log' && <ManualLogModal state={state} onClose={() => setActiveTab('logs')} />}
             {activeTab === 'settings' && (
               <div className="p-4 sm:p-8 text-slate-700 max-w-2xl mx-auto space-y-5">
                 <h2 className="text-3xl font-black tracking-tight text-slate-950">Settings</h2>
@@ -313,13 +314,10 @@ export default function App() {
           <button type="button" aria-current={activeTab === 'heating' ? 'page' : undefined} onClick={() => setActiveTab('heating')} className={`min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTab === 'heating' ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700 hover:bg-slate-50'}`}><Flame className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">Heating</span></button>
           <button type="button" aria-current={activeTab === 'chemicals' ? 'page' : undefined} onClick={() => setActiveTab('chemicals')} className={`min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTab === 'chemicals' ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700 hover:bg-slate-50'}`}><Droplets className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">Water</span></button>
           <button type="button" aria-current={activeTab === 'logs' ? 'page' : undefined} onClick={() => setActiveTab('logs')} className={`min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTab === 'logs' ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700 hover:bg-slate-50'}`}><List className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">History</span></button>
-          <button type="button" onClick={() => setShowManualLog(true)} className="min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 bg-indigo-50 text-indigo-900 hover:bg-indigo-100 transition-colors"><ClipboardPlus className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">Log</span></button>
+          <button type="button" aria-current={activeTab === 'log' ? 'page' : undefined} onClick={() => setActiveTab('log')} className={`min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTab === 'log' ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700 hover:bg-slate-50'}`}><ClipboardPlus className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">Log</span></button>
         </nav>
       </footer>
 
-      <ErrorBoundary resetKey={showManualLog ? 'manual-open' : 'manual-closed'} title="Manual log failed">
-        {showManualLog && <Suspense fallback={null}><ManualLogModal state={state} onClose={() => setShowManualLog(false)} /></Suspense>}
-      </ErrorBoundary>
       <ErrorBoundary resetKey="heating-notifications" title="Heating notification failed"><HeatingNotifications /></ErrorBoundary>
       <ErrorBoundary resetKey="reminders" title="Reminder failed"><ReminderModal state={state} updateState={updateState} /></ErrorBoundary>
     </div>
