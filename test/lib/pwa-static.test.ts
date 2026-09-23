@@ -19,6 +19,12 @@ test('PWA worker caches the app shell without intercepting live API data', () =>
   assert.doesNotMatch(worker, /self\.skipWaiting\(\).*install/s);
 });
 
+test('PWA worker extends fetch lifetime synchronously for background cache refreshes', () => {
+  const worker = readFileSync('public/sw.js', 'utf8');
+  assert.match(worker, /const cacheRefresh = networkResponse[\s\S]*event\.waitUntil\(cacheRefresh\);[\s\S]*event\.respondWith/);
+  assert.doesNotMatch(worker, /\.then\([^)]*=>[\s\S]*event\.waitUntil/);
+});
+
 test('PWA worker cache identity is replaced from emitted frontend content on every build', () => {
   const worker = readFileSync('public/sw.js', 'utf8');
   const viteConfig = readFileSync('vite.config.ts', 'utf8');
@@ -31,8 +37,18 @@ test('PWA worker cache identity is replaced from emitted frontend content on eve
   assert.match(pwaClient, /updateViaCache: 'none'/);
 });
 
-test('Firebase push uses a scope that cannot replace the root PWA worker', () => {
+test('Firebase push uses a narrow scope and waits for worker activation before getToken', () => {
   const pushClient = readFileSync('src/lib/pushNotifications.ts', 'utf8');
   assert.match(pushClient, /scope: '\/firebase-cloud-messaging-push-scope'/);
   assert.doesNotMatch(pushClient, /firebase-messaging-sw\.js', \{ scope: '\/'/);
+  assert.match(pushClient, /await waitForActiveServiceWorker\(serviceWorkerRegistration\);[\s\S]*getToken\(/);
+  assert.match(pushClient, /statechange/);
+  assert.match(pushClient, /worker\.state === 'activated'/);
+});
+
+test('non-home application routes are dynamically imported', () => {
+  const app = readFileSync('src/App.tsx', 'utf8');
+  for (const component of ['Heating', 'Chemicals', 'Logs', 'RemoteHome']) {
+    assert.match(app, new RegExp(`lazy\\(\\(\\) => import\\('\\./components/${component}'\\)`));
+  }
 });
