@@ -3,6 +3,7 @@ import { firebaseApp } from './firebase';
 import { fetchLocalControl } from './localControlAuth';
 
 const REGISTRATION_ID_KEY = 'spararama_push_registration_id';
+const SERVICE_WORKER_ACTIVATION_TIMEOUT_MS = 15_000;
 
 export interface PushConfigDto {
   enabled: boolean;
@@ -50,6 +51,42 @@ async function browserCanPush() {
   return isSupported();
 }
 
+export async function waitForActiveServiceWorker(
+  registration: ServiceWorkerRegistration,
+  timeoutMs = SERVICE_WORKER_ACTIVATION_TIMEOUT_MS
+) {
+  if (registration.active?.state === 'activated') return registration;
+
+  const worker = registration.installing || registration.waiting || registration.active;
+  if (!worker) throw new Error('Firebase push service worker did not start installing.');
+
+  await new Promise<void>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = () => {
+      worker.removeEventListener('statechange', checkState);
+      if (timer) clearTimeout(timer);
+    };
+    const checkState = () => {
+      if (registration.active?.state === 'activated' || worker.state === 'activated') {
+        cleanup();
+        resolve();
+      } else if (worker.state === 'redundant') {
+        cleanup();
+        reject(new Error('Firebase push service worker became redundant before activation.'));
+      }
+    };
+
+    worker.addEventListener('statechange', checkState);
+    timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('Firebase push service worker did not activate in time.'));
+    }, timeoutMs);
+    checkState();
+  });
+
+  return registration;
+}
+
 export async function syncPushRegistration(options: { requestPermission?: boolean } = {}): Promise<PushSetupResult> {
   const config = await getPushConfig();
   if (!config.enabled || !config.configured || !config.vapidKey || !firebaseApp) {
@@ -74,9 +111,13 @@ export async function syncPushRegistration(options: { requestPermission?: boolea
 
   // Keep Firebase push on a narrow, non-navigation scope. Registering it at '/'
   // would replace the PWA app-shell worker and break offline launch/update logic.
+  // register() may resolve while a brand-new worker is still activating, while
+  // Firebase Messaging requires the supplied registration to be active.
   const serviceWorkerRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
     scope: '/firebase-cloud-messaging-push-scope'
   });
+  await waitForActiveServiceWorker(serviceWorkerRegistration);
+
   const messaging = getMessaging(firebaseApp);
   const token = await getToken(messaging, {
     vapidKey: config.vapidKey,
