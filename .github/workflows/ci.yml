@@ -19,8 +19,12 @@ jobs:
           runtime: node@22
           cache: true
 
-      - name: Check local runner
-        run: node --check scripts/local.mjs && node scripts/local.mjs help
+      - name: Check local runners
+        run: |
+          node --check scripts/local.mjs
+          node scripts/local.mjs help
+          bash -n scripts/termux/spar scripts/termux/install.sh scripts/termux/https-setup.sh scripts/termux/https-config.sh
+          bash test/termux/https-config.test.sh
 
       - name: Run tests
         run: pnpm test
