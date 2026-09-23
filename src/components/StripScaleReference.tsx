@@ -56,7 +56,7 @@ export function StripScaleReference() {
       </div>
 
       <MethodReference methodId="current-3-way" title="3-in-1 strip" />
-      <MethodReference methodId="current-7-way" title="7-in-1 strip" open />
+      <MethodReference methodId="current-7-way" title="7-in-1 strip" />
       <MethodReference methodId="lamotte-insta-test-5-plus" title="LaMotte Insta-TEST 5 Plus" />
 
       <p className="text-xs font-bold text-slate-500">Screen colours are approximate. Match the wet strip against the bottle; the numeric scale/order is the recorded reference.</p>
