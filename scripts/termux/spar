@@ -213,11 +213,13 @@ ensure_runtime_ready() {
   esac
 
   cd "$SPAR_REPO" || exit 1
-  local commit marker dirty
+  local commit build_key marker dirty
   commit="$(git rev-parse HEAD)"
+  build_key="$(node "$SPAR_REPO/scripts/production-build-key.mjs" "$commit")" \
+    || fail "could not calculate the production Vite environment fingerprint. Existing server has not been stopped."
   marker="$(cat "$PRODUCTION_BUILD_MARKER" 2>/dev/null || true)"
   dirty="$(git status --porcelain --untracked-files=no)"
-  if [ -z "$dirty" ] && [ "$marker" = "$commit" ] && [ -f dist/server.cjs ] && [ -f dist/index.html ]; then
+  if [ -z "$dirty" ] && [ "$marker" = "$build_key" ] && [ -f dist/server.cjs ] && [ -f dist/index.html ]; then
     printf 'Production build is current.\n'
     return 0
   fi
@@ -225,7 +227,7 @@ ensure_runtime_ready() {
   say "Building the production frontend and server..."
   pnpm build:local || fail "production build failed. Existing server has not been stopped."
   local tmp="$PRODUCTION_BUILD_MARKER.tmp"
-  printf '%s\n' "$commit" > "$tmp"
+  printf '%s\n' "$build_key" > "$tmp"
   mv "$tmp" "$PRODUCTION_BUILD_MARKER"
 }
 
