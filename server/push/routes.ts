@@ -1,4 +1,5 @@
-import type { Express, Request, Response } from 'express';
+import express, { type Express, type Request, type Response } from 'express';
+import type { LocalControlSecurity } from '../security/local-control';
 import type { PushService } from './service';
 
 const FIREBASE_WEB_SDK_VERSION = '12.17.1';
@@ -6,12 +7,17 @@ const FIREBASE_PROJECT_ID = 'microprojects-481213';
 const FIREBASE_APP_ID = '1:917911030888:web:c474b419d5a03c0066bfdd';
 const FIREBASE_SENDER_ID = '917911030888';
 const FIREBASE_AUTH_DOMAIN = 'microprojects-481213.firebaseapp.com';
+const PUSH_REGISTRATION_BODY_LIMIT = '16kb';
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) {
   return (req: Request, res: Response) => {
     handler(req, res).catch((error: any) => {
       console.error(error);
-      res.status(500).json({ error: error?.message || 'Push notification request failed' });
+      const status = Number(error?.statusCode || 500);
+      res.status(status >= 400 && status <= 599 ? status : 500).json({
+        error: error?.message || 'Push notification request failed',
+        ...(typeof error?.code === 'string' ? { code: error.code } : {})
+      });
     });
   };
 }
@@ -76,28 +82,33 @@ self.addEventListener('notificationclick', (event) => {
 `;
 }
 
-export function registerPushRoutes(app: Express, push: PushService) {
+export function registerPushRoutes(app: Express, push: PushService, security: LocalControlSecurity) {
   app.get('/api/push/config', asyncRoute(async (_req, res) => {
     const status = await push.status();
     const browserApiKeyConfigured = Boolean(String(process.env.VITE_FIREBASE_API_KEY || '').trim());
     res.json({ ...status, browserApiKeyConfigured, configured: status.configured && browserApiKeyConfigured });
   }));
 
-  app.post('/api/push/registrations', asyncRoute(async (req, res) => {
-    const token = typeof req.body?.token === 'string' ? req.body.token : '';
-    const registration = await push.register({
-      token,
-      userAgent: typeof req.body?.userAgent === 'string' ? req.body.userAgent.slice(0, 500) : undefined,
-      label: typeof req.body?.label === 'string' ? req.body.label.slice(0, 120) : undefined
-    });
-    res.status(201).json({ id: registration.id, createdAt: registration.createdAt, updatedAt: registration.updatedAt });
-  }));
+  app.post(
+    '/api/push/registrations',
+    security.protectAuthenticatedOperation,
+    express.json({ limit: PUSH_REGISTRATION_BODY_LIMIT }),
+    asyncRoute(async (req, res) => {
+      const token = typeof req.body?.token === 'string' ? req.body.token : '';
+      const registration = await push.register({
+        token,
+        userAgent: typeof req.body?.userAgent === 'string' ? req.body.userAgent : undefined,
+        label: typeof req.body?.label === 'string' ? req.body.label : undefined
+      });
+      res.status(201).json({ id: registration.id, createdAt: registration.createdAt, updatedAt: registration.updatedAt });
+    })
+  );
 
-  app.delete('/api/push/registrations/:id', asyncRoute(async (req, res) => {
+  app.delete('/api/push/registrations/:id', security.protectAuthenticatedOperation, asyncRoute(async (req, res) => {
     res.json({ removed: await push.unregister(req.params.id) });
   }));
 
-  app.post('/api/push/test', asyncRoute(async (_req, res) => {
+  app.post('/api/push/test', security.protectAuthenticatedOperation, asyncRoute(async (_req, res) => {
     const now = Date.now();
     const result = await push.sendHeatingNotification({
       id: `push-test-${now}`,
