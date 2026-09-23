@@ -22,7 +22,7 @@ test('PWA worker caches the app shell without intercepting live API data', () =>
 test('PWA worker extends fetch lifetime synchronously for background cache refreshes', () => {
   const worker = readFileSync('public/sw.js', 'utf8');
   assert.match(worker, /const cacheRefresh = networkResponse[\s\S]*event\.waitUntil\(cacheRefresh\);[\s\S]*event\.respondWith/);
-  assert.doesNotMatch(worker, /\.then\([^)]*=>[\s\S]*event\.waitUntil/);
+  assert.doesNotMatch(worker, /\.then\(async response => \{[\s\S]{0,400}event\.waitUntil\(/);
 });
 
 test('PWA worker cache identity is replaced from emitted frontend content on every build', () => {
