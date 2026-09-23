@@ -30,11 +30,12 @@ import { createEcowittLanIntegration } from './server/sensors/ecowitt';
 import { combineSensorSources } from './server/sensors/composite';
 import { registerSystemUpdateRoutes } from './server/system/update';
 import { createRemoteRuntime } from './server/remote/factory';
+import { registerLocalControlSecurity } from './server/security/local-control';
 
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT || 3000);
-  const HOST = process.env.SPAR_BIND_HOST || '0.0.0.0';
+  const HOST = process.env.SPAR_BIND_HOST || '127.0.0.1';
 
   const isTermux = String(process.env.PREFIX || '').includes('com.termux');
   if (isTermux && (!process.env.TELEMETRY_HOST_ID || process.env.TELEMETRY_HOST_ID === 'spararama-laptop')) {
@@ -46,6 +47,12 @@ async function startServer() {
     next();
   });
   app.use(express.json({ limit: "50mb" }));
+
+  // Physical-control mutations are safe on direct loopback and require an
+  // authenticated owner/member session when reached from another LAN device.
+  // Register this boundary before any spa/heating routes so later route changes
+  // cannot accidentally inherit the old unauthenticated LAN behaviour.
+  registerLocalControlSecurity(app);
 
   const spaAdapter = createSpaAdapter();
   const alexaAlerts = new AlexaAlertDispatcher();
