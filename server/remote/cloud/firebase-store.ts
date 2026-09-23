@@ -1,7 +1,9 @@
+import crypto from 'node:crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 import type { RemoteCommandEnvelope } from '../types';
 import type {
   CloudControlStore,
+  CommandRateLimiter,
   InstallationMembership,
   InstallationRole,
   InstallationRuntimeDocument,
@@ -11,6 +13,50 @@ import { getCloudFirestore } from './firebase-admin';
 
 function role(value: unknown): InstallationRole | null {
   return value === 'owner' || value === 'member' || value === 'viewer' ? value : null;
+}
+
+/**
+ * Shared fixed-window limiter for horizontally-scaled cloud instances. The rate
+ * key is hashed before storage so Firebase documents never contain a user UID or
+ * integration identifier in their path. A transaction makes each increment
+ * atomic across concurrent Cloud Run instances.
+ */
+export class FirestoreCommandRateLimiter implements CommandRateLimiter {
+  private readonly db = getCloudFirestore();
+
+  constructor(
+    private readonly limit = Math.max(1, Number(process.env.REMOTE_CLOUD_COMMANDS_PER_MINUTE || 30)),
+    private readonly windowMs = 60_000
+  ) {}
+
+  async consume(key: string, now: number) {
+    const documentId = crypto.createHash('sha256').update(key).digest('hex');
+    const ref = this.db.collection('cloudCommandRateLimits').doc(documentId);
+    const windowStartedAt = Math.floor(now / this.windowMs) * this.windowMs;
+
+    return this.db.runTransaction(async transaction => {
+      const snapshot = await transaction.get(ref);
+      const data = snapshot.data() as Record<string, unknown> | undefined;
+      const storedWindow = Number(data?.windowStartedAt ?? -1);
+      const count = Number(data?.count ?? 0);
+
+      if (!snapshot.exists || storedWindow !== windowStartedAt) {
+        transaction.set(ref, {
+          windowStartedAt,
+          count: 1,
+          updatedAt: FieldValue.serverTimestamp()
+        });
+        return true;
+      }
+
+      if (!Number.isFinite(count) || count >= this.limit) return false;
+      transaction.update(ref, {
+        count: count + 1,
+        updatedAt: FieldValue.serverTimestamp()
+      });
+      return true;
+    });
+  }
 }
 
 export class FirebaseCloudControlStore implements CloudControlStore {
