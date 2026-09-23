@@ -1,5 +1,6 @@
 import { deleteToken, getMessaging, getToken, isSupported } from 'firebase/messaging';
 import { firebaseApp } from './firebase';
+import { fetchLocalControl } from './localControlAuth';
 
 const REGISTRATION_ID_KEY = 'spararama_push_registration_id';
 
@@ -27,7 +28,9 @@ export interface PushSetupResult {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const method = String(init?.method || 'GET').toUpperCase();
+  const request = method === 'GET' || method === 'HEAD' ? fetch : fetchLocalControl;
+  const response = await request(path, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) }
   });
