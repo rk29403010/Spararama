@@ -1,4 +1,5 @@
-const SHELL_CACHE = 'spararama-shell-v2';
+const BUILD_ID = '__SPARARAMA_BUILD_ID__';
+const SHELL_CACHE = `spararama-shell-${BUILD_ID}`;
 const CACHE_PREFIX = 'spararama-shell-';
 const CORE_ASSETS = [
   '/manifest.webmanifest',
@@ -64,7 +65,7 @@ self.addEventListener('fetch', event => {
           }
           return response;
         })
-        .catch(() => caches.match('/') )
+        .catch(() => caches.match('/'))
     );
     return;
   }
