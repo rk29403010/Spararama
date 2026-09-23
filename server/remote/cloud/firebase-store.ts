@@ -15,6 +15,11 @@ function role(value: unknown): InstallationRole | null {
   return value === 'owner' || value === 'member' || value === 'viewer' ? value : null;
 }
 
+function positiveInteger(value: unknown, fallback: number) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 1 ? Math.floor(number) : fallback;
+}
+
 /**
  * Shared fixed-window limiter for horizontally-scaled cloud instances. The rate
  * key is hashed before storage so Firebase documents never contain a user UID or
@@ -23,11 +28,16 @@ function role(value: unknown): InstallationRole | null {
  */
 export class FirestoreCommandRateLimiter implements CommandRateLimiter {
   private readonly db = getCloudFirestore();
+  private readonly limit: number;
+  private readonly windowMs: number;
 
   constructor(
-    private readonly limit = Math.max(1, Number(process.env.REMOTE_CLOUD_COMMANDS_PER_MINUTE || 30)),
-    private readonly windowMs = 60_000
-  ) {}
+    limit = Number(process.env.REMOTE_CLOUD_COMMANDS_PER_MINUTE || 30),
+    windowMs = 60_000
+  ) {
+    this.limit = positiveInteger(limit, 30);
+    this.windowMs = positiveInteger(windowMs, 60_000);
+  }
 
   async consume(key: string, now: number) {
     const documentId = crypto.createHash('sha256').update(key).digest('hex');
