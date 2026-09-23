@@ -3,7 +3,10 @@
 This is intended as a lightweight mobile Spararama host and development/test instance.
 The phone runner defaults to `SPA_ADAPTER=mock`, so it does not try to control the
 real spa when the phone is away from home. It can also run the bundled CleverSpa
-adapter locally on the phone for live LAN control.
+adapter locally on the phone for live control.
+
+The backend defaults to loopback-only. Access from other LAN devices should normally
+come through the optional Caddy HTTPS proxy rather than exposing port 3000 directly.
 
 ## Existing checkout - one-time setup
 
@@ -89,7 +92,7 @@ This persists `SPAR_ADAPTER=bridge`, starts the bundled CleverSpa adapter servic
 `127.0.0.1:8787`, asks it to discover/connect to the spa, restarts the main Spararama
 backend on `127.0.0.1:3000`, then opens the app.
 
-For normal LAN control the phone must be connected to the same home network as the
+For live spa control the host phone must be connected to the same home network as the
 spa. GitHub access is not required for `spar live` itself, so if the home Wi-Fi blocks
 GitHub it is fine to update the checkout over mobile data first, then reconnect to the
 home Wi-Fi and run `spar live`.
@@ -97,19 +100,20 @@ home Wi-Fi and run `spar live`.
 The live process shape is:
 
 ```text
-Chrome on phone
-    |
-    v
-Spararama :3000
-    |
-    v
-CleverSpa adapter :8787
-    |
-    v
-Gizwits LAN connection
-    |
-    v
-real spa
+Chrome on host phone -> http://localhost:3000
+                              |
+LAN browser -> Caddy HTTPS ---+
+                              v
+                     Spararama :3000 (loopback)
+                              |
+                              v
+                   CleverSpa adapter :8787
+                              |
+                              v
+                    Gizwits LAN connection
+                              |
+                              v
+                           real spa
 ```
 
 The adapter defaults to loopback-only, so port 8787 is not exposed to other LAN devices.
@@ -138,6 +142,26 @@ spar adapter-log
 
 Do not put a CleverSpa passcode, cloud credentials or tokens into tracked repo files.
 
+## LAN control authentication
+
+Direct loopback access on the host phone is the trusted offline/recovery path. A
+state-changing request that arrives from another device through the LAN/HTTPS proxy
+must have an authenticated local-control session with `owner` or `member` role;
+`viewer` remains read-only.
+
+The browser obtains that HttpOnly session from the existing Firebase sign-in. The
+backend authorises the user using either:
+
+- the existing `owner`/`member`/`viewer` membership for `REMOTE_INSTALLATION_ID`; or
+- explicit `SPAR_LOCAL_CONTROL_OWNER_*`, `SPAR_LOCAL_CONTROL_MEMBER_*` or
+  `SPAR_LOCAL_CONTROL_VIEWER_*` UID/email lists in the untracked environment.
+
+`SPARARAMA_ADMIN_UID` and `SPARARAMA_ADMIN_EMAILS` also grant owner role. The signed
+session secret is generated locally under `data/local-auth/` by default, so an already
+authorised browser can keep controlling the spa during ordinary cloud outages. LAN
+session creation/control requires HTTPS unless `SPAR_LOCAL_CONTROL_ALLOW_INSECURE_HTTP=1`
+is deliberately set.
+
 ## What `spar` does
 
 Running `spar` with no arguments keeps the currently selected connector mode and:
@@ -145,15 +169,17 @@ Running `spar` with no arguments keeps the currently selected connector mode and
 1. checks that the checkout has no uncommitted local changes;
 2. fetches and fast-forwards `chatgpt-dev`;
 3. runs `pnpm install` only when dependencies have changed or are missing;
-4. stops the previous phone processes;
-5. if live mode is selected, starts the CleverSpa adapter on port 8787;
-6. builds the production frontend/server when the checked-out commit changed, before stopping the working instance;
-7. starts the built production server on port 3000 with the selected adapter mode in a detached session;
-8. waits for `/api/health` to respond and verifies it remains alive briefly;
-9. opens the configured HTTPS URL, or `http://localhost:3000` when HTTPS is disabled. Backend health checks still use `127.0.0.1`; the browser-facing localhost origin remains available as a deliberate Web Bluetooth/development fallback on the A71 itself.
+4. builds the production frontend/server when the checked-out commit changed, while the old instance is still running;
+5. builds into an ignored staging directory, validates the frontend, server bundle and versioned service worker, then swaps the validated output into `dist`;
+6. only after update/dependency/build work succeeds, stops the previous phone processes;
+7. if live mode is selected, starts the CleverSpa adapter on port 8787;
+8. starts the built production server on port 3000 with the selected adapter mode in a detached session;
+9. waits for `/api/health` to respond and verifies it remains alive briefly;
+10. opens the configured HTTPS URL, or `http://localhost:3000` when HTTPS is disabled. Backend health checks still use `127.0.0.1`; the browser-facing localhost origin remains available as a deliberate Web Bluetooth/development fallback on the host phone itself.
 
-The update happens **before** the old processes are stopped. If GitHub is unavailable
-or the current Wi-Fi blocks it, the already-running version is left alone.
+The update and staged build happen **before** the old processes are stopped. If GitHub
+is unavailable, dependencies fail, or the new build fails validation, the already-running
+version and its existing `dist` frontend are left intact.
 
 The long-running processes are launched with `setsid` and `nohup` so moving from
 Termux to the browser does not normally terminate their Node process trees.
@@ -172,7 +198,8 @@ The browser does not supply a command, branch or filesystem path. The backend ma
 detached copy of the normal `spar` runner and uses its existing update path to
 fast-forward the configured `chatgpt-dev` checkout, install changed dependencies when
 needed, and restart the current connector mode. A dirty checkout is refused. As with
-bare `spar`, fetch/pull/dependency work completes before the existing server is stopped.
+bare `spar`, fetch/pull/dependency/build work completes before the existing server is
+stopped.
 
 The Developer switch is UI disclosure rather than the security boundary. The backend
 only enables the operation on Termux, the POST requires a same-origin developer request
@@ -198,8 +225,8 @@ spar stop         stop Spararama and the phone CleverSpa adapter
 spar status       show mode, server and live-spa connection state
 spar log          follow the Spararama server log; Ctrl+C exits
 spar adapter-log  follow the CleverSpa adapter log; Ctrl+C exits
-spar https-setup  configure Caddy HTTPS; see docs/old-phone-server.md
-spar https-off    return to the default LAN HTTP deployment
+spar https-setup  configure and verify Caddy HTTPS before persisting it; see docs/old-phone-server.md
+spar https-off    disable Caddy and return to loopback-only HTTP
 spar open         open Spararama in the browser
 spar help         show command help
 ```
