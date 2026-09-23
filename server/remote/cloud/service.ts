@@ -52,9 +52,14 @@ export class CloudControlError extends Error {
 }
 
 export interface CommandRateLimiter {
-  consume(key: string, now: number): boolean;
+  consume(key: string, now: number): boolean | Promise<boolean>;
 }
 
+/**
+ * Useful for tests and deliberately single-process deployments. Cloud Run uses
+ * the Firestore-backed limiter so scaling to multiple instances cannot multiply
+ * the allowed command rate.
+ */
 export class FixedWindowCommandRateLimiter implements CommandRateLimiter {
   private readonly windows = new Map<string, { startedAt: number; count: number }>();
 
@@ -287,7 +292,7 @@ export class CloudControlService {
     const now = this.now();
     const record = asRecord(request);
     const validated = validateCloudCommandRequest(record.type, record.payload, now);
-    if (!this.limiter.consume(rateKey, now)) {
+    if (!(await this.limiter.consume(rateKey, now))) {
       throw new CloudControlError(429, 'rate_limited', 'Too many remote control requests. Try again shortly.');
     }
 
