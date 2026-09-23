@@ -1,31 +1,40 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { loadState, saveState } from './lib/storage';
 import { AppState } from './types';
 import { Home } from './components/Home';
 import { BathingControls } from './components/BathingControls';
-import { Chemicals } from './components/Chemicals';
-import { Heating } from './components/Heating';
 import { HeatingNotifications } from './components/HeatingNotifications';
-import { Logs } from './components/Logs';
 import { ReminderModal } from './components/ReminderModal';
-import { ManualLogModal } from './components/ManualLogModal';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
-import { TelemetrySettings } from './components/TelemetrySettings';
-import { DeveloperSettings } from './components/DeveloperSettings';
-import { SpaConfiguration } from './components/SpaConfiguration';
-import { WeatherConfiguration } from './components/WeatherConfiguration';
-import { BleC600Settings } from './components/BleC600Settings';
-import { RemoteHome } from './components/RemoteHome';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ClipboardPlus, Droplets, Flame, Settings, List, LogOut, User as UserIcon, House } from 'lucide-react';
 import { subscribeToAuthChanges, signOutUser } from './lib/firebase';
 import { isCloudRuntime } from './lib/runtime';
 import type { User } from 'firebase/auth';
 
+const Heating = lazy(() => import('./components/Heating').then(module => ({ default: module.Heating })));
+const Chemicals = lazy(() => import('./components/Chemicals').then(module => ({ default: module.Chemicals })));
+const Logs = lazy(() => import('./components/Logs').then(module => ({ default: module.Logs })));
+const ManualLogModal = lazy(() => import('./components/ManualLogModal').then(module => ({ default: module.ManualLogModal })));
+const TelemetrySettings = lazy(() => import('./components/TelemetrySettings').then(module => ({ default: module.TelemetrySettings })));
+const DeveloperSettings = lazy(() => import('./components/DeveloperSettings').then(module => ({ default: module.DeveloperSettings })));
+const SpaConfiguration = lazy(() => import('./components/SpaConfiguration').then(module => ({ default: module.SpaConfiguration })));
+const WeatherConfiguration = lazy(() => import('./components/WeatherConfiguration').then(module => ({ default: module.WeatherConfiguration })));
+const BleC600Settings = lazy(() => import('./components/BleC600Settings').then(module => ({ default: module.BleC600Settings })));
+const RemoteHome = lazy(() => import('./components/RemoteHome').then(module => ({ default: module.RemoteHome })));
+
 type AppTab = 'home' | 'heating' | 'chemicals' | 'logs' | 'settings';
 
 const TAB_ORDER: AppTab[] = ['home', 'heating', 'chemicals', 'logs', 'settings'];
 const ACTIVE_TAB_STORAGE_KEY = 'spararama.activeTab';
+
+function RouteFallback() {
+  return (
+    <div className="p-6 max-w-xl mx-auto text-center text-slate-600 font-bold" role="status">
+      Loading…
+    </div>
+  );
+}
 
 function initialTab(): AppTab {
   if (typeof window === 'undefined') return 'home';
@@ -75,7 +84,7 @@ function CloudApp({ user }: { user: User | null }) {
           </div>
         ) : (
           <ErrorBoundary resetKey={user.uid} title="Remote hot tub failed">
-            <RemoteHome user={user} />
+            <Suspense fallback={<RouteFallback />}><RemoteHome user={user} /></Suspense>
           </ErrorBoundary>
         )}
       </main>
@@ -208,75 +217,77 @@ export default function App() {
 
       <main className="flex-1 pb-24 overflow-y-auto" onTouchStart={handleSwipeStart} onTouchEnd={handleSwipeEnd}>
         <ErrorBoundary resetKey={activeTab} title={`${activeTab[0].toUpperCase()}${activeTab.slice(1)} page failed`}>
-          {activeTab === 'home' && <><Home state={state} /><BathingControls state={state} updateState={updateState} /></>}
-          {activeTab === 'heating' && <Heating state={state} updateState={updateState} />}
-          {activeTab === 'chemicals' && <Chemicals state={state} updateState={updateState} />}
-          {activeTab === 'logs' && <Logs state={state} />}
-          {activeTab === 'settings' && (
-            <div className="p-4 sm:p-8 text-slate-700 max-w-2xl mx-auto space-y-5">
-              <h2 className="text-3xl font-black tracking-tight text-slate-950">Settings</h2>
-              <ErrorBoundary resetKey="spa-configuration" title="Spa / pool settings failed"><SpaConfiguration state={state} updateState={updateState} /></ErrorBoundary>
-              <ErrorBoundary resetKey="weather-configuration" title="Weather settings failed"><WeatherConfiguration /></ErrorBoundary>
-              <ErrorBoundary resetKey="ble-c600-settings" title="BLE-C600 settings failed"><BleC600Settings /></ErrorBoundary>
+          <Suspense fallback={<RouteFallback />}>
+            {activeTab === 'home' && <><Home state={state} /><BathingControls state={state} updateState={updateState} /></>}
+            {activeTab === 'heating' && <Heating state={state} updateState={updateState} />}
+            {activeTab === 'chemicals' && <Chemicals state={state} updateState={updateState} />}
+            {activeTab === 'logs' && <Logs state={state} />}
+            {activeTab === 'settings' && (
+              <div className="p-4 sm:p-8 text-slate-700 max-w-2xl mx-auto space-y-5">
+                <h2 className="text-3xl font-black tracking-tight text-slate-950">Settings</h2>
+                <ErrorBoundary resetKey="spa-configuration" title="Spa / pool settings failed"><SpaConfiguration state={state} updateState={updateState} /></ErrorBoundary>
+                <ErrorBoundary resetKey="weather-configuration" title="Weather settings failed"><WeatherConfiguration /></ErrorBoundary>
+                <ErrorBoundary resetKey="ble-c600-settings" title="BLE-C600 settings failed"><BleC600Settings /></ErrorBoundary>
 
-              <section className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 space-y-6">
-                <h3 className="text-xl font-black text-slate-950">Preferences</h3>
-                <label className="flex items-center justify-between gap-4">
-                  <span className="font-black text-slate-800 text-base sm:text-lg">Account</span>
-                  {user ? <button type="button" className="min-h-12 px-4 bg-slate-100 text-slate-800 rounded-xl font-black flex items-center gap-2 hover:bg-slate-200" onClick={signOutUser}><LogOut className="w-5 h-5" aria-hidden="true" />Sign out</button> : <GoogleSignInButton />}
-                </label>
+                <section className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 space-y-6">
+                  <h3 className="text-xl font-black text-slate-950">Preferences</h3>
+                  <label className="flex items-center justify-between gap-4">
+                    <span className="font-black text-slate-800 text-base sm:text-lg">Account</span>
+                    {user ? <button type="button" className="min-h-12 px-4 bg-slate-100 text-slate-800 rounded-xl font-black flex items-center gap-2 hover:bg-slate-200" onClick={signOutUser}><LogOut className="w-5 h-5" aria-hidden="true" />Sign out</button> : <GoogleSignInButton />}
+                  </label>
 
-                <div className="flex items-center justify-between gap-4">
-                  <span className="font-black text-slate-800 text-base sm:text-lg">Temperature scale</span>
-                  <div className="flex bg-slate-100 p-1 rounded-xl">
-                    <button type="button" aria-pressed={state.config.temperatureScale === 'C'} className={`min-h-11 px-4 rounded-lg font-black ${state.config.temperatureScale === 'C' ? 'bg-white text-slate-950 border border-slate-200' : 'text-slate-700'}`} onClick={() => updateState({...state, config: {...state.config, temperatureScale: 'C'}})}>°C</button>
-                    <button type="button" aria-pressed={state.config.temperatureScale === 'F'} className={`min-h-11 px-4 rounded-lg font-black ${state.config.temperatureScale === 'F' ? 'bg-white text-slate-950 border border-slate-200' : 'text-slate-700'}`} onClick={() => updateState({...state, config: {...state.config, temperatureScale: 'F'}})}>°F</button>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="font-black text-slate-800 text-base sm:text-lg">Temperature scale</span>
+                    <div className="flex bg-slate-100 p-1 rounded-xl">
+                      <button type="button" aria-pressed={state.config.temperatureScale === 'C'} className={`min-h-11 px-4 rounded-lg font-black ${state.config.temperatureScale === 'C' ? 'bg-white text-slate-950 border border-slate-200' : 'text-slate-700'}`} onClick={() => updateState({...state, config: {...state.config, temperatureScale: 'C'}})}>°C</button>
+                      <button type="button" aria-pressed={state.config.temperatureScale === 'F'} className={`min-h-11 px-4 rounded-lg font-black ${state.config.temperatureScale === 'F' ? 'bg-white text-slate-950 border border-slate-200' : 'text-slate-700'}`} onClick={() => updateState({...state, config: {...state.config, temperatureScale: 'F'}})}>°F</button>
+                    </div>
                   </div>
-                </div>
 
-                <div className="flex items-center justify-between gap-4">
-                  <span className="font-black text-slate-800 text-base sm:text-lg">Time format</span>
-                  <div className="flex bg-slate-100 p-1 rounded-xl">
-                    <button type="button" aria-pressed={state.config.timeFormat === '12h'} className={`min-h-11 px-4 rounded-lg font-black ${state.config.timeFormat === '12h' ? 'bg-white text-slate-950 border border-slate-200' : 'text-slate-700'}`} onClick={() => updateState({...state, config: {...state.config, timeFormat: '12h'}})}>12h</button>
-                    <button type="button" aria-pressed={state.config.timeFormat === '24h'} className={`min-h-11 px-4 rounded-lg font-black ${state.config.timeFormat === '24h' ? 'bg-white text-slate-950 border border-slate-200' : 'text-slate-700'}`} onClick={() => updateState({...state, config: {...state.config, timeFormat: '24h'}})}>24h</button>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="font-black text-slate-800 text-base sm:text-lg">Time format</span>
+                    <div className="flex bg-slate-100 p-1 rounded-xl">
+                      <button type="button" aria-pressed={state.config.timeFormat === '12h'} className={`min-h-11 px-4 rounded-lg font-black ${state.config.timeFormat === '12h' ? 'bg-white text-slate-950 border border-slate-200' : 'text-slate-700'}`} onClick={() => updateState({...state, config: {...state.config, timeFormat: '12h'}})}>12h</button>
+                      <button type="button" aria-pressed={state.config.timeFormat === '24h'} className={`min-h-11 px-4 rounded-lg font-black ${state.config.timeFormat === '24h' ? 'bg-white text-slate-950 border border-slate-200' : 'text-slate-700'}`} onClick={() => updateState({...state, config: {...state.config, timeFormat: '24h'}})}>24h</button>
+                    </div>
                   </div>
-                </div>
 
-                <label className="flex items-center justify-between gap-4">
-                  <span className="font-black text-slate-800 text-base sm:text-lg">Usual ready time</span>
-                  <input name="default-ready-time" autoComplete="off" type="time" value={state.config.defaultReadyTime} onChange={event => updateState({...state, config: {...state.config, defaultReadyTime: event.target.value}})} className="min-h-12 bg-slate-100 text-slate-950 font-black px-4 py-2 rounded-xl" />
-                </label>
+                  <label className="flex items-center justify-between gap-4">
+                    <span className="font-black text-slate-800 text-base sm:text-lg">Usual ready time</span>
+                    <input name="default-ready-time" autoComplete="off" type="time" value={state.config.defaultReadyTime} onChange={event => updateState({...state, config: {...state.config, defaultReadyTime: event.target.value}})} className="min-h-12 bg-slate-100 text-slate-950 font-black px-4 py-2 rounded-xl" />
+                  </label>
 
-                <label className="flex items-center justify-between gap-4">
-                  <span className="font-black text-slate-800 text-base sm:text-lg">Usual water temperature</span>
-                  <div className="flex items-center gap-2"><input name="default-target" autoComplete="off" inputMode="numeric" type="number" value={state.config.defaultHeatingTarget} onChange={event => updateState({...state, config: {...state.config, defaultHeatingTarget: Number(event.target.value) || 40}})} className="min-h-12 bg-slate-100 text-slate-950 font-black px-3 py-2 rounded-xl w-24 text-center" /><span className="font-black">°{state.config.temperatureScale}</span></div>
-                </label>
+                  <label className="flex items-center justify-between gap-4">
+                    <span className="font-black text-slate-800 text-base sm:text-lg">Usual water temperature</span>
+                    <div className="flex items-center gap-2"><input name="default-target" autoComplete="off" inputMode="numeric" type="number" value={state.config.defaultHeatingTarget} onChange={event => updateState({...state, config: {...state.config, defaultHeatingTarget: Number(event.target.value) || 40}})} className="min-h-12 bg-slate-100 text-slate-950 font-black px-3 py-2 rounded-xl w-24 text-center" /><span className="font-black">°{state.config.temperatureScale}</span></div>
+                  </label>
 
-                <label className="flex items-center justify-between gap-4">
-                  <div><span className="font-black text-slate-800 text-base sm:text-lg block">Heat soak</span><span className="text-sm font-bold text-slate-600 block">Extra time at target before bathing</span></div>
-                  <div className="flex items-center gap-2"><input name="heat-soak-minutes" autoComplete="off" inputMode="numeric" type="number" step="5" min="0" value={state.config.heatSoakMinutes ?? 30} onChange={event => updateState({...state, config: {...state.config, heatSoakMinutes: parseInt(event.target.value) || 0}})} className="min-h-12 bg-slate-100 text-slate-950 font-black px-3 py-2 rounded-xl w-24 text-center" /><span className="font-black">min</span></div>
-                </label>
+                  <label className="flex items-center justify-between gap-4">
+                    <div><span className="font-black text-slate-800 text-base sm:text-lg block">Heat soak</span><span className="text-sm font-bold text-slate-600 block">Extra time at target before bathing</span></div>
+                    <div className="flex items-center gap-2"><input name="heat-soak-minutes" autoComplete="off" inputMode="numeric" type="number" step="5" min="0" value={state.config.heatSoakMinutes ?? 30} onChange={event => updateState({...state, config: {...state.config, heatSoakMinutes: parseInt(event.target.value) || 0}})} className="min-h-12 bg-slate-100 text-slate-950 font-black px-3 py-2 rounded-xl w-24 text-center" /><span className="font-black">min</span></div>
+                  </label>
 
-                <label className="min-h-12 flex items-center justify-between gap-4 cursor-pointer">
-                  <span className="font-black text-slate-800 text-base sm:text-lg">Alert when target reached</span>
-                  <input type="checkbox" checked={state.config.alertOnTargetReached !== false} onChange={event => updateState({...state, config: {...state.config, alertOnTargetReached: event.target.checked}})} className="w-6 h-6 accent-indigo-700" />
-                </label>
+                  <label className="min-h-12 flex items-center justify-between gap-4 cursor-pointer">
+                    <span className="font-black text-slate-800 text-base sm:text-lg">Alert when target reached</span>
+                    <input type="checkbox" checked={state.config.alertOnTargetReached !== false} onChange={event => updateState({...state, config: {...state.config, alertOnTargetReached: event.target.checked}})} className="w-6 h-6 accent-indigo-700" />
+                  </label>
 
-                <label className="min-h-12 flex items-center justify-between gap-4 cursor-pointer">
-                  <span className="font-black text-slate-800 text-base sm:text-lg">Alert after heat soak</span>
-                  <input type="checkbox" checked={state.config.alertOnHeatSoakComplete !== false} onChange={event => updateState({...state, config: {...state.config, alertOnHeatSoakComplete: event.target.checked}})} className="w-6 h-6 accent-indigo-700" />
-                </label>
+                  <label className="min-h-12 flex items-center justify-between gap-4 cursor-pointer">
+                    <span className="font-black text-slate-800 text-base sm:text-lg">Alert after heat soak</span>
+                    <input type="checkbox" checked={state.config.alertOnHeatSoakComplete !== false} onChange={event => updateState({...state, config: {...state.config, alertOnHeatSoakComplete: event.target.checked}})} className="w-6 h-6 accent-indigo-700" />
+                  </label>
 
-                <label className="flex items-center justify-between gap-4">
-                  <span className="font-black text-slate-800 text-base sm:text-lg">Electricity price</span>
-                  <div className="flex items-center gap-2"><span className="font-black">£</span><input name="electricity-rate" autoComplete="off" inputMode="decimal" type="number" step="0.0001" min="0" value={state.config.electricityRatePerKwh} onChange={event => updateState({...state, config: {...state.config, electricityRatePerKwh: parseFloat(event.target.value) || 0}})} className="min-h-12 bg-slate-100 text-slate-950 font-black px-3 py-2 rounded-xl w-28 text-center" /><span className="font-black text-sm">/kWh</span></div>
-                </label>
-              </section>
+                  <label className="flex items-center justify-between gap-4">
+                    <span className="font-black text-slate-800 text-base sm:text-lg">Electricity price</span>
+                    <div className="flex items-center gap-2"><span className="font-black">£</span><input name="electricity-rate" autoComplete="off" inputMode="decimal" type="number" step="0.0001" min="0" value={state.config.electricityRatePerKwh} onChange={event => updateState({...state, config: {...state.config, electricityRatePerKwh: parseFloat(event.target.value) || 0}})} className="min-h-12 bg-slate-100 text-slate-950 font-black px-3 py-2 rounded-xl w-28 text-center" /><span className="font-black text-sm">/kWh</span></div>
+                  </label>
+                </section>
 
-              <TelemetrySettings />
-              <ErrorBoundary resetKey="developer-settings" title="Developer settings failed"><DeveloperSettings /></ErrorBoundary>
-            </div>
-          )}
+                <TelemetrySettings />
+                <ErrorBoundary resetKey="developer-settings" title="Developer settings failed"><DeveloperSettings /></ErrorBoundary>
+              </div>
+            )}
+          </Suspense>
         </ErrorBoundary>
       </main>
 
@@ -290,7 +301,9 @@ export default function App() {
         </nav>
       </footer>
 
-      <ErrorBoundary resetKey={showManualLog ? 'manual-open' : 'manual-closed'} title="Manual log failed">{showManualLog && <ManualLogModal state={state} onClose={() => setShowManualLog(false)} />}</ErrorBoundary>
+      <ErrorBoundary resetKey={showManualLog ? 'manual-open' : 'manual-closed'} title="Manual log failed">
+        {showManualLog && <Suspense fallback={null}><ManualLogModal state={state} onClose={() => setShowManualLog(false)} /></Suspense>}
+      </ErrorBoundary>
       <ErrorBoundary resetKey="heating-notifications" title="Heating notification failed"><HeatingNotifications /></ErrorBoundary>
       <ErrorBoundary resetKey="reminders" title="Reminder failed"><ReminderModal state={state} updateState={updateState} /></ErrorBoundary>
     </div>
