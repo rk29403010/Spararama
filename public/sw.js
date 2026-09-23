@@ -57,28 +57,35 @@ self.addEventListener('fetch', event => {
   if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
 
   if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then(response => {
-          if (isCacheable(response)) {
-            event.waitUntil(caches.open(SHELL_CACHE).then(cache => cache.put('/', response.clone())));
-          }
-          return response;
-        })
-        .catch(() => caches.match('/'))
-    );
+    const networkResponse = fetch(request);
+    const cacheRefresh = networkResponse
+      .then(async response => {
+        if (!isCacheable(response)) return;
+        const cache = await caches.open(SHELL_CACHE);
+        await cache.put('/', response.clone());
+      })
+      .catch(() => undefined);
+
+    // waitUntil must be called during the fetch event dispatch. Calling it from
+    // a later promise callback can be too late once the event is no longer active.
+    event.waitUntil(cacheRefresh);
+    event.respondWith(networkResponse.catch(() => caches.match('/')));
     return;
   }
 
-  event.respondWith(
-    caches.match(request).then(cached => {
-      const refreshed = fetch(request).then(response => {
-        if (isCacheable(response)) {
-          event.waitUntil(caches.open(SHELL_CACHE).then(cache => cache.put(request, response.clone())));
-        }
-        return response;
-      });
-      return cached || refreshed;
+  const networkResponse = fetch(request);
+  const cacheRefresh = networkResponse
+    .then(async response => {
+      if (!isCacheable(response)) return;
+      const cache = await caches.open(SHELL_CACHE);
+      await cache.put(request, response.clone());
     })
+    .catch(() => undefined);
+
+  // Stale-while-revalidate: extend the event lifetime synchronously so the
+  // background cache write is not abandoned when a cached response is returned.
+  event.waitUntil(cacheRefresh);
+  event.respondWith(
+    caches.match(request).then(cached => cached || networkResponse)
   );
 });
