@@ -40,6 +40,13 @@ function finiteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function median(values: number[]) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
+}
+
 function ambientWeatherPoint(weather: TelemetryChartDto['samples'][number]['weather']) {
   const readings = (weather || []).filter(item => finiteNumber(item.temperatureC));
   if (!readings.length) return null;
@@ -134,6 +141,57 @@ function heaterPeriods(samples: TelemetryChartDto['samples']) {
   return periods;
 }
 
+function targetTemperatureGaps(samples: TelemetryChartDto['samples'], since: number, end: number) {
+  const relevant = samples.filter(sample => sample.timestamp >= since && sample.timestamp <= end);
+  const ordinaryGaps: number[] = [];
+  let previousKnown: TelemetryChartDto['samples'][number] | null = null;
+
+  for (const sample of relevant) {
+    const target = sample.spa.targetTemperatureC;
+    if (!sample.spa.connected || !finiteNumber(target)) {
+      previousKnown = null;
+      continue;
+    }
+    if (previousKnown) {
+      const elapsed = sample.timestamp - previousKnown.timestamp;
+      if (elapsed > 0 && Number.isFinite(elapsed)) ordinaryGaps.push(elapsed);
+    }
+    previousKnown = sample;
+  }
+
+  const typicalGap = median(ordinaryGaps);
+  const gapThreshold = Math.max(30 * 60 * 1000, (typicalGap ?? 0) * 6);
+  const gaps: Array<{ startTimestamp: number; endTimestamp: number; startValue: number; endValue: number }> = [];
+  previousKnown = null;
+  let sawMissing = false;
+
+  for (const sample of relevant) {
+    const target = sample.spa.targetTemperatureC;
+    const known = sample.spa.connected && finiteNumber(target);
+    if (!known) {
+      if (previousKnown) sawMissing = true;
+      continue;
+    }
+
+    if (previousKnown) {
+      const elapsed = sample.timestamp - previousKnown.timestamp;
+      if (sawMissing || elapsed > gapThreshold) {
+        gaps.push({
+          startTimestamp: previousKnown.timestamp,
+          endTimestamp: sample.timestamp,
+          startValue: previousKnown.spa.targetTemperatureC as number,
+          endValue: target
+        });
+      }
+    }
+
+    previousKnown = sample;
+    sawMissing = false;
+  }
+
+  return gaps;
+}
+
 function usualTubMarkers(since: number, end: number, readyTime: string, enabled: boolean) {
   if (!enabled) return [] as number[];
   const [hourRaw, minuteRaw] = readyTime.split(':').map(Number);
@@ -158,8 +216,8 @@ function HeatTooltip({ active, payload, label, timeFormat = '24h' }: any) {
   return (
     <div className="rounded-xl bg-white px-3 py-3 border border-slate-200 text-sm font-bold">
       <p className="font-black text-slate-900 mb-1">{formatLogDateTime(Number(label), timeFormat)}</p>
-      {finiteNumber(point.water) && <p className="text-indigo-800">Water {point.water}°C</p>}
-      {finiteNumber(point.target) && <p className="text-orange-700">Target {point.target}°C</p>}
+      {finiteNumber(point.water) && <p className="text-red-700">Water {point.water}°C</p>}
+      {finiteNumber(point.target) && <p className="text-slate-700">Target {point.target}°C</p>}
       {finiteNumber(point.ambient) && <p className="text-slate-700">Outside {point.ambient}°C</p>}
       {finiteNumber(point.manualWater) && <p className="text-indigo-800">Manual {point.manualWater}°C</p>}
       {finiteNumber(point.probeWater) && <p className="text-cyan-800">BLE probe {point.probeWater}°C</p>}
@@ -328,6 +386,33 @@ export function Logs({ state }: LogsProps) {
   }, [telemetry.samples, logs, heatWindow, state.domain.waterTests]);
 
   const waterGaps = useMemo(() => findWaterTrendGaps(heatData), [heatData]);
+  const targetGaps = useMemo(
+    () => targetTemperatureGaps(telemetry.samples, heatWindow.since, heatWindow.end),
+    [telemetry.samples, heatWindow.since, heatWindow.end]
+  );
+  const heatChartData = useMemo(() => {
+    let lastTarget: number | null = null;
+    const rows = heatData.map(point => {
+      if (finiteNumber(point.target)) {
+        lastTarget = point.target;
+        return { ...point, targetPlot: point.target };
+      }
+      if (point.connected === false) {
+        lastTarget = null;
+        return { ...point, targetPlot: null };
+      }
+      return { ...point, targetPlot: lastTarget };
+    });
+
+    for (const gap of targetGaps) {
+      const alreadyBroken = rows.some(point => point.timestamp > gap.startTimestamp && point.timestamp < gap.endTimestamp && point.targetPlot === null);
+      if (alreadyBroken) continue;
+      const timestamp = gap.startTimestamp + (gap.endTimestamp - gap.startTimestamp) / 2;
+      rows.push({ timestamp, targetPlot: null });
+    }
+
+    return rows.sort((a, b) => a.timestamp - b.timestamp);
+  }, [heatData, targetGaps]);
   const heatPeriods = useMemo(() => heaterPeriods(telemetry.samples), [telemetry.samples]);
   const hasWeather = heatData.some(point => finiteNumber(point.ambient));
   const hasProbeWater = heatData.some(point => finiteNumber(point.probeWater));
@@ -446,7 +531,7 @@ export function Logs({ state }: LogsProps) {
             <>
               <div className="h-80 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={heatData} margin={{ top: 12, right: 8, left: -12, bottom: 4 }}>
+                  <ComposedChart data={heatChartData} margin={{ top: 12, right: 8, left: -12, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis type="number" dataKey="timestamp" domain={[heatWindow.since, heatWindow.end]} scale="time" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700, fill: '#64748b' }} minTickGap={32} tickFormatter={value => tickLabel(Number(value), heatRange)} />
                     <YAxis yAxisId="temp" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 700, fill: '#64748b' }} domain={['dataMin - 1', 'dataMax + 1']} tickFormatter={value => `${value}°`} />
@@ -459,14 +544,25 @@ export function Logs({ state }: LogsProps) {
                         key={`water-gap-${gap.startTimestamp}-${index}`}
                         yAxisId="temp"
                         segment={[{ x: gap.startTimestamp, y: gap.startValue }, { x: gap.endTimestamp, y: gap.endValue }]}
-                        stroke="#4338ca"
+                        stroke="#dc2626"
                         strokeWidth={2}
                         strokeOpacity={0.55}
                         strokeDasharray="5 5"
                       />
                     ))}
-                    <Line yAxisId="temp" type="monotoneX" dataKey="waterTrend" name="Water °C" stroke="#4338ca" strokeWidth={2.5} dot={false} connectNulls={false} isAnimationActive={false} />
-                    <Line yAxisId="temp" type="stepAfter" dataKey="target" name="Target °C" stroke="#ea580c" strokeWidth={2.5} strokeDasharray="6 4" dot={false} connectNulls={false} isAnimationActive={false} />
+                    {targetGaps.map((gap, index) => (
+                      <ReferenceLine
+                        key={`target-gap-${gap.startTimestamp}-${index}`}
+                        yAxisId="temp"
+                        segment={[{ x: gap.startTimestamp, y: gap.startValue }, { x: gap.endTimestamp, y: gap.endValue }]}
+                        stroke="#64748b"
+                        strokeWidth={2.5}
+                        strokeOpacity={0.8}
+                        strokeDasharray="2 5"
+                      />
+                    ))}
+                    <Line yAxisId="temp" type="monotoneX" dataKey="waterTrend" name="Water °C" stroke="#dc2626" strokeWidth={2.5} dot={false} connectNulls={false} isAnimationActive={false} />
+                    <Line yAxisId="temp" type="stepAfter" dataKey="targetPlot" name="Target °C" stroke="#64748b" strokeWidth={2.5} dot={false} connectNulls={false} isAnimationActive={false} />
                     {hasWeather && <Line yAxisId="temp" type="monotoneX" dataKey="ambient" name="Outside °C" stroke="#475569" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />}
                     <Line yAxisId="temp" type="linear" dataKey="manualWater" name="Manual reading" stroke="transparent" strokeWidth={0} dot={{ r: 5, fill: '#c7d2fe', stroke: '#3730a3', strokeWidth: 2 }} activeDot={{ r: 7 }} connectNulls={false} legendType="none" isAnimationActive={false} />
                     {hasProbeWater && <Line yAxisId="temp" type="linear" dataKey="probeWater" name="BLE probe" stroke="transparent" strokeWidth={0} dot={{ r: 5, fill: '#cffafe', stroke: '#0e7490', strokeWidth: 2 }} activeDot={{ r: 7 }} connectNulls={false} legendType="none" isAnimationActive={false} />}
@@ -474,19 +570,20 @@ export function Logs({ state }: LogsProps) {
                 </ResponsiveContainer>
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-2 pt-3 border-t border-slate-200 text-sm font-black text-slate-700">
-                <span className="flex items-center gap-2"><span className="w-6 h-1 rounded bg-indigo-700" aria-hidden="true" />Water</span>
-                <span className="flex items-center gap-2"><span className="w-6 border-t-2 border-dashed border-orange-600" aria-hidden="true" />Target</span>
+                <span className="flex items-center gap-2"><span className="w-6 h-1 rounded bg-red-600" aria-hidden="true" />Water</span>
+                <span className="flex items-center gap-2"><span className="w-6 h-0.5 bg-slate-500" aria-hidden="true" />Target</span>
                 <span className="flex items-center gap-2"><span className="w-5 h-3 rounded bg-amber-100" aria-hidden="true" />Heater</span>
                 {user && <span className="flex items-center gap-2"><span className="w-4 h-4 rounded-full bg-indigo-200 border-2 border-indigo-800" aria-hidden="true" />Manual</span>}
                 {hasProbeWater && <span className="flex items-center gap-2"><span className="w-4 h-4 rounded-full bg-cyan-100 border-2 border-cyan-700" aria-hidden="true" />BLE probe</span>}
                 {hasWeather && <span className="flex items-center gap-2"><span className="w-6 h-0.5 bg-slate-600" aria-hidden="true" />Outside</span>}
               </div>
-              {(telemetry.rolledUp || telemetryError || waterGaps.length > 0) && (
+              {(telemetry.rolledUp || telemetryError || waterGaps.length > 0 || targetGaps.length > 0) && (
                 <details className="mt-3 text-sm font-bold text-slate-600">
                   <summary className="min-h-11 cursor-pointer flex items-center">Data details</summary>
                   <div className="pb-2 space-y-1">
                     {telemetry.rolledUp && <p>{telemetry.rawTotal.toLocaleString()} readings condensed for this view.</p>}
                     {waterGaps.length > 0 && <p>Dashed water lines span periods with no confirmed temperature data.</p>}
+                    {targetGaps.length > 0 && <p>Dotted target lines span periods with no confirmed target-temperature data.</p>}
                     {telemetryError && <p>Refresh failed; showing the last loaded graph.</p>}
                   </div>
                 </details>
