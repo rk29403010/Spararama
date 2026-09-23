@@ -232,7 +232,30 @@ export class LocalControlSecurity {
       next();
       return;
     }
+    this.authorizeLocalSession(req, res, next);
+  };
 
+  /**
+   * Protect a state-changing or billable local operation. Direct unproxied
+   * loopback remains the explicit recovery trust boundary; LAN/proxy callers need
+   * an owner/member local-control session.
+   */
+  readonly protectAuthenticatedOperation: RequestHandler = (req, res, next) => {
+    this.authorizeLocalSession(req, res, next);
+  };
+
+  /**
+   * Require a fresh Firebase bearer token whose Spararama role is one of the
+   * supplied roles. Unlike the local session path this never falls back to
+   * "any valid Firebase user" when no allowlist/membership exists.
+   */
+  requireBearerRole(allowedRoles: readonly InstallationRole[]): RequestHandler {
+    return (req, res, next) => {
+      void this.authorizeBearerRequest(req, res, next, allowedRoles);
+    };
+  }
+
+  private authorizeLocalSession(req: Request, res: Response, next: NextFunction) {
     // A process reachable only through the local host is an explicit trusted
     // boundary and remains the offline/recovery path. Requests arriving through
     // a reverse proxy carry forwarding headers and are never treated as loopback.
@@ -244,7 +267,7 @@ export class LocalControlSecurity {
 
     if (process.env.SPAR_LOCAL_CONTROL_ALLOW_INSECURE_HTTP !== '1' && !isSecureRequest(req)) {
       res.status(403).json({
-        error: 'LAN spa control requires HTTPS.',
+        error: 'LAN access to protected Spararama operations requires HTTPS.',
         code: 'secure_transport_required'
       });
       return;
@@ -253,14 +276,14 @@ export class LocalControlSecurity {
     const session = this.codec.verify(readCookie(req, SESSION_COOKIE));
     if (!session) {
       res.status(401).json({
-        error: 'Sign in to control the spa from another device.',
+        error: 'Sign in to use protected Spararama operations from another device.',
         code: 'local_auth_required'
       });
       return;
     }
     if (session.role === 'viewer') {
       res.status(403).json({
-        error: 'This account has read-only access to the spa.',
+        error: 'This account has read-only access.',
         code: 'read_only'
       });
       return;
@@ -269,7 +292,43 @@ export class LocalControlSecurity {
     res.locals.localControlRole = session.role;
     res.locals.localControlUid = session.uid;
     next();
-  };
+  }
+
+  private async authorizeBearerRequest(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+    allowedRoles: readonly InstallationRole[]
+  ) {
+    try {
+      const principal = await this.getAuthenticator().authenticateAuthorizationHeader(req.headers.authorization);
+      const accessRole = await this.resolveRole(principal);
+      if (!accessRole || !allowedRoles.includes(accessRole)) {
+        res.status(403).json({
+          error: 'This account is not authorised for this Spararama administration operation.',
+          code: 'insufficient_role'
+        });
+        return;
+      }
+      res.locals.localControlRole = accessRole;
+      res.locals.localControlUid = principal.uid;
+      next();
+    } catch (error: any) {
+      const status = Number(error?.statusCode || 0);
+      if (status === 401 || status === 403) {
+        res.status(status).json({
+          error: error?.message || 'Sign-in could not be verified.',
+          code: error?.code || 'local_auth_failed'
+        });
+        return;
+      }
+      console.warn(`Spararama role authentication failed: ${error?.message || String(error)}`);
+      res.status(503).json({
+        error: 'Spararama role authentication is temporarily unavailable.',
+        code: 'local_auth_unavailable'
+      });
+    }
+  }
 
   private async createSession(req: Request, res: Response) {
     res.setHeader('Cache-Control', 'no-store');
