@@ -17,6 +17,7 @@ import './server/alexa-direct.test';
 import './server/remote.test';
 import './server/remote-cloud.test';
 import './server/local-control-security.test';
+import './server/image-analysis-security.test';
 import './server/runtime.test';
 import './server/recovery-bridge.test';
 import './server/telemetry.test';
