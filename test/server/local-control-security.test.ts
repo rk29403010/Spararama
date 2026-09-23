@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  LocalControlSecurity,
   LocalControlSessionCodec,
   isDirectLoopbackRequest,
   isLoopbackAddress
@@ -42,4 +43,69 @@ test('only direct, unproxied loopback requests inherit the trusted local owner r
   assert.equal(isDirectLoopbackRequest(direct), true);
   assert.equal(isDirectLoopbackRequest(proxied), false);
   assert.equal(isDirectLoopbackRequest(lan), false);
+});
+
+function invokeMiddleware(handler: any, authorization = 'Bearer test-token') {
+  return new Promise<{ nextCalled: boolean; statusCode: number; body?: any }>((resolve) => {
+    const req = { headers: { authorization } } as any;
+    const res: any = {
+      locals: {},
+      statusCode: 200,
+      status(code: number) {
+        this.statusCode = code;
+        return this;
+      },
+      json(body: any) {
+        resolve({ nextCalled: false, statusCode: this.statusCode, body });
+      }
+    };
+    handler(req, res, () => resolve({ nextCalled: true, statusCode: res.statusCode }));
+  });
+}
+
+test('owner-only bearer authorization fails closed when a valid Firebase user has no Spararama role', async () => {
+  const security = new LocalControlSecurity({
+    secret: Buffer.alloc(32, 3),
+    authenticator: {
+      async authenticateAuthorizationHeader() {
+        return { uid: 'ordinary-user', email: 'ordinary@example.com' };
+      }
+    },
+    membershipStore: {
+      async getMembership() {
+        return null;
+      }
+    }
+  });
+
+  const result = await invokeMiddleware(security.requireBearerRole(['owner']));
+  assert.equal(result.nextCalled, false);
+  assert.equal(result.statusCode, 403);
+  assert.equal(result.body?.code, 'insufficient_role');
+});
+
+test('owner-only bearer authorization accepts an explicit Spararama administrator', async () => {
+  const previous = process.env.SPARARAMA_ADMIN_UID;
+  process.env.SPARARAMA_ADMIN_UID = 'owner-user';
+  try {
+    const security = new LocalControlSecurity({
+      secret: Buffer.alloc(32, 4),
+      authenticator: {
+        async authenticateAuthorizationHeader() {
+          return { uid: 'owner-user', email: 'owner@example.com' };
+        }
+      },
+      membershipStore: {
+        async getMembership() {
+          return null;
+        }
+      }
+    });
+    const result = await invokeMiddleware(security.requireBearerRole(['owner']));
+    assert.equal(result.nextCalled, true);
+    assert.equal(result.statusCode, 200);
+  } finally {
+    if (previous === undefined) delete process.env.SPARARAMA_ADMIN_UID;
+    else process.env.SPARARAMA_ADMIN_UID = previous;
+  }
 });
