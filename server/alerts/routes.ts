@@ -1,10 +1,6 @@
-import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
 import type { Express, Request, Response } from 'express';
+import type { LocalControlSecurity } from '../security/local-control';
 import type { AlexaAlertDispatcher } from './alexa-dispatcher';
-
-const DEFAULT_PROJECT_ID = 'microprojects-481213';
-const SETTINGS_AUTH_APP_NAME = 'spararama-alert-settings-auth';
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) {
   return (req: Request, res: Response) => {
@@ -15,52 +11,18 @@ function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) {
   };
 }
 
-function adminAuth() {
-  const projectId = process.env.FIREBASE_PROJECT_ID || DEFAULT_PROJECT_ID;
-  const app = getApps().find(candidate => candidate.name === SETTINGS_AUTH_APP_NAME)
-    || initializeApp({ credential: applicationDefault(), projectId }, SETTINGS_AUTH_APP_NAME);
-  return getAuth(app);
-}
+export function registerAlertRoutes(
+  app: Express,
+  dispatcher: AlexaAlertDispatcher,
+  security: LocalControlSecurity
+) {
+  const requireOwner = security.requireBearerRole(['owner']);
 
-async function requireSettingsUser(req: Request, res: Response) {
-  const authorization = String(req.headers.authorization || '');
-  const match = authorization.match(/^Bearer\s+(.+)$/i);
-  if (!match) {
-    res.status(401).json({ error: 'Sign in to change alert credentials.' });
-    return false;
-  }
-
-  try {
-    const decoded = await adminAuth().verifyIdToken(match[1]);
-    const allowedUid = String(process.env.SPARARAMA_ADMIN_UID || '').trim();
-    const allowedEmails = String(process.env.SPARARAMA_ADMIN_EMAILS || '')
-      .split(',')
-      .map(value => value.trim().toLowerCase())
-      .filter(Boolean);
-
-    if (allowedUid && decoded.uid !== allowedUid) {
-      res.status(403).json({ error: 'This account is not allowed to change alert credentials.' });
-      return false;
-    }
-    if (allowedEmails.length && !allowedEmails.includes(String(decoded.email || '').toLowerCase())) {
-      res.status(403).json({ error: 'This account is not allowed to change alert credentials.' });
-      return false;
-    }
-    return true;
-  } catch {
-    res.status(401).json({ error: 'Your sign-in could not be verified. Sign in again and retry.' });
-    return false;
-  }
-}
-
-export function registerAlertRoutes(app: Express, dispatcher: AlexaAlertDispatcher) {
-  app.get('/api/alerts/alexa', asyncRoute(async (req, res) => {
-    if (!(await requireSettingsUser(req, res))) return;
+  app.get('/api/alerts/alexa', requireOwner, asyncRoute(async (_req, res) => {
     res.json(await dispatcher.status());
   }));
 
-  app.put('/api/alerts/alexa', asyncRoute(async (req, res) => {
-    if (!(await requireSettingsUser(req, res))) return;
+  app.put('/api/alerts/alexa', requireOwner, asyncRoute(async (req, res) => {
     res.json(await dispatcher.configure({
       enabled: req.body?.enabled === undefined ? undefined : Boolean(req.body.enabled),
       token: typeof req.body?.token === 'string' ? req.body.token.slice(0, 500) : undefined,
@@ -69,15 +31,13 @@ export function registerAlertRoutes(app: Express, dispatcher: AlexaAlertDispatch
     }));
   }));
 
-  app.post('/api/alerts/alexa/speakers', asyncRoute(async (req, res) => {
-    if (!(await requireSettingsUser(req, res))) return;
+  app.post('/api/alerts/alexa/speakers', requireOwner, asyncRoute(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     const token = typeof req.body?.token === 'string' ? req.body.token.slice(0, 500) : undefined;
     res.json({ speakers: await dispatcher.listSpeakers(token) });
   }));
 
-  app.post('/api/alerts/alexa/test', asyncRoute(async (req, res) => {
-    if (!(await requireSettingsUser(req, res))) return;
+  app.post('/api/alerts/alexa/test', requireOwner, asyncRoute(async (_req, res) => {
     res.json(await dispatcher.test());
   }));
 }
