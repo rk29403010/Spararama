@@ -32,6 +32,9 @@ interface ExecutorOptions {
   readyPlanner?: HeatingReadyPlannerLike;
   ledger?: RemoteCommandLedger;
   now?: () => number;
+  actuatorMinIntervalMs?: number;
+  cadenceNow?: () => number;
+  sleep?: (milliseconds: number) => Promise<void>;
 }
 
 interface ValidatedEnvelope {
@@ -123,11 +126,19 @@ function validateEnvelope(value: unknown): ValidatedEnvelope {
 export class RemoteCommandExecutor {
   private readonly ledger: RemoteCommandLedger;
   private readonly now: () => number;
+  private readonly actuatorMinIntervalMs: number;
+  private readonly cadenceNow: () => number;
+  private readonly sleep: (milliseconds: number) => Promise<void>;
   private readonly inFlight = new Map<string, Promise<RemoteCommandResult>>();
+  private actuatorTail: Promise<void> = Promise.resolve();
+  private lastActuatorStartedAt = Number.NEGATIVE_INFINITY;
 
   constructor(private readonly options: ExecutorOptions) {
     this.ledger = options.ledger || new MemoryRemoteCommandLedger();
     this.now = options.now || (() => Date.now());
+    this.actuatorMinIntervalMs = Math.max(0, Number(options.actuatorMinIntervalMs || 0));
+    this.cadenceNow = options.cadenceNow || (() => Date.now());
+    this.sleep = options.sleep || (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)));
   }
 
   async execute(command: RemoteCommandEnvelope | unknown): Promise<RemoteCommandResult> {
@@ -194,9 +205,14 @@ export class RemoteCommandExecutor {
       const executionError = error instanceof RemoteExecutionError
         ? error
         : new RemoteExecutionError('execution_failed', error instanceof Error ? error.message : String(error));
+      const status = executionError.code === 'expired'
+        ? 'expired'
+        : executionError.code === 'invalid_command' || executionError.code === 'unsupported_command'
+          ? 'rejected'
+          : 'failed';
       result = this.result(
         command,
-        executionError.code === 'invalid_command' || executionError.code === 'unsupported_command' ? 'rejected' : 'failed',
+        status,
         acceptedAt,
         undefined,
         { code: executionError.code, message: executionError.message }
@@ -214,23 +230,32 @@ export class RemoteCommandExecutor {
 
       case 'setTargetTemperature': {
         const celsius = numberField(command.payload, 'celsius');
-        const before = await this.requireRemoteSpa();
-        if (before.targetTemperatureC === celsius) return before;
-        return this.options.spa.setTargetTemperature(celsius);
+        return this.withActuatorCadence(command, async () => {
+          const before = await this.requireRemoteSpa();
+          if (before.targetTemperatureC === celsius) return before;
+          await this.waitForActuatorSlot(command);
+          return this.options.spa.setTargetTemperature(celsius);
+        });
       }
 
       case 'setHeater': {
         const on = booleanField(command.payload, 'on');
-        const before = await this.requireRemoteSpa();
-        if (before.heaterOn === on) return before;
-        return this.options.spa.setHeater(on);
+        return this.withActuatorCadence(command, async () => {
+          const before = await this.requireRemoteSpa();
+          if (before.heaterOn === on) return before;
+          await this.waitForActuatorSlot(command);
+          return this.options.spa.setHeater(on);
+        });
       }
 
       case 'setFilter': {
         const on = booleanField(command.payload, 'on');
-        const before = await this.requireRemoteSpa();
-        if (before.filterOn === on) return before;
-        return this.options.spa.setFilter(on);
+        return this.withActuatorCadence(command, async () => {
+          const before = await this.requireRemoteSpa();
+          if (before.filterOn === on) return before;
+          await this.waitForActuatorSlot(command);
+          return this.options.spa.setFilter(on);
+        });
       }
 
       case 'setBubbles': {
@@ -239,11 +264,14 @@ export class RemoteCommandExecutor {
         if (autoRestart !== undefined && typeof autoRestart !== 'boolean') {
           throw new RemoteExecutionError('invalid_command', 'autoRestart must be boolean when supplied.');
         }
-        const before = await this.requireRemoteSpa();
-        if (before.bubblesOn === on) return before;
-        return this.options.bubbles
-          ? this.options.bubbles.setBubbles(on, { autoRestart: autoRestart === true })
-          : this.options.spa.setBubbles(on);
+        return this.withActuatorCadence(command, async () => {
+          const before = await this.requireRemoteSpa();
+          if (before.bubblesOn === on) return before;
+          await this.waitForActuatorSlot(command);
+          return this.options.bubbles
+            ? this.options.bubbles.setBubbles(on, { autoRestart: autoRestart === true })
+            : this.options.spa.setBubbles(on);
+        });
       }
 
       case 'scheduleReadyAt': {
@@ -291,6 +319,30 @@ export class RemoteCommandExecutor {
       default:
         throw new RemoteExecutionError('unsupported_command', `Unsupported remote command type: ${command.type}`);
     }
+  }
+
+  private async withActuatorCadence<T>(command: ValidatedEnvelope, operation: () => Promise<T>): Promise<T> {
+    let release!: () => void;
+    const previous = this.actuatorTail;
+    this.actuatorTail = new Promise<void>(resolve => { release = resolve; });
+    await previous;
+    try {
+      if (this.now() > command.expiresAt) {
+        throw new RemoteExecutionError('expired', 'Remote command expired while waiting for an actuator slot.');
+      }
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+
+  private async waitForActuatorSlot(command: ValidatedEnvelope) {
+    const remaining = this.lastActuatorStartedAt + this.actuatorMinIntervalMs - this.cadenceNow();
+    if (remaining > 0) await this.sleep(remaining);
+    if (this.now() > command.expiresAt) {
+      throw new RemoteExecutionError('expired', 'Remote command expired while waiting for safe actuator cadence.');
+    }
+    this.lastActuatorStartedAt = this.cadenceNow();
   }
 
   private async status() {
