@@ -69,6 +69,10 @@ export function createRemoteRuntime(dependencies: {
   const transport: RemoteTransport = config.transport === 'firebase'
     ? new FirebaseRemoteTransport({ installationId: config.installationId })
     : new NoneRemoteTransport();
+  const configuredCadenceMs = Number(process.env.REMOTE_ACTUATOR_MIN_INTERVAL_MS || 1000);
+  const actuatorMinIntervalMs = Number.isFinite(configuredCadenceMs)
+    ? Math.max(0, configuredCadenceMs)
+    : 1000;
 
   const executor = new RemoteCommandExecutor({
     installationId: config.installationId,
@@ -76,7 +80,8 @@ export function createRemoteRuntime(dependencies: {
     bubbles: dependencies.bubbles,
     heating: dependencies.heating,
     readyPlanner: dependencies.heatingPlanner,
-    ledger: new FileRemoteCommandLedger(config.stateDir)
+    ledger: new FileRemoteCommandLedger(config.stateDir),
+    actuatorMinIntervalMs
   });
   const agent = new RemoteAgent(config.installationId, transport, executor);
   const publisher = config.transport === 'firebase'
