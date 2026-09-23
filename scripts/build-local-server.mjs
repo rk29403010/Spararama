@@ -1,7 +1,9 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { build } from 'esbuild';
 
-const outDir = process.env.SPAR_BUILD_OUT_DIR || 'dist';
+const outDir = path.resolve(process.env.SPAR_SERVER_BUILD_OUT_DIR || '.local/runtime');
+fs.mkdirSync(outDir, { recursive: true });
 
 await build({
   entryPoints: ['server.ts'],
