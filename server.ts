@@ -2,7 +2,6 @@ import 'dotenv/config';
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Type } from "@google/genai";
 import { createSpaAdapter } from './server/spa/factory';
 import { registerSpaRoutes } from './server/spa/routes';
 import { BestEffortTemperatureResolver } from './server/spa/temperature';
@@ -31,6 +30,7 @@ import { combineSensorSources } from './server/sensors/composite';
 import { registerSystemUpdateRoutes } from './server/system/update';
 import { createRemoteRuntime } from './server/remote/factory';
 import { registerLocalControlSecurity } from './server/security/local-control';
+import { registerImageAnalysisRoutes } from './server/analysis/routes';
 
 async function startServer() {
   const app = express();
@@ -44,15 +44,24 @@ async function startServer() {
 
   app.use((_req, res, next) => {
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+    res.setHeader('X-Frame-Options', 'DENY');
     next();
   });
-  app.use(express.json({ limit: "50mb" }));
 
   // Physical-control mutations are safe on direct loopback and require an
   // authenticated owner/member session when reached from another LAN device.
-  // Register this boundary before any spa/heating routes so later route changes
-  // cannot accidentally inherit the old unauthenticated LAN behaviour.
-  registerLocalControlSecurity(app);
+  // The same role/session boundary protects push registration and billable image
+  // analysis before their request bodies are parsed.
+  const localControlSecurity = registerLocalControlSecurity(app);
+  const pushService = new PushService();
+  registerPushRoutes(app, pushService, localControlSecurity);
+  registerImageAnalysisRoutes(app, localControlSecurity);
+
+  // Ordinary JSON API requests should never need the old 50 MB global allowance.
+  // Large image analysis and tiny push registration bodies have route-specific
+  // parsers registered above with their own limits.
+  app.use(express.json({ limit: "1mb" }));
 
   const spaAdapter = createSpaAdapter();
   const alexaAlerts = new AlexaAlertDispatcher();
@@ -78,7 +87,6 @@ async function startServer() {
   const merossSensors = createMerossMsh300SensorSource();
   const environmentalSensors = combineSensorSources(merossSensors, ecowitt?.sensorSource);
   const temperatureResolver = new BestEffortTemperatureResolver(spaAdapter, telemetryStore);
-  const pushService = new PushService();
   const heatingScheduler = new HeatingScheduler(spaAdapter, new HeatingStore(), pushService);
   const heatingPlanner = new HeatingPlanner(spaAdapter, heatingScheduler, weather);
   const alexaDirect = new AlexaSpaCommandService(spaAdapter, bubbles, heatingScheduler, { weatherService: weather });
@@ -91,8 +99,7 @@ async function startServer() {
   registerSpaRoutes(app, spaAdapter, temperatureResolver, bubbles);
   registerWeatherRoutes(app, weather);
   registerHeatingRoutes(app, heatingScheduler, heatingPlanner);
-  registerPushRoutes(app, pushService);
-  registerAlertRoutes(app, alexaAlerts);
+  registerAlertRoutes(app, alexaAlerts, localControlSecurity);
   registerDirectAlexaRoutes(app, alexaDirect);
   registerSpaHistoryRoutes(app);
   registerSystemUpdateRoutes(app);
@@ -208,81 +215,6 @@ async function startServer() {
   app.post('/api/telemetry/flush', async (_req, res) => {
     await telemetry.flushPending();
     res.json(combinedTelemetryStatus());
-  });
-
-  app.post("/api/analyze-image", async (req, res) => {
-    try {
-      const { imageBase64, type } = req.body;
-      if (!imageBase64) {
-        return res.status(400).json({ error: "No image provided" });
-      }
-
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return res.status(500).json({ error: "Gemini API key not configured" });
-      }
-
-      const ai = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: { 'User-Agent': 'aistudio-build' }
-        }
-      });
-
-      let prompt = "";
-      let responseSchema: any = null;
-
-      if (type === "barcode") {
-        prompt = "Analyze this image and identify the hot tub or pool chemical. Return the name of the chemical, its primary active ingredient, and the quantity if visible. Return as a JSON object.";
-        responseSchema = {
-          type: Type.OBJECT,
-          properties: {
-            name: { type: Type.STRING },
-            ingredientType: { type: Type.STRING },
-            quantity: { type: Type.STRING }
-          },
-          required: ["name"]
-        };
-      } else if (type === "test_strip") {
-        prompt = "Analyze this hot tub test strip as an observation only. Identify Free Chlorine (or Bromine), pH, and Total Alkalinity. Return null for unreadable pads. Do not give dosing advice. Return JSON.";
-        responseSchema = {
-          type: Type.OBJECT,
-          properties: {
-            chlorine: { type: Type.NUMBER, description: "Free chlorine ppm" },
-            bromine: { type: Type.NUMBER, description: "Bromine ppm" },
-            ph: { type: Type.NUMBER, description: "pH" },
-            alkalinity: { type: Type.NUMBER, description: "Total alkalinity ppm" }
-          }
-        };
-      } else {
-        return res.status(400).json({ error: "Invalid analysis type" });
-      }
-
-      const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: {
-          parts: [
-            { inlineData: { mimeType: "image/jpeg", data: base64Data } },
-            { text: prompt }
-          ]
-        },
-        config: {
-          responseMimeType: "application/json",
-          responseSchema
-        }
-      });
-
-      const resultText = response.text || "{}";
-      try {
-        res.json(JSON.parse(resultText));
-      } catch {
-        res.json({ raw: resultText });
-      }
-    } catch (err: any) {
-      console.error(err);
-      res.status(500).json({ error: err.message || "Failed to analyze image" });
-    }
   });
 
   if (process.env.NODE_ENV !== "production") {
