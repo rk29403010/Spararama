@@ -25,7 +25,7 @@ const SERVICES = {
   spararama: {
     port: 3000,
     healthUrl: 'http://127.0.0.1:3000/api/health',
-    args: ['dist/server.cjs'],
+    args: ['.local/runtime/server.cjs'],
     env: { NODE_ENV: 'production' },
     log: 'spararama'
   }
@@ -100,7 +100,7 @@ function dependenciesNeedInstall() {
 }
 
 function buildNeedsRefresh() {
-  const bundle = path.join(ROOT, 'dist', 'server.cjs');
+  const bundle = path.join(ROOT, '.local', 'runtime', 'server.cjs');
   const index = path.join(ROOT, 'dist', 'index.html');
   if (!fs.existsSync(bundle) || !fs.existsSync(index)) return true;
   const builtAt = Math.min(mtime(bundle), mtime(index));
@@ -123,7 +123,7 @@ function prepare() {
   }
   if (buildNeedsRefresh()) {
     console.log('Building changed source...');
-    runPnpm(['build']);
+    runPnpm(['build:local']);
     built = true;
   } else {
     console.log('Production build is current.');
