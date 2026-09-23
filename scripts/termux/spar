@@ -16,7 +16,7 @@ SPAR_BRANCH="${SPAR_BRANCH:-chatgpt-dev}"
 SPAR_ADAPTER="${SPAR_ADAPTER:-mock}"
 SPAR_RUNTIME_MODE="${SPAR_RUNTIME_MODE:-production}"
 SPAR_PORT="${SPAR_PORT:-3000}"
-SPAR_BIND_HOST="${SPAR_BIND_HOST:-0.0.0.0}"
+SPAR_BIND_HOST="${SPAR_BIND_HOST:-127.0.0.1}"
 SPAR_HTTPS_ENABLED="${SPAR_HTTPS_ENABLED:-0}"
 SPAR_HTTPS_HOST="${SPAR_HTTPS_HOST:-}"
 SPAR_HTTPS_PORT="${SPAR_HTTPS_PORT:-8443}"
@@ -382,7 +382,7 @@ status() {
     if command -v sv >/dev/null 2>&1; then printf 'Caddy service: '; sv status "$CADDY_SERVICE_DIR" 2>&1 || true; fi
     if caddy_healthy; then printf 'HTTPS endpoint: OK\n'; else printf 'HTTPS endpoint: unavailable or certificate trust not checked locally\n'; fi
   else
-    printf 'HTTPS: disabled (LAN HTTP remains enabled)\n'
+    printf 'HTTPS: disabled (loopback HTTP only)\n'
   fi
   case "$SPAR_ADAPTER" in bridge|cleverspa) show_live_connection ;; esac
 }
@@ -490,7 +490,7 @@ Spararama phone runner
   spar adapter-log follow the CleverSpa adapter log (Ctrl+C to leave)
   spar https-setup internal HOST [PORT]   enable private-LAN HTTPS via Caddy's local CA
   spar https-setup external HOST CERT KEY [PORT] enable real-domain HTTPS with supplied cert/key
-  spar https-off                          disable HTTPS and restore LAN HTTP binding
+  spar https-off                          disable HTTPS and restore loopback-only HTTP
   spar open        open the app in the browser
 
 Bare `spar`/the home-screen shortcut keeps failures visible with recent logs.
