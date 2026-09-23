@@ -28,3 +28,16 @@ test('main server wires secured background push registration to the same heating
   assert.match(source, /new HeatingScheduler\(spaAdapter, new HeatingStore\(\), pushService\)/);
   assert.match(source, /registerPushRoutes\(app, pushService, localControlSecurity\)/);
 });
+
+test('production Node runtime is built outside the public dist directory', async () => {
+  const packageJson = JSON.parse(await fs.readFile(path.join(process.cwd(), 'package.json'), 'utf8'));
+  const serverBuild = await fs.readFile(path.join(process.cwd(), 'scripts/build-local-server.mjs'), 'utf8');
+  const localRunner = await fs.readFile(path.join(process.cwd(), 'scripts/local.mjs'), 'utf8');
+  const termuxRunner = await fs.readFile(path.join(process.cwd(), 'scripts/termux/spar'), 'utf8');
+
+  assert.equal(packageJson.scripts.start, 'node .local/runtime/server.cjs');
+  assert.match(serverBuild, /SPAR_SERVER_BUILD_OUT_DIR \|\| '\.local\/runtime'/);
+  assert.match(localRunner, /args: \['\.local\/runtime\/server\.cjs'\]/);
+  assert.match(termuxRunner, /\.local\/runtime\/server\.cjs/);
+  assert.doesNotMatch(packageJson.scripts.start, /dist\/server\.cjs/);
+});
