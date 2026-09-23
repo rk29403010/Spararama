@@ -3,10 +3,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
-const targetDir = path.resolve(root, process.env.SPAR_BUILD_TARGET_DIR || 'dist');
+const webTargetDir = path.resolve(root, process.env.SPAR_BUILD_TARGET_DIR || 'dist');
 const workDir = path.resolve(root, '.local');
-const stageDir = path.join(workDir, 'build-local-next');
-const previousDir = path.join(workDir, 'build-local-previous');
+const runtimeTargetDir = path.resolve(root, process.env.SPAR_SERVER_BUILD_TARGET_DIR || path.join('.local', 'runtime'));
+const stageRoot = path.join(workDir, 'build-local-next');
+const stageWebDir = path.join(stageRoot, 'web');
+const stageRuntimeDir = path.join(stageRoot, 'runtime');
+const previousWebDir = path.join(workDir, 'build-local-previous-web');
+const previousRuntimeDir = path.join(workDir, 'build-local-previous-runtime');
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 
 function fail(message) {
@@ -24,7 +28,7 @@ function run(command, args, extraEnv = {}) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-function restoreInterruptedSwap() {
+function restoreInterruptedSwap(targetDir, previousDir) {
   if (!fs.existsSync(targetDir) && fs.existsSync(previousDir)) {
     fs.renameSync(previousDir, targetDir);
   } else if (fs.existsSync(targetDir) && fs.existsSync(previousDir)) {
@@ -33,40 +37,65 @@ function restoreInterruptedSwap() {
 }
 
 function validateStage() {
-  for (const relative of ['index.html', 'server.cjs', 'sw.js']) {
-    const file = path.join(stageDir, relative);
+  for (const relative of ['index.html', 'sw.js']) {
+    const file = path.join(stageWebDir, relative);
     if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) {
-      fail(`Staged production build is missing ${relative}.`);
+      fail(`Staged production web build is missing ${relative}.`);
     }
   }
-  const worker = fs.readFileSync(path.join(stageDir, 'sw.js'), 'utf8');
+  for (const relative of ['server.cjs', 'server.cjs.map']) {
+    const file = path.join(stageRuntimeDir, relative);
+    if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) {
+      fail(`Staged production server build is missing ${relative}.`);
+    }
+  }
+  const worker = fs.readFileSync(path.join(stageWebDir, 'sw.js'), 'utf8');
   if (worker.includes('__SPARARAMA_BUILD_ID__')) {
     fail('Staged service worker was not assigned a build identifier.');
   }
 }
 
-fs.mkdirSync(workDir, { recursive: true });
-restoreInterruptedSwap();
-fs.rmSync(stageDir, { recursive: true, force: true });
+function restorePrevious(targetDir, previousDir, movedCurrent) {
+  if (fs.existsSync(targetDir)) fs.rmSync(targetDir, { recursive: true, force: true });
+  if (movedCurrent && fs.existsSync(previousDir)) fs.renameSync(previousDir, targetDir);
+}
 
-run(pnpm, ['exec', 'vite', 'build'], { SPAR_BUILD_OUT_DIR: stageDir });
-run(process.execPath, ['scripts/build-local-server.mjs'], { SPAR_BUILD_OUT_DIR: stageDir });
+fs.mkdirSync(workDir, { recursive: true });
+restoreInterruptedSwap(webTargetDir, previousWebDir);
+restoreInterruptedSwap(runtimeTargetDir, previousRuntimeDir);
+fs.rmSync(stageRoot, { recursive: true, force: true });
+fs.mkdirSync(stageRoot, { recursive: true });
+
+run(pnpm, ['exec', 'vite', 'build'], { SPAR_BUILD_OUT_DIR: stageWebDir });
+run(process.execPath, ['scripts/build-local-server.mjs'], { SPAR_SERVER_BUILD_OUT_DIR: stageRuntimeDir });
 validateStage();
 
-fs.rmSync(previousDir, { recursive: true, force: true });
-let movedCurrent = false;
+fs.rmSync(previousWebDir, { recursive: true, force: true });
+fs.rmSync(previousRuntimeDir, { recursive: true, force: true });
+let movedWeb = false;
+let movedRuntime = false;
 try {
-  if (fs.existsSync(targetDir)) {
-    fs.renameSync(targetDir, previousDir);
-    movedCurrent = true;
+  if (fs.existsSync(webTargetDir)) {
+    fs.renameSync(webTargetDir, previousWebDir);
+    movedWeb = true;
   }
-  fs.renameSync(stageDir, targetDir);
+  if (fs.existsSync(runtimeTargetDir)) {
+    fs.renameSync(runtimeTargetDir, previousRuntimeDir);
+    movedRuntime = true;
+  }
+
+  fs.renameSync(stageWebDir, webTargetDir);
+  fs.renameSync(stageRuntimeDir, runtimeTargetDir);
 } catch (error) {
-  if (!fs.existsSync(targetDir) && movedCurrent && fs.existsSync(previousDir)) {
-    fs.renameSync(previousDir, targetDir);
-  }
+  restorePrevious(webTargetDir, previousWebDir, movedWeb);
+  restorePrevious(runtimeTargetDir, previousRuntimeDir, movedRuntime);
   throw error;
 }
 
-fs.rmSync(previousDir, { recursive: true, force: true });
-console.log(`Validated production build activated at ${path.relative(root, targetDir) || targetDir}.`);
+fs.rmSync(previousWebDir, { recursive: true, force: true });
+fs.rmSync(previousRuntimeDir, { recursive: true, force: true });
+fs.rmSync(stageRoot, { recursive: true, force: true });
+console.log(
+  `Validated production web build activated at ${path.relative(root, webTargetDir) || webTargetDir}; `
+  + `server runtime at ${path.relative(root, runtimeTargetDir) || runtimeTargetDir}.`
+);
