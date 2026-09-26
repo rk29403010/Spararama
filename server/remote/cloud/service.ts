@@ -261,13 +261,13 @@ export class CloudControlService {
 
   async submitCommand(principal: CloudPrincipal, installationId: string, request: unknown) {
     const membership = await this.requireMembership(principal, installationId);
+    if (membership.role === 'viewer' && !Array.isArray(membership.permissions)) {
+      throw new CloudControlError(403, 'read_only', 'This account has read-only access to the installation.');
+    }
     const record = asRecord(request);
     const requiredPermission = permissionForCommand(record.type);
     if (requiredPermission && !effectivePermissions(membership).has(requiredPermission)) {
       throw new CloudControlError(403, 'missing_permission', 'This account does not have permission for that action.');
-    }
-    if (membership.role === 'viewer' && !Array.isArray(membership.permissions)) {
-      throw new CloudControlError(403, 'read_only', 'This account has read-only access to the installation.');
     }
     return this.queueCommand(
       installationId,
