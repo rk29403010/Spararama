@@ -151,3 +151,58 @@ test('personal group preference disables push without suppressing notification h
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test('delivery-suppressed incident is recorded and sends once delivery resumes', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-notification-suppression-'));
+  try {
+    const store = new NotificationStore(dir);
+    const preferences = new NotificationPreferenceStore(dir);
+    let sends = 0;
+    const push = {
+      enabled: true,
+      listRegistrations: async () => [{ id: 'phone', userUid: 'robin', deviceName: 'Phone' }],
+      sendNotificationToRegistration: async (registrationId: string) => {
+        sends += 1;
+        return {
+          enabled: true,
+          targetCount: 1,
+          successCount: 1,
+          failureCount: 0,
+          retryableFailureCount: 0,
+          removedInvalidCount: 0,
+          targets: [{ registrationId, label: 'Phone', success: true, invalid: false, retryable: false }]
+        };
+      }
+    };
+    const service = new NotificationService(store, push as any, preferences);
+
+    const suppressed = await service.publish({
+      type: 'equipment.spa_offline',
+      group: 'equipment',
+      severity: 'warning',
+      title: 'Hot tub is offline',
+      message: 'No contact.',
+      incidentKey: 'spa-connectivity',
+      deliverySuppressed: true
+    });
+    assert.equal(sends, 0);
+    assert.equal(suppressed.deliverySuppressed, true);
+    assert.equal((await store.load()).deliveries.length, 0);
+
+    const resumed = await service.publish({
+      type: 'equipment.spa_offline',
+      group: 'equipment',
+      severity: 'warning',
+      title: 'Hot tub is offline',
+      message: 'No contact.',
+      incidentKey: 'spa-connectivity',
+      deliverySuppressed: false
+    });
+    assert.equal(resumed.id, suppressed.id);
+    assert.equal(resumed.deliverySuppressed, undefined);
+    assert.equal(sends, 1);
+    assert.equal((await store.load()).deliveries.length, 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
