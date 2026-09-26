@@ -25,6 +25,8 @@ import { NotificationStore } from './server/notifications/store';
 import { NotificationPreferenceStore } from './server/notifications/preferences';
 import { registerNotificationRoutes } from './server/notifications/routes';
 import { SpaHealthMonitor } from './server/health/spa-health-monitor';
+import { SpaHealthSettingsStore } from './server/health/settings';
+import { registerSpaHealthRoutes } from './server/health/routes';
 import { AlexaAlertDispatcher } from './server/alerts/alexa-dispatcher';
 import { registerAlertRoutes } from './server/alerts/routes';
 import { AlexaSpaCommandService } from './server/alexa/direct';
@@ -60,6 +62,7 @@ async function startServer() {
   const notificationStore = new NotificationStore();
   const notificationPreferences = new NotificationPreferenceStore();
   const notificationService = new NotificationService(notificationStore, pushService, notificationPreferences);
+  const spaHealthSettings = new SpaHealthSettingsStore();
   registerPushRoutes(app, pushService, localControlSecurity);
   registerImageAnalysisRoutes(app, localControlSecurity);
 
@@ -93,7 +96,7 @@ async function startServer() {
   const temperatureResolver = new BestEffortTemperatureResolver(spaAdapter, telemetryStore);
   const heatingScheduler = new HeatingScheduler(spaAdapter, new HeatingStore(), notificationService);
   const heatingPlanner = new HeatingPlanner(spaAdapter, heatingScheduler, weather);
-  const spaHealth = new SpaHealthMonitor(spaAdapter, notificationService, heatingScheduler);
+  const spaHealth = new SpaHealthMonitor(spaAdapter, notificationService, heatingScheduler, { alertSuppression: spaHealthSettings });
   const alexaDirect = new AlexaSpaCommandService(spaAdapter, bubbles, heatingScheduler, { weatherService: weather });
   const remoteRuntime = createRemoteRuntime({
     spa: spaAdapter,
@@ -104,6 +107,7 @@ async function startServer() {
   registerSpaRoutes(app, spaAdapter, temperatureResolver, bubbles);
   registerWeatherRoutes(app, weather);
   registerHeatingRoutes(app, heatingScheduler, heatingPlanner);
+  registerSpaHealthRoutes(app, spaHealth, spaHealthSettings, localControlSecurity);
   registerAlertRoutes(app, alexaAlerts, localControlSecurity);
   registerDirectAlexaRoutes(app, alexaDirect);
   registerSpaHistoryRoutes(app);
