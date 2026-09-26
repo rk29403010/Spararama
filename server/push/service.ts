@@ -41,6 +41,15 @@ function notificationCopy(notification: HeatingNotification) {
   return { title: notification.title, body: notification.message };
 }
 
+function deliveryErrorSummary(targets: PushTargetDeliveryResult[]) {
+  const failure = targets.find(item => !item.success);
+  if (!failure) return undefined;
+  const target = failure.label || failure.registrationId;
+  const code = failure.errorCode || 'messaging/unknown-error';
+  const message = failure.errorMessage ? ` - ${failure.errorMessage}` : '';
+  return `${target}: ${code}${message}`;
+}
+
 export class PushService {
   readonly config: PushConfig;
   readonly store: PushRegistrationStore;
@@ -170,7 +179,8 @@ export class PushService {
         failureCount: response.failureCount,
         retryableFailureCount,
         removedInvalidCount,
-        targets
+        targets,
+        ...(response.successCount === 0 && response.failureCount > 0 ? { error: deliveryErrorSummary(targets) } : {})
       };
     } catch (error: any) {
       const errorMessage = error?.message || String(error);
