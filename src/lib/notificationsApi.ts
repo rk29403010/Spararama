@@ -20,6 +20,7 @@ export interface SpararamaNotificationDto {
   message: string;
   createdAt: number;
   updatedAt: number;
+  expiresAt?: number;
   incidentKey?: string;
   context?: Record<string, unknown>;
   requiresAcknowledgement: boolean;
