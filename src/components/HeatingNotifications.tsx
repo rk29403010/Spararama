@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Bell, Check, TriangleAlert, X } from 'lucide-react';
 import { heatingApi, type HeatingNotificationDto } from '../lib/heatingApi';
+import { listActiveNotifications, type SpararamaNotificationDto } from '../lib/notificationsApi';
 import { syncPushRegistration } from '../lib/pushNotifications';
 
 function alertCopy(item: HeatingNotificationDto) {
@@ -23,12 +24,20 @@ function toneFrequencies(kind: HeatingNotificationDto['kind']) {
   return [];
 }
 
+function genericAlertClass(severity: SpararamaNotificationDto['severity']) {
+  if (severity === 'urgent') return 'border-rose-300 bg-rose-50 text-rose-950';
+  if (severity === 'warning') return 'border-amber-300 bg-amber-50 text-amber-950';
+  return 'border-slate-300 bg-white text-slate-950';
+}
+
 export function HeatingNotifications() {
   const [manualPrompt, setManualPrompt] = useState<HeatingNotificationDto | null>(null);
   const [notice, setNotice] = useState<HeatingNotificationDto | null>(null);
+  const [genericNotice, setGenericNotice] = useState<SpararamaNotificationDto | null>(null);
   const [pushProblem, setPushProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const seen = useRef(new Set<string>());
+  const dismissedGeneric = useRef(new Set<string>());
   const pushSynced = useRef(false);
   const audioContext = useRef<AudioContext | null>(null);
 
@@ -108,8 +117,15 @@ export function HeatingNotifications() {
     const poll = async () => {
       await syncPushIfAllowed();
       try {
-        const { notifications } = await heatingApi.notifications();
+        const [{ notifications }, generic] = await Promise.all([
+          heatingApi.notifications(),
+          listActiveNotifications().catch(() => ({ notifications: [] as SpararamaNotificationDto[] }))
+        ]);
         if (cancelled) return;
+
+        const genericItem = generic.notifications.find(item => !dismissedGeneric.current.has(`${item.id}:${item.updatedAt}`));
+        setGenericNotice(genericItem || null);
+
         const manual = notifications.find(item => item.kind === 'manual_start_required');
         if (manual) setManualPrompt(manual);
 
@@ -145,6 +161,12 @@ export function HeatingNotifications() {
     }
   };
 
+  const dismissGeneric = () => {
+    if (!genericNotice) return;
+    dismissedGeneric.current.add(`${genericNotice.id}:${genericNotice.updatedAt}`);
+    setGenericNotice(null);
+  };
+
   return <>
     {pushProblem && (
       <div role="alert" className="fixed top-20 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-amber-300 bg-amber-50 text-amber-950 p-4 flex gap-3 shadow-lg">
@@ -153,6 +175,17 @@ export function HeatingNotifications() {
           <div className="font-black">Push notifications need attention</div>
           <div className="text-sm font-bold mt-1 break-words">{pushProblem}</div>
         </div>
+      </div>
+    )}
+
+    {genericNotice && (
+      <div role="alert" className={`fixed top-36 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-lg rounded-2xl border p-4 flex gap-3 shadow-lg ${genericAlertClass(genericNotice.severity)}`}>
+        <TriangleAlert className="w-6 h-6 shrink-0" aria-hidden="true" />
+        <div className="flex-1 min-w-0">
+          <div className="font-black">{genericNotice.title}</div>
+          {genericNotice.message && <div className="text-sm font-bold mt-1 break-words">{genericNotice.message}</div>}
+        </div>
+        <button type="button" aria-label="Dismiss notification" onClick={dismissGeneric} className="w-11 h-11 -mt-1 -mr-1 rounded-full hover:bg-black/5 flex items-center justify-center"><X className="w-5 h-5" aria-hidden="true" /></button>
       </div>
     )}
 
