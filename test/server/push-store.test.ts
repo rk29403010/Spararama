@@ -28,6 +28,69 @@ test('push registration store deduplicates tokens and removes invalid registrati
   }
 });
 
+test('push registration store keeps a stable user device when its FCM token rotates', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-push-device-'));
+  try {
+    const store = new PushRegistrationStore(dir);
+    const first = await store.upsert({
+      token: 'first-registration-token-000000000001',
+      userUid: 'user-1',
+      deviceId: 'device-1',
+      deviceName: 'Robin S24 Ultra'
+    });
+    const second = await store.upsert({
+      token: 'rotated-registration-token-0000000002',
+      userUid: 'user-1',
+      deviceId: 'device-1',
+      deviceName: 'Robin S24 Ultra'
+    });
+
+    assert.equal(second.id, first.id);
+    assert.equal((await store.list('user-1')).length, 1);
+    assert.equal((await store.list('user-1'))[0].token, 'rotated-registration-token-0000000002');
+    assert.equal((await store.list('someone-else')).length, 0);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('push registration store records delivery health per device', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-push-health-'));
+  try {
+    const store = new PushRegistrationStore(dir);
+    const registration = await store.upsert({
+      token: 'health-registration-token-000000000001',
+      userUid: 'user-1',
+      deviceId: 'device-1'
+    });
+
+    await store.recordDeliveryResults([{
+      registrationId: registration.id,
+      success: false,
+      invalid: false,
+      retryable: true,
+      errorCode: 'messaging/internal-error',
+      errorMessage: 'temporary failure'
+    }], 1_000);
+    let saved = (await store.list())[0];
+    assert.equal(saved.consecutiveDeliveryFailures, 1);
+    assert.equal(saved.lastDeliveryErrorCode, 'messaging/internal-error');
+
+    await store.recordDeliveryResults([{
+      registrationId: registration.id,
+      success: true,
+      invalid: false,
+      retryable: false
+    }], 2_000);
+    saved = (await store.list())[0];
+    assert.equal(saved.consecutiveDeliveryFailures, 0);
+    assert.equal(saved.lastProviderAcceptedAt, 2_000);
+    assert.equal(saved.lastDeliveryErrorCode, undefined);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('push registration store rejects oversized tokens and bounds registry growth', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-push-limits-'));
   try {
