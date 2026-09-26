@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import {
   REMOTE_COMMAND_TYPES,
   REMOTE_COMMAND_VERSION,
@@ -15,6 +16,7 @@ export interface CloudPrincipal {
 export interface InstallationMembership {
   installationId: string;
   role: InstallationRole;
+  permissions?: string[];
   name?: string;
 }
 
@@ -194,6 +196,23 @@ export function defaultCommandTtlMs(type: RemoteCommandType) {
   return 30_000;
 }
 
+function effectivePermissions(membership: InstallationMembership) {
+  if (Array.isArray(membership.permissions)) return new Set(membership.permissions);
+  if (membership.role === 'owner') return new Set(['spa_control', 'heating_manage', 'water_testing', 'user_admin']);
+  if (membership.role === 'member') return new Set(['spa_control', 'heating_manage', 'water_testing']);
+  return new Set<string>();
+}
+
+function permissionForCommand(type: unknown) {
+  if (type === 'setTargetTemperature' || type === 'setHeater' || type === 'setFilter' || type === 'setBubbles') {
+    return 'spa_control';
+  }
+  if (type === 'scheduleReadyAt' || type === 'cancelHeatingSchedule' || type === 'createHeatingSchedule') {
+    return 'heating_manage';
+  }
+  return null;
+}
+
 export function runtimeFreshness(runtime: InstallationRuntimeDocument | null, now: number) {
   if (!runtime) return { status: 'offline' as const, ageMs: null };
   const observedAt = Math.max(
@@ -233,6 +252,7 @@ export class CloudControlService {
     return {
       installationId,
       role: membership.role,
+      permissions: [...effectivePermissions(membership)],
       name: membership.name,
       freshness: runtimeFreshness(runtime, this.now()),
       runtime
@@ -241,7 +261,12 @@ export class CloudControlService {
 
   async submitCommand(principal: CloudPrincipal, installationId: string, request: unknown) {
     const membership = await this.requireMembership(principal, installationId);
-    if (membership.role === 'viewer') {
+    const record = asRecord(request);
+    const requiredPermission = permissionForCommand(record.type);
+    if (requiredPermission && !effectivePermissions(membership).has(requiredPermission)) {
+      throw new CloudControlError(403, 'missing_permission', 'This account does not have permission for that action.');
+    }
+    if (membership.role === 'viewer' && !Array.isArray(membership.permissions)) {
       throw new CloudControlError(403, 'read_only', 'This account has read-only access to the installation.');
     }
     return this.queueCommand(
