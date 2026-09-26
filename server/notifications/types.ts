@@ -21,6 +21,7 @@ export interface SpararamaNotification {
   incidentKey?: string;
   context?: Record<string, unknown>;
   requiresAcknowledgement: boolean;
+  deliverySuppressed?: boolean;
   acknowledgedAt?: number;
   acknowledgedByUid?: string;
   resolvedAt?: number;
@@ -37,6 +38,7 @@ export interface PublishNotificationInput {
   incidentKey?: string;
   context?: Record<string, unknown>;
   requiresAcknowledgement?: boolean;
+  deliverySuppressed?: boolean;
 }
 
 export type NotificationDeliveryStatus = 'provider_accepted' | 'failed';
