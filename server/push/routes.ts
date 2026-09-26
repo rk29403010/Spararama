@@ -37,29 +37,33 @@ importScripts('https://www.gstatic.com/firebasejs/${FIREBASE_WEB_SDK_VERSION}/fi
 firebase.initializeApp(${firebaseConfig});
 const messaging = firebase.messaging();
 
-function vibrationFor(kind) {
+function vibrationFor(kind, severity) {
   if (kind === 'heat_soak_complete') return [300, 120, 300, 120, 650];
   if (kind === 'target_reached') return [220, 120, 350];
   if (kind === 'manual_start_required') return [250, 120, 250, 120, 500];
+  if (severity === 'urgent') return [250, 120, 250, 120, 500];
+  if (severity === 'warning') return [220, 120, 350];
   return [160];
 }
 
 messaging.onBackgroundMessage((payload) => {
   const data = payload.data || {};
   const title = data.title || 'Spararama';
-  const attention = ['manual_start_required', 'target_reached', 'heat_soak_complete'].includes(data.kind);
+  const legacyAttention = ['manual_start_required', 'target_reached', 'heat_soak_complete'].includes(data.kind);
+  const attention = data.severity === 'urgent' || legacyAttention;
   const options = {
     body: data.body || '',
-    tag: data.notificationId ? 'spararama-' + data.notificationId : 'spararama-heating',
+    tag: data.notificationId ? 'spararama-' + data.notificationId : 'spararama-notification',
     renotify: attention,
-    requireInteraction: data.kind === 'manual_start_required' || data.kind === 'heat_soak_complete',
+    requireInteraction: attention,
     silent: false,
-    vibrate: vibrationFor(data.kind),
+    vibrate: vibrationFor(data.kind, data.severity),
     data: {
       url: data.url || '/',
       scheduleId: data.scheduleId,
       notificationId: data.notificationId,
-      kind: data.kind
+      kind: data.kind,
+      severity: data.severity
     }
   };
   return self.registration.showNotification(title, options);
@@ -115,14 +119,12 @@ export function registerPushRoutes(app: Express, push: PushService, security: Lo
 
   app.post('/api/push/test', security.protectAuthenticatedOperation, asyncRoute(async (_req, res) => {
     const now = Date.now();
-    const result = await push.sendHeatingNotification({
+    const result = await push.sendNotification({
       id: `push-test-${now}`,
-      scheduleId: 'push-test',
-      kind: 'heater_started',
-      createdAt: now,
+      type: 'system.push_test',
+      severity: 'info',
       title: 'Spararama notifications enabled',
-      message: 'Background push notifications are working on this device.',
-      requiresConfirmation: false
+      message: 'Background push notifications are working on this device.'
     });
     res.json(result);
   }));
