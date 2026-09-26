@@ -4,11 +4,16 @@ import type { SpaAdapter, SpaStatus } from '../spa/types';
 
 export type SpaHealthState = 'online' | 'suspect' | 'offline';
 
+export interface SpaHealthAlertSuppressionSource {
+  isOfflineAlertSuppressed(now?: number): Promise<boolean>;
+}
+
 export interface SpaHealthMonitorOptions {
   offlineAfterMs?: number;
   staleAfterMs?: number;
   checkIntervalMs?: number;
   now?: () => number;
+  alertSuppression?: SpaHealthAlertSuppressionSource;
 }
 
 export interface HeatingScheduleSource {
@@ -29,6 +34,7 @@ export class SpaHealthMonitor {
   private readonly staleAfterMs: number;
   private readonly checkIntervalMs: number;
   private readonly now: () => number;
+  private readonly alertSuppression?: SpaHealthAlertSuppressionSource;
   private timer: NodeJS.Timeout | null = null;
   private operation = Promise.resolve();
   private state: SpaHealthState = 'online';
@@ -45,6 +51,7 @@ export class SpaHealthMonitor {
     this.staleAfterMs = Math.max(1_000, options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS);
     this.checkIntervalMs = Math.max(1_000, options.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS);
     this.now = options.now || (() => Date.now());
+    this.alertSuppression = options.alertSuppression;
   }
 
   getStatus() {
@@ -96,6 +103,12 @@ export class SpaHealthMonitor {
     });
   }
 
+  refreshAlertState(now = this.now()) {
+    return this.enqueue(async () => {
+      if (this.state === 'offline') await this.publishOfflineIncident(now);
+    });
+  }
+
   private enqueue<T>(work: () => Promise<T>) {
     const result = this.operation.then(work, work);
     this.operation = result.then(() => undefined, () => undefined);
@@ -141,6 +154,7 @@ export class SpaHealthMonitor {
     const heatingDue = Boolean(schedule && schedule.startTime <= now);
     const heatingRunning = Boolean(schedule && ['running-remote', 'running-manual'].includes(schedule.status));
     const urgent = heatingDue || heatingRunning;
+    const deliverySuppressed = await this.alertSuppression?.isOfflineAlertSuppressed(now) || false;
 
     let title = 'Hot tub is offline';
     let message = `Spararama has not been able to contact the hot tub since ${timeText(lastContactAt)}.`;
@@ -160,10 +174,12 @@ export class SpaHealthMonitor {
       title,
       message,
       incidentKey: INCIDENT_KEY,
+      deliverySuppressed,
       context: {
         healthState: this.state,
         lastContactAt,
         offlineSince: this.suspectSince,
+        deliverySuppressed,
         ...(schedule ? {
           heatingScheduleId: schedule.id,
           heatingStartTime: schedule.startTime,
