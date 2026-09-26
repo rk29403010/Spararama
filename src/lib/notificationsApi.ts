@@ -30,6 +30,22 @@ export interface SpararamaNotificationDto {
   resolutionReason?: string;
 }
 
+export interface NotificationDeliveryDto {
+  id: string;
+  notificationId: string;
+  route: 'push' | 'alexa';
+  targetId: string;
+  targetLabel?: string;
+  status: 'provider_accepted' | 'failed';
+  attemptNumber: number;
+  attemptedAt: number;
+  providerAcceptedAt?: number;
+  retryable?: boolean;
+  nextAttemptAt?: number;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
 export interface PersonalNotificationPreferencesDto {
   push: NotificationGroupPreferences;
 }
@@ -76,6 +92,12 @@ export async function listActiveNotifications() {
 
 export function listRecentNotifications(limit = 20) {
   return authenticatedJson<{ notifications: SpararamaNotificationDto[] }>(`/api/notifications/recent?limit=${Math.max(1, Math.min(100, limit))}`);
+}
+
+export function getNotificationDeliveries(notificationId: string, limit = 100) {
+  return authenticatedJson<{ deliveries: NotificationDeliveryDto[] }>(
+    `/api/notifications/${encodeURIComponent(notificationId)}/deliveries?limit=${Math.max(1, Math.min(500, limit))}`
+  );
 }
 
 export function getPersonalNotificationPreferences() {
