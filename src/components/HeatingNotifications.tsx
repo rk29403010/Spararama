@@ -123,11 +123,17 @@ export function HeatingNotifications() {
         ]);
         if (cancelled) return;
 
-        const genericItem = generic.notifications.find(item => !dismissedGeneric.current.has(`${item.id}:${item.updatedAt}`));
+        // Heating still has its established modal/toast presentation while the
+        // migration is in progress. Show the generic banner only for other groups
+        // so a heating event is not presented twice in the foreground.
+        const genericItem = generic.notifications.find(item =>
+          !item.group.startsWith('heating.')
+          && !dismissedGeneric.current.has(`${item.id}:${item.updatedAt}`)
+        );
         setGenericNotice(genericItem || null);
 
         const manual = notifications.find(item => item.kind === 'manual_start_required');
-        if (manual) setManualPrompt(manual);
+        setManualPrompt(manual || null);
 
         for (const item of notifications) {
           if (seen.current.has(item.id) || item.deliveredAt) continue;
