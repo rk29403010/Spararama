@@ -236,6 +236,21 @@ export async function disablePushNotifications() {
   }
 }
 
+export function renamePushRegistration(registrationId: string, deviceName: string) {
+  return requestJson<PushRegistrationDto>(`/api/push/registrations/${encodeURIComponent(registrationId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ deviceName })
+  });
+}
+
+export async function removePushRegistration(registrationId: string) {
+  const result = await requestJson<{ removed: boolean }>(`/api/push/registrations/${encodeURIComponent(registrationId)}`, { method: 'DELETE' });
+  if (registrationId === currentPushRegistrationId()) {
+    try { localStorage.removeItem(REGISTRATION_ID_KEY); } catch { /* optional */ }
+  }
+  return result;
+}
+
 export function testPushNotification() {
   return requestJson<PushDeliveryDto>('/api/push/test', { method: 'POST' });
 }
