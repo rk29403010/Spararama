@@ -53,12 +53,8 @@ export function resolvePushConfig(): PushConfig {
 }
 
 function notificationCopy(notification: HeatingNotification) {
-  if (notification.kind === 'target_reached') {
-    return { title: 'Hot tub temperature reached.', body: '' };
-  }
-  if (notification.kind === 'heat_soak_complete') {
-    return { title: 'Your hot tub is ready!', body: '' };
-  }
+  if (notification.kind === 'target_reached') return { title: 'Hot tub temperature reached.', body: '' };
+  if (notification.kind === 'heat_soak_complete') return { title: 'Your hot tub is ready!', body: '' };
   return { title: notification.title, body: notification.message };
 }
 
@@ -89,9 +85,7 @@ export class PushService {
       || initializeApp({ credential: applicationDefault(), projectId: this.config.projectId }, PUSH_APP_NAME);
   }
 
-  get enabled() {
-    return this.config.enabled;
-  }
+  get enabled() { return this.config.enabled; }
 
   async status() {
     const registrations = await this.store.list();
@@ -104,20 +98,11 @@ export class PushService {
     };
   }
 
-  register(input: {
-    token: string;
-    userUid?: string;
-    deviceId?: string;
-    deviceName?: string;
-    userAgent?: string;
-    label?: string;
-  }) {
+  register(input: { token: string; userUid?: string; deviceId?: string; deviceName?: string; userAgent?: string; label?: string }) {
     return this.store.upsert(input);
   }
 
-  unregister(id: string, userUid?: string) {
-    return this.store.removeById(id, userUid);
-  }
+  unregister(id: string, userUid?: string) { return this.store.removeById(id, userUid); }
 
   async listRegistrations(userUid?: string) {
     return (await this.store.list(userUid)).map(safeRegistration);
@@ -137,8 +122,8 @@ export class PushService {
 
   sendNotificationToRegistration(
     registrationId: string,
-    userUid: string,
-    notification: GenericPushNotification
+    notification: GenericPushNotification,
+    userUid?: string
   ): Promise<PushDeliveryResult> {
     return this.sendPayload({
       notificationId: notification.id,
@@ -165,21 +150,9 @@ export class PushService {
     });
   }
 
-  private async sendPayload(
-    payload: PushPayload,
-    registrationIds?: string[],
-    userUid?: string
-  ): Promise<PushDeliveryResult> {
+  private async sendPayload(payload: PushPayload, registrationIds?: string[], userUid?: string): Promise<PushDeliveryResult> {
     if (!this.enabled || !this.app) {
-      return {
-        enabled: false,
-        targetCount: 0,
-        successCount: 0,
-        failureCount: 0,
-        retryableFailureCount: 0,
-        removedInvalidCount: 0,
-        targets: []
-      };
+      return { enabled: false, targetCount: 0, successCount: 0, failureCount: 0, retryableFailureCount: 0, removedInvalidCount: 0, targets: [] };
     }
 
     let registrations = await this.store.list(userUid);
@@ -189,15 +162,7 @@ export class PushService {
     }
     const tokens = registrations.map(item => item.token);
     if (!tokens.length) {
-      return {
-        enabled: true,
-        targetCount: 0,
-        successCount: 0,
-        failureCount: 0,
-        retryableFailureCount: 0,
-        removedInvalidCount: 0,
-        targets: []
-      };
+      return { enabled: true, targetCount: 0, successCount: 0, failureCount: 0, retryableFailureCount: 0, removedInvalidCount: 0, targets: [] };
     }
 
     const attemptedAt = Date.now();
@@ -235,7 +200,6 @@ export class PushService {
             retryable: false
           };
         }
-
         const code = item.error?.code || 'messaging/unknown-error';
         const invalid = INVALID_TOKEN_CODES.has(code);
         if (invalid) invalidTokens.push(registration.token);
