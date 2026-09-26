@@ -23,6 +23,7 @@ export interface HeatingScheduleSource {
 const DEFAULT_OFFLINE_AFTER_MS = 3 * 60_000;
 const DEFAULT_STALE_AFTER_MS = 90_000;
 const DEFAULT_CHECK_INTERVAL_MS = 60_000;
+const RELEVANT_OVERDUE_WINDOW_MS = 12 * 60 * 60_000;
 const INCIDENT_KEY = 'spa-connectivity';
 
 function timeText(timestamp: number) {
@@ -153,7 +154,8 @@ export class SpaHealthMonitor {
     const schedule = await this.relevantHeatingSchedule(now);
     const heatingDue = Boolean(schedule && schedule.startTime <= now);
     const heatingRunning = Boolean(schedule && ['running-remote', 'running-manual'].includes(schedule.status));
-    const urgent = heatingDue || heatingRunning;
+    const targetMissed = Boolean(schedule && schedule.targetTime < now);
+    const urgent = heatingDue || heatingRunning || targetMissed;
     const deliverySuppressed = await this.alertSuppression?.isOfflineAlertSuppressed(now) || false;
 
     let title = 'Hot tub is offline';
@@ -161,7 +163,9 @@ export class SpaHealthMonitor {
     if (schedule) {
       if (urgent) {
         title = heatingRunning ? 'Heating connection lost - hot tub is offline' : 'Heating cannot start - hot tub is offline';
-        message += ` The planned ${timeText(schedule.targetTime)} ready time is at risk.`;
+        message += targetMissed
+          ? ` The planned ${timeText(schedule.targetTime)} ready time has passed.`
+          : ` The planned ${timeText(schedule.targetTime)} ready time is at risk.`;
       } else {
         message += ` Heating is planned for ${timeText(schedule.startTime)} for a ${timeText(schedule.targetTime)} bath.`;
       }
@@ -184,7 +188,8 @@ export class SpaHealthMonitor {
           heatingScheduleId: schedule.id,
           heatingStartTime: schedule.startTime,
           heatingTargetTime: schedule.targetTime,
-          heatingStatus: schedule.status
+          heatingStatus: schedule.status,
+          heatingTargetMissed: targetMissed
         } : {})
       }
     });
@@ -194,7 +199,10 @@ export class SpaHealthMonitor {
     if (!this.heating) return undefined;
     const schedules = await this.heating.listSchedules();
     return schedules
-      .filter(schedule => !['ready', 'cancelled'].includes(schedule.status) && schedule.targetTime >= now)
+      .filter(schedule =>
+        !['ready', 'cancelled'].includes(schedule.status)
+        && schedule.targetTime >= now - RELEVANT_OVERDUE_WINDOW_MS
+      )
       .sort((a, b) => a.startTime - b.startTime)[0];
   }
 }
