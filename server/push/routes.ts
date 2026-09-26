@@ -89,6 +89,11 @@ export function registerPushRoutes(app: Express, push: PushService, security: Lo
     res.json({ ...status, browserApiKeyConfigured, configured: status.configured && browserApiKeyConfigured });
   }));
 
+  app.get('/api/push/registrations', security.protectAuthenticatedOperation, asyncRoute(async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ registrations: await push.listRegistrations() });
+  }));
+
   app.post(
     '/api/push/registrations',
     security.protectAuthenticatedOperation,
