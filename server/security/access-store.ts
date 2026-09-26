@@ -21,6 +21,7 @@ export interface ManagedInstallationUser extends InstallationAccess {
 export interface ManagedInvite {
   id: string;
   email: string;
+  role: InstallationRole;
   permissions: InstallationPermission[];
   createdAt: number;
   expiresAt: number;
@@ -95,6 +96,7 @@ export class FirebaseInstallationAccessStore {
       return [{
         id: document.id,
         email: typeof data.email === 'string' ? data.email : '',
+        role: inviteRole,
         permissions: normalizePermissions(data.permissions, inviteRole),
         createdAt: Number(data.createdAt || 0),
         expiresAt,
