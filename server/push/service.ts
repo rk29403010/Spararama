@@ -2,7 +2,7 @@ import { applicationDefault, getApps, initializeApp, type App } from 'firebase-a
 import { getMessaging } from 'firebase-admin/messaging';
 import type { HeatingNotification } from '../heating/types';
 import { PushRegistrationStore } from './store';
-import type { PushDeliveryResult } from './types';
+import type { PushDeliveryResult, PushTargetDeliveryResult } from './types';
 
 const DEFAULT_PROJECT_ID = 'microprojects-481213';
 const PUSH_APP_NAME = 'spararama-push';
@@ -77,15 +77,36 @@ export class PushService {
     return this.store.removeById(id);
   }
 
+  async listRegistrations() {
+    const registrations = await this.store.list();
+    return registrations.map(({ token: _token, ...registration }) => registration);
+  }
+
   async sendHeatingNotification(notification: HeatingNotification): Promise<PushDeliveryResult> {
     if (!this.enabled || !this.app) {
-      return { enabled: false, targetCount: 0, successCount: 0, failureCount: 0, retryableFailureCount: 0, removedInvalidCount: 0 };
+      return {
+        enabled: false,
+        targetCount: 0,
+        successCount: 0,
+        failureCount: 0,
+        retryableFailureCount: 0,
+        removedInvalidCount: 0,
+        targets: []
+      };
     }
 
     const registrations = await this.store.list();
     const tokens = registrations.map(item => item.token);
     if (!tokens.length) {
-      return { enabled: true, targetCount: 0, successCount: 0, failureCount: 0, retryableFailureCount: 0, removedInvalidCount: 0 };
+      return {
+        enabled: true,
+        targetCount: 0,
+        successCount: 0,
+        failureCount: 0,
+        retryableFailureCount: 0,
+        removedInvalidCount: 0,
+        targets: []
+      };
     }
 
     const copy = notificationCopy(notification);
@@ -112,13 +133,35 @@ export class PushService {
       });
 
       const invalidTokens: string[] = [];
-      let retryableFailureCount = 0;
-      response.responses.forEach((item, index) => {
-        if (item.success) return;
-        const code = item.error?.code || '';
-        if (INVALID_TOKEN_CODES.has(code)) invalidTokens.push(tokens[index]);
-        else retryableFailureCount += 1;
+      const targets: PushTargetDeliveryResult[] = response.responses.map((item, index) => {
+        const registration = registrations[index];
+        if (item.success) {
+          return {
+            registrationId: registration.id,
+            label: registration.label,
+            userAgent: registration.userAgent,
+            success: true,
+            invalid: false,
+            retryable: false
+          };
+        }
+
+        const code = item.error?.code || 'messaging/unknown-error';
+        const invalid = INVALID_TOKEN_CODES.has(code);
+        if (invalid) invalidTokens.push(registration.token);
+        return {
+          registrationId: registration.id,
+          label: registration.label,
+          userAgent: registration.userAgent,
+          success: false,
+          invalid,
+          retryable: !invalid,
+          errorCode: code,
+          errorMessage: item.error?.message || 'Firebase rejected the push notification.'
+        };
       });
+
+      const retryableFailureCount = targets.filter(item => !item.success && item.retryable).length;
       const removedInvalidCount = await this.store.removeTokens(invalidTokens);
       return {
         enabled: true,
@@ -126,9 +169,12 @@ export class PushService {
         successCount: response.successCount,
         failureCount: response.failureCount,
         retryableFailureCount,
-        removedInvalidCount
+        removedInvalidCount,
+        targets
       };
     } catch (error: any) {
+      const errorMessage = error?.message || String(error);
+      const errorCode = typeof error?.code === 'string' ? error.code : undefined;
       return {
         enabled: true,
         targetCount: tokens.length,
@@ -136,7 +182,17 @@ export class PushService {
         failureCount: tokens.length,
         retryableFailureCount: tokens.length,
         removedInvalidCount: 0,
-        error: error?.message || String(error)
+        targets: registrations.map(registration => ({
+          registrationId: registration.id,
+          label: registration.label,
+          userAgent: registration.userAgent,
+          success: false,
+          invalid: false,
+          retryable: true,
+          errorCode,
+          errorMessage
+        })),
+        error: errorMessage
       };
     }
   }
