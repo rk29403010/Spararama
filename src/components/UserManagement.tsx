@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Copy, Mail, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
+import { Copy, Mail, QrCode as QrCodeIcon, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
 import { accessApi, type InstallationPermission, type ManagedUser } from '../lib/accessApi';
 import { useAccess } from '../lib/access';
+import { qrSvgPath } from '../lib/qrCode';
 
 const PERMISSION_OPTIONS: Array<{ id: InstallationPermission; label: string; detail: string }> = [
   { id: 'spa_control', label: 'Operate spa', detail: 'Heater, filter, bubbles and target temperature' },
@@ -142,6 +143,7 @@ export function UserManagement() {
 
   const isAdmin = can('user_admin') && Boolean(user && access?.authorized);
   const currentUid = access?.uid || '';
+  const inviteQr = useMemo(() => inviteLink ? qrSvgPath(inviteLink) : null, [inviteLink]);
 
   const load = async () => {
     if (!user || !isAdmin) return;
@@ -230,6 +232,24 @@ export function UserManagement() {
       {inviteLink && <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4">
         <p className="font-black text-emerald-950">Invite ready for {inviteEmail}</p>
         <p className="mt-1 text-sm font-bold text-emerald-900">The email address is only where you send the invite. They can sign in with a different Google/Gmail address.</p>
+        {inviteQr && <div className="mt-4 flex flex-col sm:flex-row items-center sm:items-start gap-4">
+          <div className="rounded-2xl bg-white p-3 border border-emerald-200 shadow-sm">
+            <svg
+              role="img"
+              aria-label={`QR code invitation for ${inviteEmail}`}
+              viewBox={`${-4} ${-4} ${inviteQr.size + 8} ${inviteQr.size + 8}`}
+              className="w-56 h-56 max-w-full"
+              shapeRendering="crispEdges"
+            >
+              <rect x={-4} y={-4} width={inviteQr.size + 8} height={inviteQr.size + 8} fill="white" />
+              <path d={inviteQr.path} fill="black" />
+            </svg>
+          </div>
+          <div className="min-w-0 text-center sm:text-left">
+            <div className="flex items-center justify-center sm:justify-start gap-2 font-black text-emerald-950"><QrCodeIcon className="w-5 h-5" aria-hidden="true" />Scan to join</div>
+            <p className="mt-1 text-sm font-bold text-emerald-900">Open the camera on the other phone and scan this code. It contains the same single-use invite link and is generated locally in Spararama.</p>
+          </div>
+        </div>}
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" onClick={() => void copyInvite()} className="min-h-11 rounded-xl bg-white px-4 font-black text-emerald-950 border border-emerald-200 flex items-center gap-2"><Copy className="w-4 h-4" aria-hidden="true" />Copy link</button>
           <button type="button" onClick={emailInvite} className="min-h-11 rounded-xl bg-emerald-800 px-4 font-black text-white flex items-center gap-2"><Mail className="w-4 h-4" aria-hidden="true" />Email invite</button>
