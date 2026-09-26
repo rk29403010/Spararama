@@ -105,6 +105,7 @@ export class AlexaAlertDispatcher {
     let changed = false;
 
     for (const notification of notificationState.notifications) {
+      if (notification.deliverySuppressed) continue;
       const speech = alexaSpeech(notification);
       if (!speech) continue;
       if (!(await this.preferences.alexaEnabled(notification.group))) continue;
