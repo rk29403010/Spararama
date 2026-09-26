@@ -55,6 +55,10 @@ class QrSegment {
   getData() { return this.bits.slice(); }
 }
 
+class Ecc {
+  constructor(readonly ordinal: number, readonly formatBits: number) {}
+}
+
 export class QrCode {
   static readonly LOW = new Ecc(0, 1);
   static readonly MEDIUM = new Ecc(1, 0);
@@ -437,10 +441,6 @@ export class QrCode {
     [-1,1,1,2,2,4,4,6,6,8,8,8,10,12,16,12,17,16,18,21,20,23,23,25,27,29,34,34,35,38,40,43,45,48,51,53,56,59,62,65,68],
     [-1,1,1,2,4,4,4,5,6,8,8,11,11,16,16,18,16,19,21,25,25,25,34,30,32,35,37,40,42,45,48,51,54,57,60,63,66,70,74,77,81]
   ];
-}
-
-class Ecc {
-  constructor(readonly ordinal: number, readonly formatBits: number) {}
 }
 
 export function qrSvgPath(text: string) {
