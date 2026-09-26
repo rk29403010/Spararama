@@ -1,6 +1,5 @@
 import { deleteToken, getMessaging, getToken, isSupported } from 'firebase/messaging';
-import { firebaseApp } from './firebase';
-import { fetchLocalControl } from './localControlAuth';
+import { auth, firebaseApp } from './firebase';
 
 const REGISTRATION_ID_KEY = 'spararama_push_registration_id';
 const DEVICE_ID_KEY = 'spararama_push_device_id';
@@ -70,9 +69,17 @@ export interface PushSetupResult {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetchLocalControl(path, {
+  const user = auth?.currentUser;
+  const idToken = user ? await user.getIdToken() : '';
+  const response = await fetch(path, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) }
+    credentials: 'same-origin',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+      ...(init?.headers || {})
+    }
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -183,6 +190,8 @@ export async function syncPushRegistration(options: { requestPermission?: boolea
   if (Notification.permission !== 'granted') {
     return { status: 'permission-required', message: 'Notification permission has not been granted yet.' };
   }
+
+  if (!auth?.currentUser) throw new Error('Sign in to enable push notifications on this device.');
 
   const serviceWorkerRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
     scope: '/firebase-cloud-messaging-push-scope'
