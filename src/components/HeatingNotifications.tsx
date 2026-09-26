@@ -124,10 +124,11 @@ export function HeatingNotifications() {
         if (cancelled) return;
 
         // Heating still has its established modal/toast presentation while the
-        // migration is in progress. Show the generic banner only for other groups
-        // so a heating event is not presented twice in the foreground.
+        // migration is in progress. Planned-maintenance incidents stay in history
+        // but are not surfaced as foreground alerts.
         const genericItem = generic.notifications.find(item =>
-          !item.group.startsWith('heating.')
+          !item.deliverySuppressed
+          && !item.group.startsWith('heating.')
           && !dismissedGeneric.current.has(`${item.id}:${item.updatedAt}`)
         );
         setGenericNotice(genericItem || null);
