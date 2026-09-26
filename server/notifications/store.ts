@@ -54,6 +54,27 @@ export class NotificationStore {
     );
   }
 
+  async listDeliveryAudit(notificationId: string, limit = 100): Promise<NotificationDelivery[]> {
+    const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+    try {
+      const text = await fs.readFile(this.deliveriesPath, 'utf8');
+      const matches: NotificationDelivery[] = [];
+      for (const line of text.split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const record = JSON.parse(line) as NotificationDelivery;
+          if (record?.notificationId === notificationId) matches.push(record);
+        } catch {
+          // One corrupt audit line should not make the rest of delivery history unreadable.
+        }
+      }
+      return matches.sort((a, b) => b.attemptedAt - a.attemptedAt).slice(0, safeLimit);
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') return [];
+      throw error;
+    }
+  }
+
   private appendText(filePath: string, text: string) {
     const run = this.appendQueue.then(async () => {
       await fs.mkdir(this.baseDir, { recursive: true });
