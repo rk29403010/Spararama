@@ -1,13 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bell, Send, Smartphone, TriangleAlert, Volume2 } from 'lucide-react';
+import { Bell, Clock3, History, Send, Smartphone, TriangleAlert, Volume2 } from 'lucide-react';
 import { useAccess } from '../lib/access';
 import {
   getPersonalNotificationPreferences,
   getSharedNotificationPreferences,
+  getSpaHealthSettings,
+  listRecentNotifications,
   updatePersonalNotificationPreferences,
   updateSharedNotificationPreferences,
+  updateSpaHealthSettings,
   type NotificationGroup,
-  type NotificationGroupPreferences
+  type NotificationGroupPreferences,
+  type SpaHealthSettingsDto,
+  type SpararamaNotificationDto
 } from '../lib/notificationsApi';
 import {
   currentPushDeviceId,
@@ -30,6 +35,19 @@ const GROUPS: Array<{ id: NotificationGroup; label: string; detail: string }> = 
 
 function timeText(timestamp: number | undefined) {
   return timestamp ? new Date(timestamp).toLocaleString() : 'Never';
+}
+
+function notificationState(item: SpararamaNotificationDto) {
+  if (item.resolvedAt) return `Resolved ${timeText(item.resolvedAt)}`;
+  if (item.deliverySuppressed) return 'Active · alerts paused';
+  return 'Active';
+}
+
+function tomorrowMorning() {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  date.setHours(8, 0, 0, 0);
+  return date.getTime();
 }
 
 function PreferenceRows({
@@ -70,8 +88,11 @@ function PreferenceRows({
 export function NotificationSettings() {
   const { user, access, can } = useAccess();
   const isAdmin = can('user_admin');
+  const canControlSpa = can('spa_control');
   const [personal, setPersonal] = useState<NotificationGroupPreferences | null>(null);
   const [sharedAlexa, setSharedAlexa] = useState<NotificationGroupPreferences | null>(null);
+  const [healthSettings, setHealthSettings] = useState<SpaHealthSettingsDto | null>(null);
+  const [recent, setRecent] = useState<SpararamaNotificationDto[]>([]);
   const [devices, setDevices] = useState<PushRegistrationDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
@@ -83,12 +104,16 @@ export function NotificationSettings() {
     setLoading(true);
     setError(null);
     try {
-      const [mine, pushDevices] = await Promise.all([
+      const [mine, pushDevices, health, history] = await Promise.all([
         getPersonalNotificationPreferences(),
-        listPushRegistrations()
+        listPushRegistrations(),
+        getSpaHealthSettings(),
+        listRecentNotifications(10)
       ]);
       setPersonal(mine.push);
       setDevices(pushDevices.registrations);
+      setHealthSettings(health);
+      setRecent(history.notifications);
       if (isAdmin) {
         const shared = await getSharedNotificationPreferences();
         setSharedAlexa(shared.alexa);
@@ -196,6 +221,40 @@ export function NotificationSettings() {
     }
   };
 
+  const pauseOfflineAlerts = async (until?: number) => {
+    setSaving('spa-health');
+    setMessage(null);
+    setError(null);
+    try {
+      const next = await updateSpaHealthSettings(true, until);
+      setHealthSettings(next);
+      setMessage(until ? `Spa-offline alerts paused until ${timeText(until)}.` : 'Spa-offline alerts paused until you turn them back on.');
+      const history = await listRecentNotifications(10);
+      setRecent(history.notifications);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not pause spa-offline alerts.');
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const resumeOfflineAlerts = async () => {
+    setSaving('spa-health');
+    setMessage(null);
+    setError(null);
+    try {
+      const next = await updateSpaHealthSettings(false);
+      setHealthSettings(next);
+      setMessage('Spa-offline alerts are active again.');
+      const history = await listRecentNotifications(10);
+      setRecent(history.notifications);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not resume spa-offline alerts.');
+    } finally {
+      setSaving(null);
+    }
+  };
+
   if (!user || !access?.authorized) {
     return (
       <section className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200">
@@ -268,6 +327,57 @@ export function NotificationSettings() {
           <PreferenceRows values={sharedAlexa} route="alexa" saving={saving} onChange={(group, enabled) => void setAlexaGroup(group, enabled)} />
         </div>
       )}
+
+      <div className="space-y-3 border-t border-slate-200 pt-5">
+        <div className="flex items-start gap-3">
+          <Clock3 className="w-6 h-6 text-indigo-700 shrink-0" aria-hidden="true" />
+          <div>
+            <h4 className="font-black text-slate-950">Planned shutdown / maintenance</h4>
+            <p className="text-sm font-bold text-slate-600">Pause only spa-offline alerts. Spararama still records the outage and other notification groups keep working.</p>
+          </div>
+        </div>
+        {healthSettings?.offlineAlertsPaused ? (
+          <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4">
+            <div className="font-black text-amber-950">Spa-offline alerts are paused</div>
+            <div className="text-sm font-bold text-amber-900 mt-1">
+              {healthSettings.offlineAlertsPausedUntil
+                ? `Until ${timeText(healthSettings.offlineAlertsPausedUntil)}`
+                : 'Until someone turns them back on'}
+            </div>
+            {canControlSpa && <button type="button" disabled={saving === 'spa-health'} onClick={() => void resumeOfflineAlerts()} className="mt-3 min-h-11 px-4 rounded-xl bg-amber-900 text-white font-black disabled:opacity-50">Resume offline alerts</button>}
+          </div>
+        ) : canControlSpa ? (
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={saving === 'spa-health'} onClick={() => void pauseOfflineAlerts(Date.now() + 60 * 60_000)} className="min-h-11 px-4 rounded-xl bg-slate-100 text-slate-900 font-black disabled:opacity-50">1 hour</button>
+            <button type="button" disabled={saving === 'spa-health'} onClick={() => void pauseOfflineAlerts(Date.now() + 4 * 60 * 60_000)} className="min-h-11 px-4 rounded-xl bg-slate-100 text-slate-900 font-black disabled:opacity-50">4 hours</button>
+            <button type="button" disabled={saving === 'spa-health'} onClick={() => void pauseOfflineAlerts(tomorrowMorning())} className="min-h-11 px-4 rounded-xl bg-slate-100 text-slate-900 font-black disabled:opacity-50">Until tomorrow</button>
+            <button type="button" disabled={saving === 'spa-health'} onClick={() => void pauseOfflineAlerts()} className="min-h-11 px-4 rounded-xl bg-slate-100 text-slate-900 font-black disabled:opacity-50">Until turned back on</button>
+          </div>
+        ) : (
+          <p className="text-sm font-bold text-slate-600">A user with spa-control permission can pause these alerts for planned maintenance.</p>
+        )}
+      </div>
+
+      <div className="space-y-3 border-t border-slate-200 pt-5">
+        <div className="flex items-center gap-2">
+          <History className="w-5 h-5 text-indigo-700" aria-hidden="true" />
+          <h4 className="font-black text-slate-950">Recent notification history</h4>
+        </div>
+        {recent.length ? (
+          <div className="divide-y divide-slate-200 rounded-2xl border border-slate-200 overflow-hidden">
+            {recent.map(item => (
+              <div key={item.id} className="p-3 bg-white">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="font-black text-slate-900">{item.title}</div>
+                  <div className={`text-xs font-black shrink-0 ${item.severity === 'urgent' ? 'text-rose-800' : item.severity === 'warning' ? 'text-amber-800' : 'text-slate-500'}`}>{item.severity}</div>
+                </div>
+                {item.message && <div className="text-sm font-bold text-slate-600 mt-1">{item.message}</div>}
+                <div className="text-xs font-bold text-slate-500 mt-1">{timeText(item.createdAt)} · {notificationState(item)}</div>
+              </div>
+            ))}
+          </div>
+        ) : <p className="text-sm font-bold text-slate-600">No notification history yet.</p>}
+      </div>
 
       {loading && <p role="status" className="text-sm font-bold text-slate-600">Loading notification settings…</p>}
       {message && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-900">{message}</p>}
