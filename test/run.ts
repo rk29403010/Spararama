@@ -34,6 +34,7 @@ import './server/heating-planner.test';
 import './server/heating-scheduler.test';
 import './server/notifications.test';
 import './server/spa-health-monitor.test';
+import './server/spa-health-settings.test';
 import './server/system-update.test';
 import './server/push-store.test';
 import './server/voice-monkey.test';
