@@ -67,7 +67,13 @@ async function startServer() {
   registerImageAnalysisRoutes(app, localControlSecurity);
 
   app.use(express.json({ limit: "1mb" }));
-  registerUserManagementRoutes(app, localControlSecurity);
+  registerUserManagementRoutes(app, localControlSecurity, undefined, {
+    beforeUserRemoved: async uid => {
+      const registrations = await pushService.store.list(uid);
+      for (const registration of registrations) await pushService.unregister(registration.id, uid);
+      await notificationPreferences.removeUser(uid);
+    }
+  });
   registerNotificationRoutes(app, notificationService, localControlSecurity);
 
   const spaAdapter = createSpaAdapter();
