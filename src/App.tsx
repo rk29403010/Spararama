@@ -4,6 +4,7 @@ import { AppState } from './types';
 import { Home } from './components/Home';
 import { BathingControls } from './components/BathingControls';
 import { HeatingNotifications } from './components/HeatingNotifications';
+import { NotificationCentreButton } from './components/NotificationCentreButton';
 import { ReminderModal } from './components/ReminderModal';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -243,6 +244,11 @@ export default function App() {
               <ErrorBoundary resetKey="header-auth" title="Sign-in unavailable"><GoogleSignInButton /></ErrorBoundary>
             ) : (
               <UserMenu user={user} />
+            )}
+            {user && access?.authorized && (
+              <ErrorBoundary resetKey="notification-centre" title="Notifications unavailable">
+                <NotificationCentreButton onOpenSettings={() => setActiveTab('settings')} />
+              </ErrorBoundary>
             )}
             <button
               type="button"
