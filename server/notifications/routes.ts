@@ -25,7 +25,10 @@ export function registerNotificationRoutes(
     res.json({ notifications: await notifications.listActive() });
   }));
 
-  app.get('/api/notifications/recent', security.protectAuthenticatedOperation, asyncRoute(async (req, res) => {
+  const requireMember = security.requireBearerRole(['owner', 'member', 'viewer']);
+  const requireAdmin = security.requireBearerPermission('user_admin');
+
+  app.get('/api/notifications/recent', requireMember, asyncRoute(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     const requested = Number(req.query.limit || 100);
     const limit = Number.isFinite(requested) ? requested : 100;
@@ -34,13 +37,13 @@ export function registerNotificationRoutes(
 
   app.post(
     '/api/notifications/:id/acknowledge',
-    security.protectAuthenticatedOperation,
+    requireMember,
     asyncRoute(async (req, res) => {
       res.json(await notifications.acknowledge(req.params.id, signedInUid(res) || undefined));
     })
   );
 
-  app.get('/api/notification-preferences/me', security.protectAuthenticatedOperation, asyncRoute(async (_req, res) => {
+  app.get('/api/notification-preferences/me', requireMember, asyncRoute(async (_req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     const uid = signedInUid(res);
     if (!uid) {
@@ -50,7 +53,7 @@ export function registerNotificationRoutes(
     res.json(await notifications.preferences.getUser(uid));
   }));
 
-  app.patch('/api/notification-preferences/me', security.protectAuthenticatedOperation, asyncRoute(async (req, res) => {
+  app.patch('/api/notification-preferences/me', requireMember, asyncRoute(async (req, res) => {
     const uid = signedInUid(res);
     if (!uid) {
       res.status(409).json({ error: 'Sign in to manage personal notification preferences.' });
@@ -58,8 +61,6 @@ export function registerNotificationRoutes(
     }
     res.json(await notifications.preferences.updateUser(uid, req.body?.push));
   }));
-
-  const requireAdmin = security.requireBearerPermission('user_admin');
 
   app.get('/api/notification-preferences/shared', requireAdmin, asyncRoute(async (_req, res) => {
     res.setHeader('Cache-Control', 'no-store');
