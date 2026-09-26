@@ -86,6 +86,10 @@ self.addEventListener('notificationclick', (event) => {
 `;
 }
 
+function signedInUid(res: Response) {
+  return String(res.locals.localControlUid || '').trim();
+}
+
 export function registerPushRoutes(app: Express, push: PushService, security: LocalControlSecurity) {
   app.get('/api/push/config', asyncRoute(async (_req, res) => {
     const status = await push.status();
@@ -95,7 +99,8 @@ export function registerPushRoutes(app: Express, push: PushService, security: Lo
 
   app.get('/api/push/registrations', security.protectAuthenticatedOperation, asyncRoute(async (_req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ registrations: await push.listRegistrations() });
+    const uid = signedInUid(res);
+    res.json({ registrations: await push.listRegistrations(uid || undefined) });
   }));
 
   app.post(
@@ -104,17 +109,50 @@ export function registerPushRoutes(app: Express, push: PushService, security: Lo
     express.json({ limit: PUSH_REGISTRATION_BODY_LIMIT }),
     asyncRoute(async (req, res) => {
       const token = typeof req.body?.token === 'string' ? req.body.token : '';
+      const uid = signedInUid(res);
       const registration = await push.register({
         token,
+        userUid: uid || undefined,
+        deviceId: typeof req.body?.deviceId === 'string' ? req.body.deviceId : undefined,
+        deviceName: typeof req.body?.deviceName === 'string' ? req.body.deviceName : undefined,
         userAgent: typeof req.body?.userAgent === 'string' ? req.body.userAgent : undefined,
         label: typeof req.body?.label === 'string' ? req.body.label : undefined
       });
-      res.status(201).json({ id: registration.id, createdAt: registration.createdAt, updatedAt: registration.updatedAt });
+      res.status(201).json({
+        id: registration.id,
+        createdAt: registration.createdAt,
+        updatedAt: registration.updatedAt,
+        lastRegisteredAt: registration.lastRegisteredAt,
+        deviceId: registration.deviceId,
+        deviceName: registration.deviceName
+      });
     })
   );
 
   app.delete('/api/push/registrations/:id', security.protectAuthenticatedOperation, asyncRoute(async (req, res) => {
-    res.json({ removed: await push.unregister(req.params.id) });
+    const uid = signedInUid(res);
+    res.json({ removed: await push.unregister(req.params.id, uid || undefined) });
+  }));
+
+  app.post('/api/push/registrations/:id/test', security.protectAuthenticatedOperation, asyncRoute(async (req, res) => {
+    const uid = signedInUid(res);
+    if (!uid) {
+      res.status(409).json({ error: 'Sign in through the normal Spararama address to test a specific device.' });
+      return;
+    }
+    const now = Date.now();
+    const result = await push.sendNotificationToRegistration(req.params.id, uid, {
+      id: `push-test-${now}`,
+      type: 'system.push_test',
+      severity: 'info',
+      title: 'Spararama device test',
+      message: 'This device can receive Spararama background notifications.'
+    });
+    if (result.targetCount === 0) {
+      res.status(404).json({ error: 'Push device not found for this user.', ...result });
+      return;
+    }
+    res.json(result);
   }));
 
   app.post('/api/push/test', security.protectAuthenticatedOperation, asyncRoute(async (_req, res) => {
