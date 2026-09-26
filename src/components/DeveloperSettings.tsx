@@ -3,6 +3,7 @@ import { Bell, RefreshCw, Wrench } from 'lucide-react';
 import { systemApi, type SystemUpdateStatusDto } from '../lib/systemApi';
 import {
   listPushRegistrations,
+  syncPushRegistration,
   testPushRegistration,
   type PushRegistrationDto
 } from '../lib/pushNotifications';
@@ -65,6 +66,20 @@ export function DeveloperSettings() {
     } catch (error: any) {
       setPushDevices([]);
       setPushMessage(error?.message || 'Unable to read push registrations.');
+    }
+  }
+
+  async function registerThisDevice() {
+    setPushBusy('__register__');
+    setPushMessage('Registering this browser for background notifications…');
+    try {
+      const result = await syncPushRegistration({ requestPermission: true });
+      setPushMessage(result.message);
+      await loadPushDevices();
+    } catch (error: any) {
+      setPushMessage(error?.message || 'Could not register this device for push notifications.');
+    } finally {
+      setPushBusy(null);
     }
   }
 
@@ -245,7 +260,10 @@ export function DeveloperSettings() {
                 <Bell className="w-5 h-5 text-indigo-700" aria-hidden="true" />
                 <div className="font-black text-slate-900">Push devices</div>
               </div>
-              <button type="button" onClick={() => void loadPushDevices()} className="min-h-10 px-3 rounded-xl bg-slate-100 font-black text-slate-800">Refresh</button>
+              <div className="flex gap-2">
+                <button type="button" disabled={pushBusy === '__register__'} onClick={() => void registerThisDevice()} className="min-h-10 px-3 rounded-xl bg-indigo-700 text-white font-black disabled:opacity-50">{pushBusy === '__register__' ? 'Registering…' : 'Register this device'}</button>
+                <button type="button" onClick={() => void loadPushDevices()} className="min-h-10 px-3 rounded-xl bg-slate-100 font-black text-slate-800">Refresh</button>
+              </div>
             </div>
 
             {pushDevices.length === 0 ? (
