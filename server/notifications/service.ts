@@ -84,10 +84,6 @@ export class NotificationService {
       if (!notification) return null;
       const now = Date.now();
 
-      // A notification becoming visible in one open browser must not resolve the
-      // backend incident: other registered devices may still need Push retries.
-      // Keep visibility and resolution as separate states while the legacy heating
-      // UI is being migrated to the generic notification centre.
       if (reason === 'shown_in_app') {
         if (!notification.seenAt) {
           notification.seenAt = now;
@@ -287,6 +283,7 @@ export class NotificationService {
       });
     }
     state.deliveries.push(...deliveries);
+    await this.store.appendDeliveries(deliveries);
     await this.store.save(state);
   }
 
@@ -342,6 +339,7 @@ export class NotificationService {
         } : {})
       };
       state.deliveries.push(record);
+      await this.store.appendDelivery(record);
       changed = true;
     }
 
