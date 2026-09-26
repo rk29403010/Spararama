@@ -14,6 +14,7 @@ import './server/mock-spa.test';
 import './server/manual-spa.test';
 import './server/bubbles.test';
 import './server/alexa-direct.test';
+import './server/alexa-notifications.test';
 import './server/remote.test';
 import './server/remote-actuator-cadence.test';
 import './server/remote-cloud.test';
