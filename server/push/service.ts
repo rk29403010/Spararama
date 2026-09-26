@@ -2,7 +2,7 @@ import { applicationDefault, getApps, initializeApp, type App } from 'firebase-a
 import { getMessaging } from 'firebase-admin/messaging';
 import type { HeatingNotification } from '../heating/types';
 import { PushRegistrationStore } from './store';
-import type { PushDeliveryResult, PushTargetDeliveryResult } from './types';
+import type { PushDeliveryResult, PushRegistration, PushTargetDeliveryResult } from './types';
 
 const DEFAULT_PROJECT_ID = 'microprojects-481213';
 const PUSH_APP_NAME = 'spararama-push';
@@ -71,6 +71,11 @@ function deliveryErrorSummary(targets: PushTargetDeliveryResult[]) {
   return `${target}: ${code}${message}`;
 }
 
+function safeRegistration(registration: PushRegistration) {
+  const { token: _token, ...safe } = registration;
+  return safe;
+}
+
 export class PushService {
   readonly config: PushConfig;
   readonly store: PushRegistrationStore;
@@ -99,17 +104,23 @@ export class PushService {
     };
   }
 
-  register(input: { token: string; userAgent?: string; label?: string }) {
+  register(input: {
+    token: string;
+    userUid?: string;
+    deviceId?: string;
+    deviceName?: string;
+    userAgent?: string;
+    label?: string;
+  }) {
     return this.store.upsert(input);
   }
 
-  unregister(id: string) {
-    return this.store.removeById(id);
+  unregister(id: string, userUid?: string) {
+    return this.store.removeById(id, userUid);
   }
 
-  async listRegistrations() {
-    const registrations = await this.store.list();
-    return registrations.map(({ token: _token, ...registration }) => registration);
+  async listRegistrations(userUid?: string) {
+    return (await this.store.list(userUid)).map(safeRegistration);
   }
 
   sendNotification(notification: GenericPushNotification): Promise<PushDeliveryResult> {
@@ -122,6 +133,22 @@ export class PushService {
       requiresConfirmation: Boolean(notification.requiresAcknowledgement),
       url: notification.url || '/'
     });
+  }
+
+  sendNotificationToRegistration(
+    registrationId: string,
+    userUid: string,
+    notification: GenericPushNotification
+  ): Promise<PushDeliveryResult> {
+    return this.sendPayload({
+      notificationId: notification.id,
+      kind: notification.type,
+      severity: notification.severity,
+      title: notification.title,
+      body: notification.message,
+      requiresConfirmation: Boolean(notification.requiresAcknowledgement),
+      url: notification.url || '/'
+    }, [registrationId], userUid);
   }
 
   async sendHeatingNotification(notification: HeatingNotification): Promise<PushDeliveryResult> {
@@ -138,7 +165,11 @@ export class PushService {
     });
   }
 
-  private async sendPayload(payload: PushPayload): Promise<PushDeliveryResult> {
+  private async sendPayload(
+    payload: PushPayload,
+    registrationIds?: string[],
+    userUid?: string
+  ): Promise<PushDeliveryResult> {
     if (!this.enabled || !this.app) {
       return {
         enabled: false,
@@ -151,7 +182,11 @@ export class PushService {
       };
     }
 
-    const registrations = await this.store.list();
+    let registrations = await this.store.list(userUid);
+    if (registrationIds?.length) {
+      const selected = new Set(registrationIds);
+      registrations = registrations.filter(item => selected.has(item.id));
+    }
     const tokens = registrations.map(item => item.token);
     if (!tokens.length) {
       return {
@@ -165,6 +200,7 @@ export class PushService {
       };
     }
 
+    const attemptedAt = Date.now();
     try {
       const response = await getMessaging(this.app).sendEachForMulticast({
         tokens,
@@ -192,7 +228,7 @@ export class PushService {
         if (item.success) {
           return {
             registrationId: registration.id,
-            label: registration.label,
+            label: registration.deviceName || registration.label,
             userAgent: registration.userAgent,
             success: true,
             invalid: false,
@@ -205,7 +241,7 @@ export class PushService {
         if (invalid) invalidTokens.push(registration.token);
         return {
           registrationId: registration.id,
-          label: registration.label,
+          label: registration.deviceName || registration.label,
           userAgent: registration.userAgent,
           success: false,
           invalid,
@@ -215,6 +251,7 @@ export class PushService {
         };
       });
 
+      await this.store.recordDeliveryResults(targets, attemptedAt);
       const retryableFailureCount = targets.filter(item => !item.success && item.retryable).length;
       const removedInvalidCount = await this.store.removeTokens(invalidTokens);
       return {
@@ -230,6 +267,17 @@ export class PushService {
     } catch (error: any) {
       const errorMessage = error?.message || String(error);
       const errorCode = typeof error?.code === 'string' ? error.code : undefined;
+      const targets: PushTargetDeliveryResult[] = registrations.map(registration => ({
+        registrationId: registration.id,
+        label: registration.deviceName || registration.label,
+        userAgent: registration.userAgent,
+        success: false,
+        invalid: false,
+        retryable: true,
+        errorCode,
+        errorMessage
+      }));
+      await this.store.recordDeliveryResults(targets, attemptedAt);
       return {
         enabled: true,
         targetCount: tokens.length,
@@ -237,16 +285,7 @@ export class PushService {
         failureCount: tokens.length,
         retryableFailureCount: tokens.length,
         removedInvalidCount: 0,
-        targets: registrations.map(registration => ({
-          registrationId: registration.id,
-          label: registration.label,
-          userAgent: registration.userAgent,
-          success: false,
-          invalid: false,
-          retryable: true,
-          errorCode,
-          errorMessage
-        })),
+        targets,
         error: errorMessage
       };
     }
