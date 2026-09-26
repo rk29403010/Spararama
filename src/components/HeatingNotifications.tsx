@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bell, Check, X } from 'lucide-react';
+import { Bell, Check, TriangleAlert, X } from 'lucide-react';
 import { heatingApi, type HeatingNotificationDto } from '../lib/heatingApi';
 import { syncPushRegistration } from '../lib/pushNotifications';
 
@@ -26,6 +26,7 @@ function toneFrequencies(kind: HeatingNotificationDto['kind']) {
 export function HeatingNotifications() {
   const [manualPrompt, setManualPrompt] = useState<HeatingNotificationDto | null>(null);
   const [notice, setNotice] = useState<HeatingNotificationDto | null>(null);
+  const [pushProblem, setPushProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const seen = useRef(new Set<string>());
   const pushSynced = useRef(false);
@@ -88,9 +89,19 @@ export function HeatingNotifications() {
       if (pushSynced.current || !('Notification' in window) || Notification.permission !== 'granted') return;
       try {
         const result = await syncPushRegistration();
-        if (!cancelled && result.status === 'enabled') pushSynced.current = true;
-      } catch {
-        // Polling remains the fallback.
+        if (cancelled) return;
+        if (result.status === 'enabled') {
+          pushSynced.current = true;
+          setPushProblem(null);
+        } else {
+          setPushProblem(result.message);
+        }
+      } catch (error: any) {
+        if (!cancelled) {
+          const message = error?.message || 'This browser could not register for background notifications.';
+          setPushProblem(message);
+          console.warn(`Spararama push registration failed: ${message}`);
+        }
       }
     };
 
@@ -135,6 +146,16 @@ export function HeatingNotifications() {
   };
 
   return <>
+    {pushProblem && (
+      <div role="alert" className="fixed top-20 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-amber-300 bg-amber-50 text-amber-950 p-4 flex gap-3 shadow-lg">
+        <TriangleAlert className="w-6 h-6 text-amber-700 shrink-0" aria-hidden="true" />
+        <div className="min-w-0">
+          <div className="font-black">Push notifications need attention</div>
+          <div className="text-sm font-bold mt-1 break-words">{pushProblem}</div>
+        </div>
+      </div>
+    )}
+
     {notice && (
       <div role="status" className="fixed top-20 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-sm rounded-2xl bg-slate-950 text-white p-4 flex gap-3">
         <Bell className="w-6 h-6 text-emerald-300 shrink-0" aria-hidden="true" />
