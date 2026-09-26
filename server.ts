@@ -54,19 +54,12 @@ async function startServer() {
     next();
   });
 
-  // Physical-control mutations are safe on direct loopback and require an
-  // authenticated session with the relevant installation permission when reached
-  // from another LAN device. The same boundary protects push registration and
-  // billable image analysis before their request bodies are parsed.
   const localControlSecurity = registerLocalControlSecurity(app);
   const pushService = new PushService();
   const notificationService = new NotificationService(new NotificationStore(), pushService);
   registerPushRoutes(app, pushService, localControlSecurity);
   registerImageAnalysisRoutes(app, localControlSecurity);
 
-  // Ordinary JSON API requests should never need the old 50 MB global allowance.
-  // Large image analysis and tiny push registration bodies have route-specific
-  // parsers registered above with their own limits.
   app.use(express.json({ limit: "1mb" }));
   registerUserManagementRoutes(app, localControlSecurity);
   registerNotificationRoutes(app, notificationService, localControlSecurity);
@@ -95,7 +88,7 @@ async function startServer() {
   const merossSensors = createMerossMsh300SensorSource();
   const environmentalSensors = combineSensorSources(merossSensors, ecowitt?.sensorSource);
   const temperatureResolver = new BestEffortTemperatureResolver(spaAdapter, telemetryStore);
-  const heatingScheduler = new HeatingScheduler(spaAdapter, new HeatingStore(), pushService);
+  const heatingScheduler = new HeatingScheduler(spaAdapter, new HeatingStore(), notificationService);
   const heatingPlanner = new HeatingPlanner(spaAdapter, heatingScheduler, weather);
   const spaHealth = new SpaHealthMonitor(spaAdapter, notificationService, heatingScheduler);
   const alexaDirect = new AlexaSpaCommandService(spaAdapter, bubbles, heatingScheduler, { weatherService: weather });
@@ -119,16 +112,12 @@ async function startServer() {
   telemetry.setIntervalSeconds(telemetrySettings.intervalSeconds);
   telemetry.start();
   if (firebaseTelemetry.enabled) {
-    // Register only this active collector. Historical collector documents and
-    // samples remain intact, but old hosts are no longer refreshed indefinitely.
     const identity = telemetry.getIdentity();
     void firebaseTelemetry.registerCollector(identity.hostId, identity.collectorVersion).catch((error: any) => {
       console.warn(`Could not register this telemetry collector with Firebase: ${error?.message || String(error)}`);
     });
   }
 
-  // Event-capable adapters can provide immediate observations. Feed the exact
-  // status into telemetry and health monitoring instead of re-reading the spa.
   const unsubscribeSpaEvents = spaAdapter.subscribe?.((event) => {
     if (event.kind === 'status') {
       void telemetry.collectNow(event.status);
@@ -138,6 +127,7 @@ async function startServer() {
     }
   });
 
+  notificationService.start();
   spaHealth.start();
   heatingScheduler.start();
   alexaAlerts.start();
@@ -253,6 +243,7 @@ async function startServer() {
 
   const shutdown = () => {
     unsubscribeSpaEvents?.();
+    notificationService.stop();
     spaHealth.stop();
     telemetry.stop();
     heatingScheduler.stop();
