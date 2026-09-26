@@ -97,7 +97,9 @@ export function registerPushRoutes(app: Express, push: PushService, security: Lo
     res.json({ ...status, browserApiKeyConfigured, configured: status.configured && browserApiKeyConfigured });
   }));
 
-  app.get('/api/push/registrations', security.protectAuthenticatedOperation, asyncRoute(async (_req, res) => {
+  const requireMember = security.requireBearerRole(['owner', 'member', 'viewer']);
+
+  app.get('/api/push/registrations', requireMember, asyncRoute(async (_req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     const uid = signedInUid(res);
     res.json({ registrations: await push.listRegistrations(uid || undefined) });
@@ -105,7 +107,7 @@ export function registerPushRoutes(app: Express, push: PushService, security: Lo
 
   app.post(
     '/api/push/registrations',
-    security.protectAuthenticatedOperation,
+    requireMember,
     express.json({ limit: PUSH_REGISTRATION_BODY_LIMIT }),
     asyncRoute(async (req, res) => {
       const token = typeof req.body?.token === 'string' ? req.body.token : '';
@@ -129,12 +131,12 @@ export function registerPushRoutes(app: Express, push: PushService, security: Lo
     })
   );
 
-  app.delete('/api/push/registrations/:id', security.protectAuthenticatedOperation, asyncRoute(async (req, res) => {
+  app.delete('/api/push/registrations/:id', requireMember, asyncRoute(async (req, res) => {
     const uid = signedInUid(res);
     res.json({ removed: await push.unregister(req.params.id, uid || undefined) });
   }));
 
-  app.post('/api/push/registrations/:id/test', security.protectAuthenticatedOperation, asyncRoute(async (req, res) => {
+  app.post('/api/push/registrations/:id/test', requireMember, asyncRoute(async (req, res) => {
     const uid = signedInUid(res);
     if (!uid) {
       res.status(409).json({ error: 'Sign in through the normal Spararama address to test a specific device.' });
@@ -155,15 +157,22 @@ export function registerPushRoutes(app: Express, push: PushService, security: Lo
     res.json(result);
   }));
 
-  app.post('/api/push/test', security.protectAuthenticatedOperation, asyncRoute(async (_req, res) => {
+  app.post('/api/push/test', requireMember, asyncRoute(async (_req, res) => {
+    const uid = signedInUid(res);
+    const registrations = await push.listRegistrations(uid || undefined);
+    const current = registrations[0];
+    if (!current) {
+      res.status(404).json({ error: 'No push device is registered for this user.' });
+      return;
+    }
     const now = Date.now();
-    const result = await push.sendNotification({
+    const result = await push.sendNotificationToRegistration(current.id, {
       id: `push-test-${now}`,
       type: 'system.push_test',
       severity: 'info',
       title: 'Spararama notifications enabled',
       message: 'Background push notifications are working on this device.'
-    });
+    }, uid || undefined);
     res.json(result);
   }));
 
