@@ -13,22 +13,55 @@ const SEVERITY_RANK: Record<NotificationSeverity, number> = {
   warning: 1,
   urgent: 2
 };
+const PUSH_RETRY_TICK_MS = 30_000;
+const PUSH_RETRY_MAX_MS = 15 * 60_000;
+const MAX_PUSH_RETRY_ATTEMPTS = 12;
 
 function sameJson(a: unknown, b: unknown) {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
 
+function retryDelay(severity: NotificationSeverity, attemptNumber: number) {
+  const base = severity === 'urgent' ? 30_000 : 60_000;
+  return Math.min(PUSH_RETRY_MAX_MS, base * (2 ** Math.max(0, attemptNumber - 1)));
+}
+
+function pushPayload(notification: SpararamaNotification) {
+  return {
+    id: notification.id,
+    type: notification.type,
+    severity: notification.severity,
+    title: notification.title,
+    message: notification.message,
+    requiresAcknowledgement: notification.requiresAcknowledgement,
+    url: '/'
+  } as const;
+}
+
 export class NotificationService {
   private operation = Promise.resolve();
+  private timer: NodeJS.Timeout | null = null;
 
   constructor(
     readonly store = new NotificationStore(),
-    private readonly push?: Pick<PushService, 'enabled' | 'sendNotification'>
+    private readonly push?: Pick<PushService, 'enabled' | 'sendNotification' | 'sendNotificationToRegistration'>
   ) {}
 
-  listActive() {
+  start() {
+    if (this.timer) return;
+    void this.processRetries();
+    this.timer = setInterval(() => void this.processRetries(), PUSH_RETRY_TICK_MS);
+    this.timer.unref?.();
+  }
+
+  stop() {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  listActive(now = Date.now()) {
     return this.store.load().then(state => state.notifications
-      .filter(item => !item.resolvedAt)
+      .filter(item => !item.resolvedAt && (!item.expiresAt || item.expiresAt > now))
       .sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] || b.updatedAt - a.updatedAt));
   }
 
@@ -86,6 +119,10 @@ export class NotificationService {
     });
   }
 
+  processRetries(now = Date.now()) {
+    return this.enqueue(() => this.processRetriesInternal(now));
+  }
+
   private enqueue<T>(work: () => Promise<T>) {
     const result = this.operation.then(work, work);
     this.operation = result.then(() => undefined, () => undefined);
@@ -107,7 +144,8 @@ export class NotificationService {
       const typeChanged = existing.type !== input.type || existing.group !== input.group;
       const acknowledgementChanged = existing.requiresAcknowledgement !== Boolean(input.requiresAcknowledgement);
       const severityChanged = existing.severity !== input.severity;
-      const changed = titleChanged || messageChanged || contextChanged || typeChanged || acknowledgementChanged || severityChanged;
+      const expiryChanged = existing.expiresAt !== input.expiresAt;
+      const changed = titleChanged || messageChanged || contextChanged || typeChanged || acknowledgementChanged || severityChanged || expiryChanged;
       if (!changed) return existing;
 
       existing.type = input.type;
@@ -116,6 +154,7 @@ export class NotificationService {
       existing.title = input.title;
       existing.message = input.message;
       existing.context = input.context;
+      existing.expiresAt = input.expiresAt;
       existing.requiresAcknowledgement = Boolean(input.requiresAcknowledgement);
       existing.updatedAt = now;
 
@@ -146,6 +185,7 @@ export class NotificationService {
       message: input.message,
       createdAt: now,
       updatedAt: now,
+      ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
       ...(input.incidentKey ? { incidentKey: input.incidentKey } : {}),
       ...(input.context ? { context: input.context } : {}),
       requiresAcknowledgement: Boolean(input.requiresAcknowledgement)
@@ -168,17 +208,14 @@ export class NotificationService {
     return notification;
   }
 
+  private nextAttemptAt(notification: SpararamaNotification, attemptNumber: number, retryable: boolean) {
+    if (!retryable || notification.severity === 'info' || attemptNumber >= MAX_PUSH_RETRY_ATTEMPTS) return undefined;
+    return Date.now() + retryDelay(notification.severity, attemptNumber);
+  }
+
   private async dispatchPush(state: NotificationStateFile, notification: SpararamaNotification, attemptedAt: number) {
     if (!this.push?.enabled) return;
-    const result = await this.push.sendNotification({
-      id: notification.id,
-      type: notification.type,
-      severity: notification.severity,
-      title: notification.title,
-      message: notification.message,
-      requiresAcknowledgement: notification.requiresAcknowledgement,
-      url: '/'
-    });
+    const result = await this.push.sendNotification(pushPayload(notification));
     if (!result.targets.length) return;
 
     const deliveries: NotificationDelivery[] = result.targets.map(target => ({
@@ -188,15 +225,67 @@ export class NotificationService {
       targetId: target.registrationId,
       ...(target.label ? { targetLabel: target.label } : {}),
       status: target.success ? 'provider_accepted' : 'failed',
+      attemptNumber: 1,
       attemptedAt,
       ...(target.success ? { providerAcceptedAt: attemptedAt } : {}),
       ...(!target.success ? {
         retryable: target.retryable,
+        ...(this.nextAttemptAt(notification, 1, target.retryable) ? { nextAttemptAt: this.nextAttemptAt(notification, 1, target.retryable) } : {}),
         ...(target.errorCode ? { errorCode: target.errorCode } : {}),
         ...(target.errorMessage ? { errorMessage: target.errorMessage } : {})
       } : {})
     }));
     state.deliveries.push(...deliveries);
     await this.store.save(state);
+  }
+
+  private async processRetriesInternal(now: number) {
+    if (!this.push?.enabled) return;
+    const state = await this.store.load();
+    const notificationById = new Map(state.notifications.map(item => [item.id, item]));
+    const latestByTarget = new Map<string, NotificationDelivery>();
+
+    for (const delivery of state.deliveries) {
+      if (delivery.route !== 'push') continue;
+      const key = `${delivery.notificationId}:${delivery.targetId}`;
+      const previous = latestByTarget.get(key);
+      if (!previous || delivery.attemptedAt > previous.attemptedAt) latestByTarget.set(key, delivery);
+    }
+
+    let changed = false;
+    for (const delivery of latestByTarget.values()) {
+      if (delivery.status !== 'failed' || !delivery.retryable || !delivery.nextAttemptAt || now < delivery.nextAttemptAt) continue;
+      if (delivery.attemptNumber >= MAX_PUSH_RETRY_ATTEMPTS) continue;
+      const notification = notificationById.get(delivery.notificationId);
+      if (!notification || notification.resolvedAt) continue;
+      if (notification.expiresAt && notification.expiresAt <= now) continue;
+
+      const attemptNumber = delivery.attemptNumber + 1;
+      const result = await this.push.sendNotificationToRegistration(delivery.targetId, pushPayload(notification));
+      const target = result.targets[0];
+      const accepted = Boolean(target?.success);
+      const retryable = Boolean(target?.retryable && !accepted);
+      const record: NotificationDelivery = {
+        id: crypto.randomUUID(),
+        notificationId: notification.id,
+        route: 'push',
+        targetId: delivery.targetId,
+        targetLabel: target?.label || delivery.targetLabel,
+        status: accepted ? 'provider_accepted' : 'failed',
+        attemptNumber,
+        attemptedAt: now,
+        ...(accepted ? { providerAcceptedAt: now } : {}),
+        ...(!accepted ? {
+          retryable,
+          ...(retryable && attemptNumber < MAX_PUSH_RETRY_ATTEMPTS ? { nextAttemptAt: now + retryDelay(notification.severity, attemptNumber) } : {}),
+          errorCode: target?.errorCode || (result.targetCount === 0 ? 'registration_missing' : 'push_failed'),
+          errorMessage: target?.errorMessage || result.error || (result.targetCount === 0 ? 'Push registration no longer exists.' : 'Push delivery failed.')
+        } : {})
+      };
+      state.deliveries.push(record);
+      changed = true;
+    }
+
+    if (changed) await this.store.save(state);
   }
 }
