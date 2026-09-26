@@ -140,6 +140,8 @@ export class NotificationService {
 
     if (existing) {
       const previousSeverity = existing.severity;
+      const wasSuppressed = Boolean(existing.deliverySuppressed);
+      const nextSuppressed = Boolean(input.deliverySuppressed);
       const titleChanged = existing.title !== input.title;
       const messageChanged = existing.message !== input.message;
       const contextChanged = !sameJson(existing.context, input.context);
@@ -147,7 +149,8 @@ export class NotificationService {
       const acknowledgementChanged = existing.requiresAcknowledgement !== Boolean(input.requiresAcknowledgement);
       const severityChanged = existing.severity !== input.severity;
       const expiryChanged = existing.expiresAt !== input.expiresAt;
-      const changed = titleChanged || messageChanged || contextChanged || typeChanged || acknowledgementChanged || severityChanged || expiryChanged;
+      const suppressionChanged = wasSuppressed !== nextSuppressed;
+      const changed = titleChanged || messageChanged || contextChanged || typeChanged || acknowledgementChanged || severityChanged || expiryChanged || suppressionChanged;
       if (!changed) return existing;
 
       existing.type = input.type;
@@ -158,6 +161,7 @@ export class NotificationService {
       existing.context = input.context;
       existing.expiresAt = input.expiresAt;
       existing.requiresAcknowledgement = Boolean(input.requiresAcknowledgement);
+      existing.deliverySuppressed = nextSuppressed || undefined;
       existing.updatedAt = now;
 
       const escalated = SEVERITY_RANK[input.severity] > SEVERITY_RANK[previousSeverity];
@@ -170,11 +174,15 @@ export class NotificationService {
         details: {
           incidentKey: input.incidentKey,
           previousSeverity,
-          severity: input.severity
+          severity: input.severity,
+          deliverySuppressed: nextSuppressed
         }
       });
 
-      if (escalated || titleChanged || messageChanged) await this.dispatchPush(state, existing, now);
+      const deliveryResumed = wasSuppressed && !nextSuppressed;
+      if (!nextSuppressed && (escalated || titleChanged || messageChanged || deliveryResumed)) {
+        await this.dispatchPush(state, existing, now);
+      }
       return existing;
     }
 
@@ -190,6 +198,7 @@ export class NotificationService {
       ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
       ...(input.incidentKey ? { incidentKey: input.incidentKey } : {}),
       ...(input.context ? { context: input.context } : {}),
+      ...(input.deliverySuppressed ? { deliverySuppressed: true } : {}),
       requiresAcknowledgement: Boolean(input.requiresAcknowledgement)
     };
     state.notifications.push(notification);
@@ -203,10 +212,11 @@ export class NotificationService {
         type: notification.type,
         group: notification.group,
         severity: notification.severity,
+        deliverySuppressed: Boolean(notification.deliverySuppressed),
         ...(notification.incidentKey ? { incidentKey: notification.incidentKey } : {})
       }
     });
-    await this.dispatchPush(state, notification, now);
+    if (!notification.deliverySuppressed) await this.dispatchPush(state, notification, now);
     return notification;
   }
 
@@ -216,7 +226,7 @@ export class NotificationService {
   }
 
   private async pushRegistrationsFor(notification: SpararamaNotification) {
-    if (!this.push?.enabled) return [];
+    if (!this.push?.enabled || notification.deliverySuppressed) return [];
     const registrations = await this.push.listRegistrations();
     const selected = [];
     for (const registration of registrations) {
@@ -227,7 +237,7 @@ export class NotificationService {
   }
 
   private async dispatchPush(state: NotificationStateFile, notification: SpararamaNotification, attemptedAt: number) {
-    if (!this.push?.enabled) return;
+    if (!this.push?.enabled || notification.deliverySuppressed) return;
     const registrations = await this.pushRegistrationsFor(notification);
     if (!registrations.length) return;
 
@@ -280,7 +290,7 @@ export class NotificationService {
       if (delivery.status !== 'failed' || !delivery.retryable || !delivery.nextAttemptAt || now < delivery.nextAttemptAt) continue;
       if (delivery.attemptNumber >= MAX_PUSH_RETRY_ATTEMPTS) continue;
       const notification = notificationById.get(delivery.notificationId);
-      if (!notification || notification.resolvedAt) continue;
+      if (!notification || notification.resolvedAt || notification.deliverySuppressed) continue;
       if (notification.expiresAt && notification.expiresAt <= now) continue;
       const registration = registrationById.get(delivery.targetId);
       if (!registration?.userUid) continue;
