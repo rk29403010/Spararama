@@ -141,9 +141,9 @@ export function HeatingNotifications() {
           seen.current.add(item.id);
           const copy = alertCopy(item);
           signalForegroundAlert(item.kind);
-          if (!item.pushSentAt && 'Notification' in window && Notification.permission === 'granted') {
-            new Notification(copy.title, { body: copy.message, tag: `spararama-${item.id}` });
-          }
+          // Background browser notifications now come only from the unified
+          // Push route. Creating a second Notification here caused duplicates
+          // when the app happened to be open while FCM also delivered the event.
           await heatingApi.markDelivered(item.id);
           if (!item.requiresConfirmation) setNotice({ ...item, title: copy.title, message: copy.message });
         }
