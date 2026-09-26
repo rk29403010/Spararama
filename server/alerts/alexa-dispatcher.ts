@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { NotificationPreferenceStore } from '../notifications/preferences';
 import { NotificationStore } from '../notifications/store';
 import type { SpararamaNotification } from '../notifications/types';
 import { VoiceMonkeyService, type VoiceMonkeySettingsInput } from './voice-monkey';
@@ -32,9 +33,6 @@ function alexaSpeech(notification: SpararamaNotification) {
 }
 
 function deliveryKey(notification: SpararamaNotification) {
-  // Content changes and severity escalation should be announceable even though an
-  // incident keeps the same notification ID. Acknowledging/resolving alone does
-  // not alter this key, so those state changes cannot trigger a duplicate speech.
   return [notification.id, notification.type, notification.severity, notification.title, notification.message].join('|');
 }
 
@@ -46,6 +44,7 @@ export class AlexaAlertDispatcher {
 
   constructor(
     private readonly notificationStore = new NotificationStore(),
+    private readonly preferences = new NotificationPreferenceStore(),
     private readonly voiceMonkey = new VoiceMonkeyService(),
     stateDir = process.env.ALERT_DELIVERY_DIR || path.join(process.cwd(), 'data', 'alerts')
   ) {
@@ -82,11 +81,7 @@ export class AlexaAlertDispatcher {
   private async loadDeliveryState(): Promise<DeliveryState> {
     try {
       const parsed = JSON.parse(await fs.readFile(this.statePath, 'utf8'));
-      return {
-        sentKeys: Array.isArray(parsed?.sentKeys)
-          ? parsed.sentKeys
-          : []
-      };
+      return { sentKeys: Array.isArray(parsed?.sentKeys) ? parsed.sentKeys : [] };
     } catch (error: any) {
       if (error?.code === 'ENOENT') return { sentKeys: [] };
       throw error;
@@ -112,6 +107,7 @@ export class AlexaAlertDispatcher {
     for (const notification of notificationState.notifications) {
       const speech = alexaSpeech(notification);
       if (!speech) continue;
+      if (!(await this.preferences.alexaEnabled(notification.group))) continue;
       if (notification.expiresAt && notification.expiresAt <= now) continue;
       if (now - notification.createdAt > MAX_NOTIFICATION_AGE_MS && notification.severity !== 'urgent') continue;
 
@@ -136,8 +132,6 @@ export class AlexaAlertDispatcher {
       }
     }
 
-    if (changed) {
-      await this.saveDeliveryState({ sentKeys: Array.from(sent).slice(-1000) });
-    }
+    if (changed) await this.saveDeliveryState({ sentKeys: Array.from(sent).slice(-1000) });
   }
 }
