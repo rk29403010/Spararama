@@ -83,6 +83,26 @@ export class NotificationService {
       const notification = state.notifications.find(item => item.incidentKey === incidentKey && !item.resolvedAt);
       if (!notification) return null;
       const now = Date.now();
+
+      // A notification becoming visible in one open browser must not resolve the
+      // backend incident: other registered devices may still need Push retries.
+      // Keep visibility and resolution as separate states while the legacy heating
+      // UI is being migrated to the generic notification centre.
+      if (reason === 'shown_in_app') {
+        if (!notification.seenAt) {
+          notification.seenAt = now;
+          await this.store.save(state);
+          await this.store.appendEvent({
+            id: crypto.randomUUID(),
+            notificationId: notification.id,
+            timestamp: now,
+            type: 'notification_seen',
+            details: { incidentKey }
+          });
+        }
+        return notification;
+      }
+
       notification.resolvedAt = now;
       notification.updatedAt = now;
       notification.resolutionReason = reason;
