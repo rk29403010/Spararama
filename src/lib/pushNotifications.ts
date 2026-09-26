@@ -3,6 +3,7 @@ import { firebaseApp } from './firebase';
 import { fetchLocalControl } from './localControlAuth';
 
 const REGISTRATION_ID_KEY = 'spararama_push_registration_id';
+const DEVICE_ID_KEY = 'spararama_push_device_id';
 const SERVICE_WORKER_ACTIVATION_TIMEOUT_MS = 15_000;
 
 export interface PushConfigDto {
@@ -18,8 +19,18 @@ export interface PushRegistrationDto {
   id: string;
   createdAt: number;
   updatedAt: number;
+  lastRegisteredAt?: number;
+  userUid?: string;
+  deviceId?: string;
+  deviceName?: string;
   userAgent?: string;
   label?: string;
+  lastDeliveryAttemptAt?: number;
+  lastProviderAcceptedAt?: number;
+  lastDeliveryErrorAt?: number;
+  lastDeliveryErrorCode?: string;
+  lastDeliveryErrorMessage?: string;
+  consecutiveDeliveryFailures?: number;
 }
 
 export interface PushTargetDeliveryDto {
@@ -72,6 +83,30 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json();
 }
 
+function stableDeviceId() {
+  try {
+    const existing = localStorage.getItem(DEVICE_ID_KEY);
+    if (existing) return existing;
+    const next = typeof crypto?.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(DEVICE_ID_KEY, next);
+    return next;
+  } catch {
+    return `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
+function defaultDeviceName() {
+  const platform = navigator.platform || 'Browser device';
+  const ua = navigator.userAgent || '';
+  if (/Android/i.test(ua)) return `Android · ${platform}`;
+  if (/Windows/i.test(ua)) return `Windows · ${platform}`;
+  if (/Macintosh|Mac OS/i.test(ua)) return `Mac · ${platform}`;
+  if (/iPhone|iPad/i.test(ua)) return `iOS · ${platform}`;
+  return platform;
+}
+
 export function getPushConfig() {
   return requestJson<PushConfigDto>('/api/push/config');
 }
@@ -82,6 +117,10 @@ export function listPushRegistrations() {
 
 export function currentPushRegistrationId() {
   try { return localStorage.getItem(REGISTRATION_ID_KEY); } catch { return null; }
+}
+
+export function currentPushDeviceId() {
+  return stableDeviceId();
 }
 
 async function browserCanPush() {
@@ -149,8 +188,6 @@ export async function syncPushRegistration(options: { requestPermission?: boolea
 
   // Keep Firebase push on a narrow, non-navigation scope. Registering it at '/'
   // would replace the PWA app-shell worker and break offline launch/update logic.
-  // register() may resolve while a brand-new worker is still activating, while
-  // Firebase Messaging requires the supplied registration to be active.
   const serviceWorkerRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
     scope: '/firebase-cloud-messaging-push-scope'
   });
@@ -163,12 +200,16 @@ export async function syncPushRegistration(options: { requestPermission?: boolea
   });
   if (!token) throw new Error('Firebase did not return a Web Push registration token.');
 
+  const deviceId = stableDeviceId();
+  const deviceName = defaultDeviceName();
   const registration = await requestJson<{ id: string }>('/api/push/registrations', {
     method: 'POST',
     body: JSON.stringify({
       token,
+      deviceId,
+      deviceName,
       userAgent: navigator.userAgent,
-      label: `${navigator.platform || 'browser'} · ${new Date().toLocaleDateString()}`
+      label: `${deviceName} · ${new Date().toLocaleDateString()}`
     })
   });
   localStorage.setItem(REGISTRATION_ID_KEY, registration.id);
@@ -192,4 +233,8 @@ export async function disablePushNotifications() {
 
 export function testPushNotification() {
   return requestJson<PushDeliveryDto>('/api/push/test', { method: 'POST' });
+}
+
+export function testPushRegistration(registrationId: string) {
+  return requestJson<PushDeliveryDto>(`/api/push/registrations/${encodeURIComponent(registrationId)}/test`, { method: 'POST' });
 }
