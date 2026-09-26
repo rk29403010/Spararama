@@ -1,0 +1,117 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { SpaHealthMonitor } from '../../server/health/spa-health-monitor';
+import { NotificationService } from '../../server/notifications/service';
+import { NotificationStore } from '../../server/notifications/store';
+import type { SpaAdapter, SpaStatus } from '../../server/spa/types';
+
+function spaStatus(overrides: Partial<SpaStatus> = {}): SpaStatus {
+  return {
+    transport: 'lan',
+    connected: true,
+    waterTemperatureC: 30,
+    targetTemperatureC: 40,
+    heaterOn: false,
+    filterOn: false,
+    bubblesOn: false,
+    filterRuntimeSeconds: 0,
+    heaterRuntimeSeconds: 0,
+    updatedAt: 0,
+    ...overrides
+  };
+}
+
+async function withMonitor(run: (args: {
+  monitor: SpaHealthMonitor;
+  notifications: NotificationService;
+  setStatus: (status: SpaStatus) => void;
+}) => Promise<void>, heating?: { listSchedules(): Promise<any[]> }) {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-spa-health-'));
+  try {
+    let current = spaStatus();
+    const spa: SpaAdapter = {
+      getStatus: async () => current,
+      setHeater: async () => current,
+      setFilter: async () => current,
+      setBubbles: async () => current,
+      setTargetTemperature: async () => current
+    };
+    const notifications = new NotificationService(new NotificationStore(dir));
+    const monitor = new SpaHealthMonitor(spa, notifications, heating, {
+      offlineAfterMs: 180_000,
+      staleAfterMs: 90_000,
+      checkIntervalMs: 60_000
+    });
+    await run({ monitor, notifications, setStatus: status => { current = status; } });
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+}
+
+test('spa health monitor ignores a short communication interruption', async () => {
+  await withMonitor(async ({ monitor, notifications }) => {
+    const started = 1_000_000;
+    await monitor.observeStatus(spaStatus({ connected: true, lastContactAt: started }), started);
+    await monitor.observeConnection(false, started + 1_000);
+    await monitor.observeStatus(spaStatus({ connected: false, lastContactAt: started }), started + 120_000);
+
+    assert.equal(monitor.getStatus().state, 'suspect');
+    assert.equal((await notifications.listActive()).length, 0);
+  });
+});
+
+test('spa health monitor opens and resolves one sustained offline incident', async () => {
+  await withMonitor(async ({ monitor, notifications }) => {
+    const started = 2_000_000;
+    await monitor.observeStatus(spaStatus({ connected: true, lastContactAt: started }), started);
+    await monitor.observeConnection(false, started + 1_000);
+    await monitor.observeStatus(spaStatus({ connected: false, lastContactAt: started }), started + 180_000);
+
+    let active = await notifications.listActive();
+    assert.equal(monitor.getStatus().state, 'offline');
+    assert.equal(active.length, 1);
+    assert.equal(active[0].type, 'equipment.spa_offline');
+    assert.equal(active[0].severity, 'warning');
+
+    await monitor.observeStatus(spaStatus({ connected: true, lastContactAt: started + 240_000 }), started + 240_000);
+    active = await notifications.listActive();
+    assert.equal(monitor.getStatus().state, 'online');
+    assert.equal(active.length, 0);
+  });
+});
+
+test('spa health monitor escalates an outage when planned heating is due', async () => {
+  const started = 3_000_000;
+  const heating = {
+    listSchedules: async () => [{
+      id: 'schedule-1',
+      createdAt: started,
+      updatedAt: started,
+      startTime: started + 60_000,
+      targetTime: started + 600_000,
+      startTemperatureC: 30,
+      targetTemperatureC: 39,
+      autoStartPreferred: true,
+      heatSoakMinutes: 0,
+      alertOnTargetReached: true,
+      alertOnHeatSoakComplete: true,
+      status: 'scheduled',
+      attempts: 0
+    }]
+  };
+
+  await withMonitor(async ({ monitor, notifications }) => {
+    await monitor.observeStatus(spaStatus({ connected: true, lastContactAt: started }), started);
+    await monitor.observeConnection(false, started + 1_000);
+    await monitor.observeStatus(spaStatus({ connected: false, lastContactAt: started }), started + 180_000);
+
+    const active = await notifications.listActive();
+    assert.equal(active.length, 1);
+    assert.equal(active[0].severity, 'urgent');
+    assert.match(active[0].title, /Heating cannot start/);
+    assert.equal(active[0].context?.heatingScheduleId, 'schedule-1');
+  }, heating);
+});
