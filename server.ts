@@ -56,7 +56,8 @@ async function startServer() {
 
   const localControlSecurity = registerLocalControlSecurity(app);
   const pushService = new PushService();
-  const notificationService = new NotificationService(new NotificationStore(), pushService);
+  const notificationStore = new NotificationStore();
+  const notificationService = new NotificationService(notificationStore, pushService);
   registerPushRoutes(app, pushService, localControlSecurity);
   registerImageAnalysisRoutes(app, localControlSecurity);
 
@@ -65,7 +66,7 @@ async function startServer() {
   registerNotificationRoutes(app, notificationService, localControlSecurity);
 
   const spaAdapter = createSpaAdapter();
-  const alexaAlerts = new AlexaAlertDispatcher();
+  const alexaAlerts = new AlexaAlertDispatcher(notificationStore);
   const bubbles = new BubbleSessionManager(
     spaAdapter,
     bubblePolicyForAdapter(),
