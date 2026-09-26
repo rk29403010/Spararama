@@ -23,8 +23,10 @@ export interface SpararamaNotificationDto {
   incidentKey?: string;
   context?: Record<string, unknown>;
   requiresAcknowledgement: boolean;
+  deliverySuppressed?: boolean;
   acknowledgedAt?: number;
   resolvedAt?: number;
+  resolutionReason?: string;
 }
 
 export interface PersonalNotificationPreferencesDto {
@@ -33,6 +35,17 @@ export interface PersonalNotificationPreferencesDto {
 
 export interface SharedNotificationPreferencesDto {
   alexa: NotificationGroupPreferences;
+}
+
+export interface SpaHealthSettingsDto {
+  offlineAlertsPaused: boolean;
+  offlineAlertsPausedUntil?: number;
+  updatedAt?: number;
+  health?: {
+    state: 'online' | 'suspect' | 'offline';
+    lastSuccessfulContactAt?: number;
+    suspectSince?: number;
+  };
 }
 
 async function authenticatedJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -60,6 +73,10 @@ export async function listActiveNotifications() {
   return response.json() as Promise<{ notifications: SpararamaNotificationDto[] }>;
 }
 
+export function listRecentNotifications(limit = 20) {
+  return authenticatedJson<{ notifications: SpararamaNotificationDto[] }>(`/api/notifications/recent?limit=${Math.max(1, Math.min(100, limit))}`);
+}
+
 export function getPersonalNotificationPreferences() {
   return authenticatedJson<PersonalNotificationPreferencesDto>('/api/notification-preferences/me');
 }
@@ -79,5 +96,19 @@ export function updateSharedNotificationPreferences(alexa: Partial<NotificationG
   return authenticatedJson<SharedNotificationPreferencesDto>('/api/notification-preferences/shared', {
     method: 'PATCH',
     body: JSON.stringify({ alexa })
+  });
+}
+
+export function getSpaHealthSettings() {
+  return authenticatedJson<SpaHealthSettingsDto>('/api/spa-health/settings');
+}
+
+export function updateSpaHealthSettings(offlineAlertsPaused: boolean, offlineAlertsPausedUntil?: number) {
+  return authenticatedJson<SpaHealthSettingsDto>('/api/spa-health/settings', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      offlineAlertsPaused,
+      ...(offlineAlertsPausedUntil ? { offlineAlertsPausedUntil } : {})
+    })
   });
 }
