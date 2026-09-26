@@ -11,8 +11,15 @@ import type {
 } from './service';
 import { getCloudFirestore } from './firebase-admin';
 
+const INSTALLATION_PERMISSIONS = new Set(['spa_control', 'heating_manage', 'water_testing', 'user_admin']);
+
 function role(value: unknown): InstallationRole | null {
   return value === 'owner' || value === 'member' || value === 'viewer' ? value : null;
+}
+
+function permissions(value: unknown) {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter((item): item is string => typeof item === 'string' && INSTALLATION_PERMISSIONS.has(item));
 }
 
 function positiveInteger(value: unknown, fallback: number) {
@@ -77,12 +84,15 @@ export class FirebaseCloudControlStore implements CloudControlStore {
     const memberships = await Promise.all(snapshot.docs.map(async memberDoc => {
       const installationRef = memberDoc.ref.parent.parent;
       if (!installationRef) return null;
-      const memberRole = role(memberDoc.data()?.role);
+      const memberData = memberDoc.data();
+      const memberRole = role(memberData?.role);
       if (!memberRole) return null;
+      const memberPermissions = permissions(memberData?.permissions);
       const installation = await installationRef.get();
       return {
         installationId: installationRef.id,
         role: memberRole,
+        ...(memberPermissions ? { permissions: memberPermissions } : {}),
         ...(typeof installation.data()?.name === 'string' ? { name: installation.data()!.name } : {})
       } satisfies InstallationMembership;
     }));
@@ -98,11 +108,14 @@ export class FirebaseCloudControlStore implements CloudControlStore {
       installationRef.get()
     ]);
     if (!member.exists) return null;
-    const memberRole = role(member.data()?.role);
+    const memberData = member.data();
+    const memberRole = role(memberData?.role);
     if (!memberRole) return null;
+    const memberPermissions = permissions(memberData?.permissions);
     return {
       installationId,
       role: memberRole,
+      ...(memberPermissions ? { permissions: memberPermissions } : {}),
       ...(typeof installation.data()?.name === 'string' ? { name: installation.data()!.name } : {})
     };
   }
