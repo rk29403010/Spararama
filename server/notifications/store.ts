@@ -9,6 +9,7 @@ export class NotificationStore {
   readonly statePath: string;
   readonly eventsPath: string;
   readonly deliveriesPath: string;
+  private appendQueue: Promise<void> = Promise.resolve();
 
   constructor(baseDir = process.env.NOTIFICATION_DIR || path.join(process.cwd(), 'data', 'notifications')) {
     this.baseDir = baseDir;
@@ -37,19 +38,28 @@ export class NotificationStore {
     await fs.rename(temporaryPath, this.statePath);
   }
 
-  async appendEvent(event: NotificationEventRecord) {
-    await fs.mkdir(this.baseDir, { recursive: true });
-    await fs.appendFile(this.eventsPath, `${JSON.stringify(event)}\n`, 'utf8');
+  appendEvent(event: NotificationEventRecord) {
+    return this.appendText(this.eventsPath, `${JSON.stringify(event)}\n`);
   }
 
-  async appendDelivery(delivery: NotificationDelivery) {
-    await fs.mkdir(this.baseDir, { recursive: true });
-    await fs.appendFile(this.deliveriesPath, `${JSON.stringify(delivery)}\n`, 'utf8');
+  appendDelivery(delivery: NotificationDelivery) {
+    return this.appendText(this.deliveriesPath, `${JSON.stringify(delivery)}\n`);
   }
 
-  async appendDeliveries(deliveries: NotificationDelivery[]) {
-    if (!deliveries.length) return;
-    await fs.mkdir(this.baseDir, { recursive: true });
-    await fs.appendFile(this.deliveriesPath, deliveries.map(delivery => JSON.stringify(delivery)).join('\n') + '\n', 'utf8');
+  appendDeliveries(deliveries: NotificationDelivery[]) {
+    if (!deliveries.length) return Promise.resolve();
+    return this.appendText(
+      this.deliveriesPath,
+      deliveries.map(delivery => JSON.stringify(delivery)).join('\n') + '\n'
+    );
+  }
+
+  private appendText(filePath: string, text: string) {
+    const run = this.appendQueue.then(async () => {
+      await fs.mkdir(this.baseDir, { recursive: true });
+      await fs.appendFile(filePath, text, 'utf8');
+    });
+    this.appendQueue = run.then(() => undefined, () => undefined);
+    return run;
   }
 }
