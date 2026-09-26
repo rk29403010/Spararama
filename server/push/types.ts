@@ -3,8 +3,18 @@ export interface PushRegistration {
   token: string;
   createdAt: number;
   updatedAt: number;
+  lastRegisteredAt?: number;
+  userUid?: string;
+  deviceId?: string;
+  deviceName?: string;
   userAgent?: string;
   label?: string;
+  lastDeliveryAttemptAt?: number;
+  lastProviderAcceptedAt?: number;
+  lastDeliveryErrorAt?: number;
+  lastDeliveryErrorCode?: string;
+  lastDeliveryErrorMessage?: string;
+  consecutiveDeliveryFailures?: number;
 }
 
 export interface PushRegistryState {
