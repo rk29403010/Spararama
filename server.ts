@@ -20,6 +20,10 @@ import { HeatingStore } from './server/heating/store';
 import { registerHeatingRoutes } from './server/heating/routes';
 import { PushService } from './server/push/service';
 import { registerPushRoutes } from './server/push/routes';
+import { NotificationService } from './server/notifications/service';
+import { NotificationStore } from './server/notifications/store';
+import { registerNotificationRoutes } from './server/notifications/routes';
+import { SpaHealthMonitor } from './server/health/spa-health-monitor';
 import { AlexaAlertDispatcher } from './server/alerts/alexa-dispatcher';
 import { registerAlertRoutes } from './server/alerts/routes';
 import { AlexaSpaCommandService } from './server/alexa/direct';
@@ -56,6 +60,7 @@ async function startServer() {
   // billable image analysis before their request bodies are parsed.
   const localControlSecurity = registerLocalControlSecurity(app);
   const pushService = new PushService();
+  const notificationService = new NotificationService(new NotificationStore(), pushService);
   registerPushRoutes(app, pushService, localControlSecurity);
   registerImageAnalysisRoutes(app, localControlSecurity);
 
@@ -64,6 +69,7 @@ async function startServer() {
   // parsers registered above with their own limits.
   app.use(express.json({ limit: "1mb" }));
   registerUserManagementRoutes(app, localControlSecurity);
+  registerNotificationRoutes(app, notificationService, localControlSecurity);
 
   const spaAdapter = createSpaAdapter();
   const alexaAlerts = new AlexaAlertDispatcher();
@@ -91,6 +97,7 @@ async function startServer() {
   const temperatureResolver = new BestEffortTemperatureResolver(spaAdapter, telemetryStore);
   const heatingScheduler = new HeatingScheduler(spaAdapter, new HeatingStore(), pushService);
   const heatingPlanner = new HeatingPlanner(spaAdapter, heatingScheduler, weather);
+  const spaHealth = new SpaHealthMonitor(spaAdapter, notificationService, heatingScheduler);
   const alexaDirect = new AlexaSpaCommandService(spaAdapter, bubbles, heatingScheduler, { weatherService: weather });
   const remoteRuntime = createRemoteRuntime({
     spa: spaAdapter,
@@ -120,13 +127,18 @@ async function startServer() {
     });
   }
 
-  // Event-capable adapters can provide an immediate observation. Feed that exact
-  // status into telemetry instead of re-reading the spa, otherwise a status event
-  // would trigger another status request and recursively generate more events.
+  // Event-capable adapters can provide immediate observations. Feed the exact
+  // status into telemetry and health monitoring instead of re-reading the spa.
   const unsubscribeSpaEvents = spaAdapter.subscribe?.((event) => {
-    if (event.kind === 'status') void telemetry.collectNow(event.status);
+    if (event.kind === 'status') {
+      void telemetry.collectNow(event.status);
+      void spaHealth.observeStatus(event.status, event.observedAt);
+    } else if (event.kind === 'connection') {
+      void spaHealth.observeConnection(event.connected, event.observedAt);
+    }
   });
 
+  spaHealth.start();
   heatingScheduler.start();
   alexaAlerts.start();
   bubbles.start();
@@ -159,6 +171,7 @@ async function startServer() {
     res.json({
       status: "ok",
       spaAdapter: process.env.SPA_ADAPTER || 'bridge',
+      spaHealth: spaHealth.getStatus(),
       telemetry: combinedTelemetryStatus(),
       remote: remoteRuntime.agent.getStatus()
     });
@@ -240,6 +253,7 @@ async function startServer() {
 
   const shutdown = () => {
     unsubscribeSpaEvents?.();
+    spaHealth.stop();
     telemetry.stop();
     heatingScheduler.stop();
     alexaAlerts.stop();
