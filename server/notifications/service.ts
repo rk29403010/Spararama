@@ -1,4 +1,5 @@
 import type { PushService } from '../push/service';
+import { NotificationPreferenceStore } from './preferences';
 import { NotificationStore } from './store';
 import type {
   NotificationDelivery,
@@ -44,7 +45,8 @@ export class NotificationService {
 
   constructor(
     readonly store = new NotificationStore(),
-    private readonly push?: Pick<PushService, 'enabled' | 'sendNotification' | 'sendNotificationToRegistration'>
+    private readonly push?: Pick<PushService, 'enabled' | 'listRegistrations' | 'sendNotificationToRegistration'>,
+    readonly preferences = new NotificationPreferenceStore()
   ) {}
 
   start() {
@@ -208,33 +210,52 @@ export class NotificationService {
     return notification;
   }
 
-  private nextAttemptAt(notification: SpararamaNotification, attemptNumber: number, retryable: boolean) {
+  private nextAttemptAt(notification: SpararamaNotification, attemptNumber: number, retryable: boolean, now: number) {
     if (!retryable || notification.severity === 'info' || attemptNumber >= MAX_PUSH_RETRY_ATTEMPTS) return undefined;
-    return Date.now() + retryDelay(notification.severity, attemptNumber);
+    return now + retryDelay(notification.severity, attemptNumber);
+  }
+
+  private async pushRegistrationsFor(notification: SpararamaNotification) {
+    if (!this.push?.enabled) return [];
+    const registrations = await this.push.listRegistrations();
+    const selected = [];
+    for (const registration of registrations) {
+      if (!registration.userUid) continue;
+      if (await this.preferences.userPushEnabled(registration.userUid, notification.group)) selected.push(registration);
+    }
+    return selected;
   }
 
   private async dispatchPush(state: NotificationStateFile, notification: SpararamaNotification, attemptedAt: number) {
     if (!this.push?.enabled) return;
-    const result = await this.push.sendNotification(pushPayload(notification));
-    if (!result.targets.length) return;
+    const registrations = await this.pushRegistrationsFor(notification);
+    if (!registrations.length) return;
 
-    const deliveries: NotificationDelivery[] = result.targets.map(target => ({
-      id: crypto.randomUUID(),
-      notificationId: notification.id,
-      route: 'push',
-      targetId: target.registrationId,
-      ...(target.label ? { targetLabel: target.label } : {}),
-      status: target.success ? 'provider_accepted' : 'failed',
-      attemptNumber: 1,
-      attemptedAt,
-      ...(target.success ? { providerAcceptedAt: attemptedAt } : {}),
-      ...(!target.success ? {
-        retryable: target.retryable,
-        ...(this.nextAttemptAt(notification, 1, target.retryable) ? { nextAttemptAt: this.nextAttemptAt(notification, 1, target.retryable) } : {}),
-        ...(target.errorCode ? { errorCode: target.errorCode } : {}),
-        ...(target.errorMessage ? { errorMessage: target.errorMessage } : {})
-      } : {})
-    }));
+    const deliveries: NotificationDelivery[] = [];
+    for (const registration of registrations) {
+      const result = await this.push.sendNotificationToRegistration(registration.id, pushPayload(notification));
+      const target = result.targets[0];
+      const success = Boolean(target?.success);
+      const retryable = Boolean(target?.retryable && !success);
+      const nextAttemptAt = this.nextAttemptAt(notification, 1, retryable, attemptedAt);
+      deliveries.push({
+        id: crypto.randomUUID(),
+        notificationId: notification.id,
+        route: 'push',
+        targetId: registration.id,
+        targetLabel: target?.label || registration.deviceName || registration.label,
+        status: success ? 'provider_accepted' : 'failed',
+        attemptNumber: 1,
+        attemptedAt,
+        ...(success ? { providerAcceptedAt: attemptedAt } : {}),
+        ...(!success ? {
+          retryable,
+          ...(nextAttemptAt ? { nextAttemptAt } : {}),
+          errorCode: target?.errorCode || (result.targetCount === 0 ? 'registration_missing' : 'push_failed'),
+          errorMessage: target?.errorMessage || result.error || (result.targetCount === 0 ? 'Push registration no longer exists.' : 'Push delivery failed.')
+        } : {})
+      });
+    }
     state.deliveries.push(...deliveries);
     await this.store.save(state);
   }
@@ -243,6 +264,8 @@ export class NotificationService {
     if (!this.push?.enabled) return;
     const state = await this.store.load();
     const notificationById = new Map(state.notifications.map(item => [item.id, item]));
+    const registrations = await this.push.listRegistrations();
+    const registrationById = new Map(registrations.map(item => [item.id, item]));
     const latestByTarget = new Map<string, NotificationDelivery>();
 
     for (const delivery of state.deliveries) {
@@ -259,12 +282,18 @@ export class NotificationService {
       const notification = notificationById.get(delivery.notificationId);
       if (!notification || notification.resolvedAt) continue;
       if (notification.expiresAt && notification.expiresAt <= now) continue;
+      const registration = registrationById.get(delivery.targetId);
+      if (!registration?.userUid) continue;
+      if (!(await this.preferences.userPushEnabled(registration.userUid, notification.group))) continue;
 
       const attemptNumber = delivery.attemptNumber + 1;
       const result = await this.push.sendNotificationToRegistration(delivery.targetId, pushPayload(notification));
       const target = result.targets[0];
       const accepted = Boolean(target?.success);
       const retryable = Boolean(target?.retryable && !accepted);
+      const nextAttemptAt = retryable && attemptNumber < MAX_PUSH_RETRY_ATTEMPTS
+        ? now + retryDelay(notification.severity, attemptNumber)
+        : undefined;
       const record: NotificationDelivery = {
         id: crypto.randomUUID(),
         notificationId: notification.id,
@@ -277,7 +306,7 @@ export class NotificationService {
         ...(accepted ? { providerAcceptedAt: now } : {}),
         ...(!accepted ? {
           retryable,
-          ...(retryable && attemptNumber < MAX_PUSH_RETRY_ATTEMPTS ? { nextAttemptAt: now + retryDelay(notification.severity, attemptNumber) } : {}),
+          ...(nextAttemptAt ? { nextAttemptAt } : {}),
           errorCode: target?.errorCode || (result.targetCount === 0 ? 'registration_missing' : 'push_failed'),
           errorMessage: target?.errorMessage || result.error || (result.targetCount === 0 ? 'Push registration no longer exists.' : 'Push delivery failed.')
         } : {})
