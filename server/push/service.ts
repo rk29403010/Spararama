@@ -23,6 +23,27 @@ export interface PushConfig {
   publicVapidKey: string;
 }
 
+export interface GenericPushNotification {
+  id: string;
+  type: string;
+  severity: 'info' | 'warning' | 'urgent';
+  title: string;
+  message: string;
+  requiresAcknowledgement?: boolean;
+  url?: string;
+}
+
+interface PushPayload {
+  notificationId: string;
+  kind: string;
+  severity: 'info' | 'warning' | 'urgent';
+  title: string;
+  body: string;
+  requiresConfirmation: boolean;
+  url: string;
+  scheduleId?: string;
+}
+
 export function resolvePushConfig(): PushConfig {
   return {
     enabled: String(process.env.FIREBASE_PUSH_ENABLED || '').toLowerCase() === 'true',
@@ -91,7 +112,33 @@ export class PushService {
     return registrations.map(({ token: _token, ...registration }) => registration);
   }
 
+  sendNotification(notification: GenericPushNotification): Promise<PushDeliveryResult> {
+    return this.sendPayload({
+      notificationId: notification.id,
+      kind: notification.type,
+      severity: notification.severity,
+      title: notification.title,
+      body: notification.message,
+      requiresConfirmation: Boolean(notification.requiresAcknowledgement),
+      url: notification.url || '/'
+    });
+  }
+
   async sendHeatingNotification(notification: HeatingNotification): Promise<PushDeliveryResult> {
+    const copy = notificationCopy(notification);
+    return this.sendPayload({
+      notificationId: notification.id,
+      scheduleId: notification.scheduleId,
+      kind: notification.kind,
+      severity: ATTENTION_KINDS.has(notification.kind) ? 'urgent' : 'info',
+      title: copy.title,
+      body: copy.body,
+      requiresConfirmation: notification.requiresConfirmation,
+      url: '/'
+    });
+  }
+
+  private async sendPayload(payload: PushPayload): Promise<PushDeliveryResult> {
     if (!this.enabled || !this.app) {
       return {
         enabled: false,
@@ -118,25 +165,23 @@ export class PushService {
       };
     }
 
-    const copy = notificationCopy(notification);
-    const urgent = ATTENTION_KINDS.has(notification.kind);
-
     try {
       const response = await getMessaging(this.app).sendEachForMulticast({
         tokens,
         data: {
-          notificationId: notification.id,
-          scheduleId: notification.scheduleId,
-          kind: notification.kind,
-          title: copy.title,
-          body: copy.body,
-          requiresConfirmation: String(notification.requiresConfirmation),
-          url: '/'
+          notificationId: payload.notificationId,
+          kind: payload.kind,
+          severity: payload.severity,
+          title: payload.title,
+          body: payload.body,
+          requiresConfirmation: String(payload.requiresConfirmation),
+          url: payload.url,
+          ...(payload.scheduleId ? { scheduleId: payload.scheduleId } : {})
         },
         webpush: {
           headers: {
-            Urgency: urgent ? 'high' : 'normal',
-            TTL: urgent ? '900' : '3600'
+            Urgency: payload.severity === 'urgent' ? 'high' : 'normal',
+            TTL: payload.severity === 'urgent' ? '900' : '3600'
           }
         }
       });
