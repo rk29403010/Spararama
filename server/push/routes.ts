@@ -131,6 +131,18 @@ export function registerPushRoutes(app: Express, push: PushService, security: Lo
     })
   );
 
+  app.patch('/api/push/registrations/:id', requireMember, asyncRoute(async (req, res) => {
+    const uid = signedInUid(res);
+    if (!uid) {
+      res.status(409).json({ error: 'Sign in to rename a push device.' });
+      return;
+    }
+    const deviceName = typeof req.body?.deviceName === 'string' ? req.body.deviceName : '';
+    const registration = await push.store.renameById(req.params.id, uid, deviceName);
+    const { token: _token, ...safe } = registration;
+    res.json(safe);
+  }));
+
   app.delete('/api/push/registrations/:id', requireMember, asyncRoute(async (req, res) => {
     const uid = signedInUid(res);
     res.json({ removed: await push.unregister(req.params.id, uid || undefined) });
