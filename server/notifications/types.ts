@@ -17,6 +17,7 @@ export interface SpararamaNotification {
   message: string;
   createdAt: number;
   updatedAt: number;
+  expiresAt?: number;
   incidentKey?: string;
   context?: Record<string, unknown>;
   requiresAcknowledgement: boolean;
@@ -32,23 +33,27 @@ export interface PublishNotificationInput {
   severity: NotificationSeverity;
   title: string;
   message: string;
+  expiresAt?: number;
   incidentKey?: string;
   context?: Record<string, unknown>;
   requiresAcknowledgement?: boolean;
 }
 
 export type NotificationDeliveryStatus = 'provider_accepted' | 'failed';
+export type NotificationDeliveryRoute = 'push' | 'alexa';
 
 export interface NotificationDelivery {
   id: string;
   notificationId: string;
-  route: 'push';
+  route: NotificationDeliveryRoute;
   targetId: string;
   targetLabel?: string;
   status: NotificationDeliveryStatus;
+  attemptNumber: number;
   attemptedAt: number;
   providerAcceptedAt?: number;
   retryable?: boolean;
+  nextAttemptAt?: number;
   errorCode?: string;
   errorMessage?: string;
 }
