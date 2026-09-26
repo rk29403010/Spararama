@@ -110,6 +110,16 @@ export class NotificationPreferenceStore {
     });
   }
 
+  removeUser(uid: string) {
+    return this.mutate(async () => {
+      const state = await this.load();
+      if (!(uid in state.users)) return false;
+      delete state.users[uid];
+      await this.save(state);
+      return true;
+    });
+  }
+
   async getShared(): Promise<SharedNotificationPreferences> {
     const state = await this.load();
     return {
