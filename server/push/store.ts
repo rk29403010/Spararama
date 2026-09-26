@@ -13,7 +13,7 @@ export const DEFAULT_PUSH_REGISTRY_MAX_BYTES = 256 * 1024;
 
 export class PushRegistrationStoreError extends Error {
   constructor(
-    readonly code: 'invalid_registration' | 'registry_full' | 'registry_too_large',
+    readonly code: 'invalid_registration' | 'registry_full' | 'registry_too_large' | 'registration_not_found',
     readonly statusCode: number,
     message: string
   ) {
@@ -169,6 +169,28 @@ export class PushRegistrationStore {
         };
         state.registrations.push(registration);
       }
+      await this.save(state);
+      return registration;
+    });
+  }
+
+  renameById(id: string, userUid: string, deviceName: string) {
+    return this.mutate(async () => {
+      const name = deviceName.trim();
+      if (!name || name.length > PUSH_DEVICE_NAME_MAX_CHARS) {
+        throw new PushRegistrationStoreError(
+          'invalid_registration',
+          400,
+          `Device name must be between 1 and ${PUSH_DEVICE_NAME_MAX_CHARS} characters.`
+        );
+      }
+      const state = await this.load();
+      const registration = state.registrations.find(item => item.id === id && item.userUid === userUid);
+      if (!registration) {
+        throw new PushRegistrationStoreError('registration_not_found', 404, 'Push device not found for this user.');
+      }
+      registration.deviceName = name;
+      registration.updatedAt = Date.now();
       await this.save(state);
       return registration;
     });
