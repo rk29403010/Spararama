@@ -70,9 +70,7 @@ export interface PushSetupResult {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const method = String(init?.method || 'GET').toUpperCase();
-  const request = method === 'GET' || method === 'HEAD' ? fetch : fetchLocalControl;
-  const response = await request(path, {
+  const response = await fetchLocalControl(path, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) }
   });
@@ -186,8 +184,6 @@ export async function syncPushRegistration(options: { requestPermission?: boolea
     return { status: 'permission-required', message: 'Notification permission has not been granted yet.' };
   }
 
-  // Keep Firebase push on a narrow, non-navigation scope. Registering it at '/'
-  // would replace the PWA app-shell worker and break offline launch/update logic.
   const serviceWorkerRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
     scope: '/firebase-cloud-messaging-push-scope'
   });
