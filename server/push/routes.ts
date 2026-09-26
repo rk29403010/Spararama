@@ -141,13 +141,13 @@ export function registerPushRoutes(app: Express, push: PushService, security: Lo
       return;
     }
     const now = Date.now();
-    const result = await push.sendNotificationToRegistration(req.params.id, uid, {
+    const result = await push.sendNotificationToRegistration(req.params.id, {
       id: `push-test-${now}`,
       type: 'system.push_test',
       severity: 'info',
       title: 'Spararama device test',
       message: 'This device can receive Spararama background notifications.'
-    });
+    }, uid);
     if (result.targetCount === 0) {
       res.status(404).json({ error: 'Push device not found for this user.', ...result });
       return;
