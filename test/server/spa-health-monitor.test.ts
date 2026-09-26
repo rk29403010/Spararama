@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { SpaHealthMonitor } from '../../server/health/spa-health-monitor';
+import { SpaHealthMonitor, type SpaHealthAlertSuppressionSource } from '../../server/health/spa-health-monitor';
 import { NotificationService } from '../../server/notifications/service';
 import { NotificationStore } from '../../server/notifications/store';
 import type { SpaAdapter, SpaStatus } from '../../server/spa/types';
@@ -28,7 +28,7 @@ async function withMonitor(run: (args: {
   monitor: SpaHealthMonitor;
   notifications: NotificationService;
   setStatus: (status: SpaStatus) => void;
-}) => Promise<void>, heating?: { listSchedules(): Promise<any[]> }) {
+}) => Promise<void>, heating?: { listSchedules(): Promise<any[]> }, alertSuppression?: SpaHealthAlertSuppressionSource) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-spa-health-'));
   try {
     let current = spaStatus();
@@ -43,7 +43,8 @@ async function withMonitor(run: (args: {
     const monitor = new SpaHealthMonitor(spa, notifications, heating, {
       offlineAfterMs: 180_000,
       staleAfterMs: 90_000,
-      checkIntervalMs: 60_000
+      checkIntervalMs: 60_000,
+      alertSuppression
     });
     await run({ monitor, notifications, setStatus: status => { current = status; } });
   } finally {
@@ -114,4 +115,27 @@ test('spa health monitor escalates an outage when planned heating is due', async
     assert.match(active[0].title, /Heating cannot start/);
     assert.equal(active[0].context?.heatingScheduleId, 'schedule-1');
   }, heating);
+});
+
+test('planned maintenance keeps the offline incident but suppresses route delivery', async () => {
+  let suppressed = true;
+  const alertSuppression = { isOfflineAlertSuppressed: async () => suppressed };
+  await withMonitor(async ({ monitor, notifications }) => {
+    const started = 4_000_000;
+    await monitor.observeStatus(spaStatus({ connected: true, lastContactAt: started }), started);
+    await monitor.observeConnection(false, started + 1_000);
+    await monitor.observeStatus(spaStatus({ connected: false, lastContactAt: started }), started + 180_000);
+
+    let active = await notifications.listActive();
+    assert.equal(active.length, 1);
+    assert.equal(active[0].deliverySuppressed, true);
+    assert.equal(active[0].context?.deliverySuppressed, true);
+
+    suppressed = false;
+    await monitor.refreshAlertState(started + 181_000);
+    active = await notifications.listActive();
+    assert.equal(active.length, 1);
+    assert.equal(active[0].deliverySuppressed, undefined);
+    assert.equal(active[0].context?.deliverySuppressed, false);
+  }, undefined, alertSuppression);
 });
