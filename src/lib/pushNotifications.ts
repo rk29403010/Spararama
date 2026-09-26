@@ -14,6 +14,36 @@ export interface PushConfigDto {
   browserApiKeyConfigured: boolean;
 }
 
+export interface PushRegistrationDto {
+  id: string;
+  createdAt: number;
+  updatedAt: number;
+  userAgent?: string;
+  label?: string;
+}
+
+export interface PushTargetDeliveryDto {
+  registrationId: string;
+  label?: string;
+  userAgent?: string;
+  success: boolean;
+  invalid: boolean;
+  retryable: boolean;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface PushDeliveryDto {
+  enabled: boolean;
+  targetCount: number;
+  successCount: number;
+  failureCount: number;
+  retryableFailureCount: number;
+  removedInvalidCount: number;
+  targets: PushTargetDeliveryDto[];
+  error?: string;
+}
+
 export type PushSetupStatus =
   | 'enabled'
   | 'disabled'
@@ -44,6 +74,14 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function getPushConfig() {
   return requestJson<PushConfigDto>('/api/push/config');
+}
+
+export function listPushRegistrations() {
+  return requestJson<{ registrations: PushRegistrationDto[] }>('/api/push/registrations');
+}
+
+export function currentPushRegistrationId() {
+  try { return localStorage.getItem(REGISTRATION_ID_KEY); } catch { return null; }
 }
 
 async function browserCanPush() {
@@ -153,13 +191,5 @@ export async function disablePushNotifications() {
 }
 
 export function testPushNotification() {
-  return requestJson<{
-    enabled: boolean;
-    targetCount: number;
-    successCount: number;
-    failureCount: number;
-    retryableFailureCount: number;
-    removedInvalidCount: number;
-    error?: string;
-  }>('/api/push/test', { method: 'POST' });
+  return requestJson<PushDeliveryDto>('/api/push/test', { method: 'POST' });
 }
