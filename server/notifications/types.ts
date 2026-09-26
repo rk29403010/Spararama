@@ -22,6 +22,7 @@ export interface SpararamaNotification {
   context?: Record<string, unknown>;
   requiresAcknowledgement: boolean;
   deliverySuppressed?: boolean;
+  seenAt?: number;
   acknowledgedAt?: number;
   acknowledgedByUid?: string;
   resolvedAt?: number;
@@ -69,6 +70,7 @@ export type NotificationEventType =
   | 'notification_opened'
   | 'notification_updated'
   | 'notification_escalated'
+  | 'notification_seen'
   | 'notification_acknowledged'
   | 'notification_resolved';
 
