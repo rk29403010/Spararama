@@ -22,6 +22,7 @@ import { PushService } from './server/push/service';
 import { registerPushRoutes } from './server/push/routes';
 import { NotificationService } from './server/notifications/service';
 import { NotificationStore } from './server/notifications/store';
+import { NotificationPreferenceStore } from './server/notifications/preferences';
 import { registerNotificationRoutes } from './server/notifications/routes';
 import { SpaHealthMonitor } from './server/health/spa-health-monitor';
 import { AlexaAlertDispatcher } from './server/alerts/alexa-dispatcher';
@@ -57,7 +58,8 @@ async function startServer() {
   const localControlSecurity = registerLocalControlSecurity(app);
   const pushService = new PushService();
   const notificationStore = new NotificationStore();
-  const notificationService = new NotificationService(notificationStore, pushService);
+  const notificationPreferences = new NotificationPreferenceStore();
+  const notificationService = new NotificationService(notificationStore, pushService, notificationPreferences);
   registerPushRoutes(app, pushService, localControlSecurity);
   registerImageAnalysisRoutes(app, localControlSecurity);
 
@@ -66,7 +68,7 @@ async function startServer() {
   registerNotificationRoutes(app, notificationService, localControlSecurity);
 
   const spaAdapter = createSpaAdapter();
-  const alexaAlerts = new AlexaAlertDispatcher(notificationStore);
+  const alexaAlerts = new AlexaAlertDispatcher(notificationStore, notificationPreferences);
   const bubbles = new BubbleSessionManager(
     spaAdapter,
     bubblePolicyForAdapter(),
