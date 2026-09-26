@@ -49,6 +49,9 @@ export interface HeatingNotification {
   requiresConfirmation: boolean;
   deliveredAt?: number;
   resolvedAt?: number;
+  unifiedNotificationPublishedAt?: number;
+  // Legacy push fields remain readable during migration so existing state files
+  // continue to load. New delivery state lives under data/notifications.
   pushSentAt?: number;
   pushAttempts?: number;
   pushLastAttemptAt?: number;
