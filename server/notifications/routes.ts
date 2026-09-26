@@ -35,6 +35,13 @@ export function registerNotificationRoutes(
     res.json({ notifications: await notifications.listRecent(limit) });
   }));
 
+  app.get('/api/notifications/:id/deliveries', requireAdmin, asyncRoute(async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const requested = Number(req.query.limit || 100);
+    const limit = Number.isFinite(requested) ? requested : 100;
+    res.json({ deliveries: await notifications.store.listDeliveryAudit(req.params.id, limit) });
+  }));
+
   app.post(
     '/api/notifications/:id/acknowledge',
     requireMember,
