@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { HeatingStore } from '../heating/store';
-import type { HeatingNotification } from '../heating/types';
+import { NotificationStore } from '../notifications/store';
+import type { SpararamaNotification } from '../notifications/types';
 import { VoiceMonkeyService, type VoiceMonkeySettingsInput } from './voice-monkey';
 
 const POLL_INTERVAL_MS = 10_000;
@@ -10,13 +10,32 @@ const RETRY_BASE_MS = 30_000;
 const RETRY_MAX_MS = 15 * 60_000;
 
 interface DeliveryState {
-  sentNotificationIds: string[];
+  sentKeys: string[];
 }
 
-function alexaSpeech(notification: HeatingNotification) {
-  if (notification.kind === 'target_reached') return 'Hot tub temperature reached.';
-  if (notification.kind === 'heat_soak_complete') return 'Your hot tub is ready!';
-  return null;
+function alexaSpeech(notification: SpararamaNotification) {
+  switch (notification.type) {
+    case 'heating.target_reached':
+      return 'Hot tub temperature reached.';
+    case 'heating.ready':
+      return 'Your hot tub is ready!';
+    case 'heating.auto_start_failed':
+    case 'heating.manual_start_required':
+      return 'Hot tub heating needs attention.';
+    case 'equipment.spa_offline':
+      return notification.severity === 'urgent'
+        ? 'The hot tub is offline and scheduled heating is at risk.'
+        : 'The hot tub appears to be offline.';
+    default:
+      return null;
+  }
+}
+
+function deliveryKey(notification: SpararamaNotification) {
+  // Content changes and severity escalation should be announceable even though an
+  // incident keeps the same notification ID. Acknowledging/resolving alone does
+  // not alter this key, so those state changes cannot trigger a duplicate speech.
+  return [notification.id, notification.type, notification.severity, notification.title, notification.message].join('|');
 }
 
 export class AlexaAlertDispatcher {
@@ -26,28 +45,17 @@ export class AlexaAlertDispatcher {
   private readonly statePath: string;
 
   constructor(
-    private readonly heatingStore = new HeatingStore(),
+    private readonly notificationStore = new NotificationStore(),
     private readonly voiceMonkey = new VoiceMonkeyService(),
     stateDir = process.env.ALERT_DELIVERY_DIR || path.join(process.cwd(), 'data', 'alerts')
   ) {
     this.statePath = path.join(stateDir, 'alexa.json');
   }
 
-  status() {
-    return this.voiceMonkey.status();
-  }
-
-  configure(input: VoiceMonkeySettingsInput) {
-    return this.voiceMonkey.configure(input);
-  }
-
-  listSpeakers(candidateToken?: string) {
-    return this.voiceMonkey.listSpeakers(candidateToken);
-  }
-
-  announce(text: string) {
-    return this.voiceMonkey.announce(text);
-  }
+  status() { return this.voiceMonkey.status(); }
+  configure(input: VoiceMonkeySettingsInput) { return this.voiceMonkey.configure(input); }
+  listSpeakers(candidateToken?: string) { return this.voiceMonkey.listSpeakers(candidateToken); }
+  announce(text: string) { return this.voiceMonkey.announce(text); }
 
   start() {
     if (this.timer) return;
@@ -74,9 +82,13 @@ export class AlexaAlertDispatcher {
   private async loadDeliveryState(): Promise<DeliveryState> {
     try {
       const parsed = JSON.parse(await fs.readFile(this.statePath, 'utf8'));
-      return { sentNotificationIds: Array.isArray(parsed?.sentNotificationIds) ? parsed.sentNotificationIds : [] };
+      return {
+        sentKeys: Array.isArray(parsed?.sentKeys)
+          ? parsed.sentKeys
+          : []
+      };
     } catch (error: any) {
-      if (error?.code === 'ENOENT') return { sentNotificationIds: [] };
+      if (error?.code === 'ENOENT') return { sentKeys: [] };
       throw error;
     }
   }
@@ -92,28 +104,31 @@ export class AlexaAlertDispatcher {
     const status = await this.voiceMonkey.status();
     if (!status.enabled || !status.configured) return;
 
-    const heating = await this.heatingStore.load();
+    const notificationState = await this.notificationStore.load();
     const delivery = await this.loadDeliveryState();
-    const sent = new Set(delivery.sentNotificationIds);
+    const sent = new Set(delivery.sentKeys);
     let changed = false;
 
-    for (const notification of heating.notifications) {
+    for (const notification of notificationState.notifications) {
       const speech = alexaSpeech(notification);
-      if (!speech || sent.has(notification.id)) continue;
-      if (now - notification.createdAt > MAX_NOTIFICATION_AGE_MS) continue;
+      if (!speech) continue;
+      if (notification.expiresAt && notification.expiresAt <= now) continue;
+      if (now - notification.createdAt > MAX_NOTIFICATION_AGE_MS && notification.severity !== 'urgent') continue;
 
-      const retry = this.retries.get(notification.id);
+      const key = deliveryKey(notification);
+      if (sent.has(key)) continue;
+      const retry = this.retries.get(key);
       if (retry && now < retry.nextAttemptAt) continue;
 
       try {
         const result = await this.voiceMonkey.announce(speech);
         if (!result.sent) continue;
-        sent.add(notification.id);
-        this.retries.delete(notification.id);
+        sent.add(key);
+        this.retries.delete(key);
         changed = true;
       } catch (error) {
         const attempts = (retry?.attempts || 0) + 1;
-        this.retries.set(notification.id, {
+        this.retries.set(key, {
           attempts,
           nextAttemptAt: now + Math.min(RETRY_MAX_MS, RETRY_BASE_MS * (2 ** Math.max(0, attempts - 1)))
         });
@@ -122,7 +137,7 @@ export class AlexaAlertDispatcher {
     }
 
     if (changed) {
-      await this.saveDeliveryState({ sentNotificationIds: Array.from(sent).slice(-1000) });
+      await this.saveDeliveryState({ sentKeys: Array.from(sent).slice(-1000) });
     }
   }
 }
