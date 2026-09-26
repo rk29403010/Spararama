@@ -30,6 +30,7 @@ import { combineSensorSources } from './server/sensors/composite';
 import { registerSystemUpdateRoutes } from './server/system/update';
 import { createRemoteRuntime } from './server/remote/factory';
 import { registerLocalControlSecurity } from './server/security/local-control';
+import { registerUserManagementRoutes } from './server/security/user-management';
 import { registerImageAnalysisRoutes } from './server/analysis/routes';
 
 async function startServer() {
@@ -50,9 +51,9 @@ async function startServer() {
   });
 
   // Physical-control mutations are safe on direct loopback and require an
-  // authenticated owner/member session when reached from another LAN device.
-  // The same role/session boundary protects push registration and billable image
-  // analysis before their request bodies are parsed.
+  // authenticated session with the relevant installation permission when reached
+  // from another LAN device. The same boundary protects push registration and
+  // billable image analysis before their request bodies are parsed.
   const localControlSecurity = registerLocalControlSecurity(app);
   const pushService = new PushService();
   registerPushRoutes(app, pushService, localControlSecurity);
@@ -62,6 +63,7 @@ async function startServer() {
   // Large image analysis and tiny push registration bodies have route-specific
   // parsers registered above with their own limits.
   app.use(express.json({ limit: "1mb" }));
+  registerUserManagementRoutes(app, localControlSecurity);
 
   const spaAdapter = createSpaAdapter();
   const alexaAlerts = new AlexaAlertDispatcher();

@@ -10,6 +10,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ClipboardPlus, Droplets, Flame, Settings, List, LogOut, User as UserIcon, House } from 'lucide-react';
 import { subscribeToAuthChanges, signOutUser } from './lib/firebase';
 import { isCloudRuntime } from './lib/runtime';
+import { useAccess } from './lib/access';
 import type { User } from 'firebase/auth';
 
 const Heating = lazy(() => import('./components/Heating').then(module => ({ default: module.Heating })));
@@ -22,6 +23,7 @@ const SpaConfiguration = lazy(() => import('./components/SpaConfiguration').then
 const WeatherConfiguration = lazy(() => import('./components/WeatherConfiguration').then(module => ({ default: module.WeatherConfiguration })));
 const BleC600Settings = lazy(() => import('./components/BleC600Settings').then(module => ({ default: module.BleC600Settings })));
 const RemoteHome = lazy(() => import('./components/RemoteHome').then(module => ({ default: module.RemoteHome })));
+const UserManagement = lazy(() => import('./components/UserManagement').then(module => ({ default: module.UserManagement })));
 
 type AppTab = 'home' | 'heating' | 'chemicals' | 'logs' | 'log' | 'settings';
 
@@ -32,6 +34,17 @@ function RouteFallback() {
   return (
     <div className="p-6 max-w-xl mx-auto text-center text-slate-600 font-bold" role="status">
       Loading…
+    </div>
+  );
+}
+
+function PermissionNotice({ title }: { title: string }) {
+  return (
+    <div className="p-4 sm:p-8 max-w-xl mx-auto">
+      <section className="rounded-3xl border border-slate-200 bg-white p-6">
+        <h2 className="text-2xl font-black text-slate-950">{title}</h2>
+        <p className="mt-2 font-bold text-slate-600">Your Spararama account does not have permission to use this area.</p>
+      </section>
     </div>
   );
 }
@@ -134,6 +147,10 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authInitialized, setAuthInitialized] = useState(false);
   const swipeStart = useRef<{ x: number; y: number; blocked: boolean } | null>(null);
+  const { access, loading: accessLoading, error: accessError, invitePending, can } = useAccess();
+  const canSpaControl = can('spa_control');
+  const canManageHeating = can('heating_manage');
+  const canManageWater = can('water_testing');
 
   useEffect(() => {
     loadState().then(s => setState(s));
@@ -148,6 +165,13 @@ export default function App() {
       // Remembering the current tab is best effort if storage is unavailable.
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (accessLoading || isCloudRuntime) return;
+    const denied = (activeTab === 'heating' && !canManageHeating)
+      || ((activeTab === 'chemicals' || activeTab === 'logs' || activeTab === 'log') && !canManageWater);
+    if (denied) setActiveTab('home');
+  }, [activeTab, accessLoading, canManageHeating, canManageWater]);
 
   const updateState = (newState: AppState) => { setState(newState); saveState(newState); };
 
@@ -174,9 +198,13 @@ export default function App() {
 
     if (horizontalDistance < 70 || horizontalDistance < Math.abs(deltaY) * 1.25) return;
 
-    const currentIndex = TAB_ORDER.indexOf(activeTab);
+    const allowedTabs = TAB_ORDER.filter(tab => tab === 'home'
+      || tab === 'settings'
+      || (tab === 'heating' && canManageHeating)
+      || ((tab === 'chemicals' || tab === 'logs' || tab === 'log') && canManageWater));
+    const currentIndex = allowedTabs.indexOf(activeTab);
     const nextIndex = deltaX < 0 ? currentIndex + 1 : currentIndex - 1;
-    const nextTab = TAB_ORDER[nextIndex];
+    const nextTab = allowedTabs[nextIndex];
     if (nextTab) setActiveTab(nextTab);
   };
 
@@ -228,17 +256,21 @@ export default function App() {
             </button>
           </div>
         </div>
-        {!user && <div className="bg-amber-100 border-t border-amber-200 px-4 py-2 text-center text-amber-950 text-sm font-black">Not signed in - personal activity won't sync to your account.</div>}
+        {invitePending && !user && <div className="bg-indigo-100 border-t border-indigo-200 px-4 py-2 text-center text-indigo-950 text-sm font-black">You have a Spararama invite. Sign in with the Google account you want to use.</div>}
+        {!user && !invitePending && <div className="bg-amber-100 border-t border-amber-200 px-4 py-2 text-center text-amber-950 text-sm font-black">Not signed in - status is view only and personal activity won't sync.</div>}
+        {user && accessLoading && <div className="bg-slate-100 border-t border-slate-200 px-4 py-2 text-center text-slate-700 text-sm font-black">Checking Spararama permissions…</div>}
+        {user && !accessLoading && !access?.authorized && !canSpaControl && <div className="bg-amber-100 border-t border-amber-200 px-4 py-2 text-center text-amber-950 text-sm font-black">View only - this Google account has not been authorised for controls.</div>}
+        {user && accessError && <div className="bg-rose-100 border-t border-rose-200 px-4 py-2 text-center text-rose-950 text-sm font-black">{accessError}</div>}
       </header>
 
       <main className="flex-1 pb-24 overflow-y-auto" onTouchStart={handleSwipeStart} onTouchEnd={handleSwipeEnd}>
         <ErrorBoundary resetKey={activeTab} title={`${activeTab[0].toUpperCase()}${activeTab.slice(1)} page failed`}>
           <Suspense fallback={<RouteFallback />}>
-            {activeTab === 'home' && <><Home state={state} /><BathingControls state={state} updateState={updateState} /></>}
-            {activeTab === 'heating' && <Heating state={state} updateState={updateState} />}
-            {activeTab === 'chemicals' && <Chemicals state={state} updateState={updateState} />}
-            {activeTab === 'logs' && <Logs state={state} />}
-            {activeTab === 'log' && <ManualLogModal state={state} onClose={() => setActiveTab('logs')} />}
+            {activeTab === 'home' && <><Home state={state} canControl={canSpaControl} canLog={canManageWater} />{canManageWater && <BathingControls state={state} updateState={updateState} />}</>}
+            {activeTab === 'heating' && (canManageHeating ? <Heating state={state} updateState={updateState} /> : <PermissionNotice title="Heating" />)}
+            {activeTab === 'chemicals' && (canManageWater ? <Chemicals state={state} updateState={updateState} /> : <PermissionNotice title="Water" />)}
+            {activeTab === 'logs' && (canManageWater ? <Logs state={state} /> : <PermissionNotice title="History" />)}
+            {activeTab === 'log' && (canManageWater ? <ManualLogModal state={state} onClose={() => setActiveTab('logs')} /> : <PermissionNotice title="Log" />)}
             {activeTab === 'settings' && (
               <div className="p-4 sm:p-8 text-slate-700 max-w-2xl mx-auto space-y-5">
                 <h2 className="text-3xl font-black tracking-tight text-slate-950">Settings</h2>
@@ -300,6 +332,7 @@ export default function App() {
                   </label>
                 </section>
 
+                <ErrorBoundary resetKey="user-management" title="User management failed"><UserManagement /></ErrorBoundary>
                 <TelemetrySettings />
                 <ErrorBoundary resetKey="developer-settings" title="Developer settings failed"><DeveloperSettings /></ErrorBoundary>
               </div>
@@ -311,10 +344,10 @@ export default function App() {
       <footer className="bg-white border-t border-slate-200 fixed bottom-0 left-0 right-0 z-20 pb-[env(safe-area-inset-bottom)]">
         <nav className="max-w-xl mx-auto flex gap-1 px-2 py-2" aria-label="Main navigation">
           <button type="button" aria-current={activeTab === 'home' ? 'page' : undefined} onClick={() => setActiveTab('home')} className={`min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTab === 'home' ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700 hover:bg-slate-50'}`}><House className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">Home</span></button>
-          <button type="button" aria-current={activeTab === 'heating' ? 'page' : undefined} onClick={() => setActiveTab('heating')} className={`min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTab === 'heating' ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700 hover:bg-slate-50'}`}><Flame className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">Heating</span></button>
-          <button type="button" aria-current={activeTab === 'chemicals' ? 'page' : undefined} onClick={() => setActiveTab('chemicals')} className={`min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTab === 'chemicals' ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700 hover:bg-slate-50'}`}><Droplets className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">Water</span></button>
-          <button type="button" aria-current={activeTab === 'logs' ? 'page' : undefined} onClick={() => setActiveTab('logs')} className={`min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTab === 'logs' ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700 hover:bg-slate-50'}`}><List className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">History</span></button>
-          <button type="button" aria-current={activeTab === 'log' ? 'page' : undefined} onClick={() => setActiveTab('log')} className={`min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTab === 'log' ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700 hover:bg-slate-50'}`}><ClipboardPlus className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">Log</span></button>
+          {canManageHeating && <button type="button" aria-current={activeTab === 'heating' ? 'page' : undefined} onClick={() => setActiveTab('heating')} className={`min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTab === 'heating' ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700 hover:bg-slate-50'}`}><Flame className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">Heating</span></button>}
+          {canManageWater && <button type="button" aria-current={activeTab === 'chemicals' ? 'page' : undefined} onClick={() => setActiveTab('chemicals')} className={`min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTab === 'chemicals' ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700 hover:bg-slate-50'}`}><Droplets className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">Water</span></button>}
+          {canManageWater && <button type="button" aria-current={activeTab === 'logs' ? 'page' : undefined} onClick={() => setActiveTab('logs')} className={`min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTab === 'logs' ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700 hover:bg-slate-50'}`}><List className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">History</span></button>}
+          {canManageWater && <button type="button" aria-current={activeTab === 'log' ? 'page' : undefined} onClick={() => setActiveTab('log')} className={`min-h-16 flex-1 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTab === 'log' ? 'bg-indigo-50 text-indigo-900' : 'text-slate-700 hover:bg-slate-50'}`}><ClipboardPlus className="w-6 h-6" aria-hidden="true" /><span className="text-sm font-black">Log</span></button>}
         </nav>
       </footer>
 

@@ -4,11 +4,14 @@ import App from './App.tsx';
 import './index.css';
 import {registerPwaServiceWorker} from './pwa';
 import {PwaUpdatePrompt} from './components/PwaUpdatePrompt';
+import {AccessProvider} from './lib/access';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
-    <PwaUpdatePrompt />
+    <AccessProvider>
+      <App />
+      <PwaUpdatePrompt />
+    </AccessProvider>
   </StrictMode>,
 );
 

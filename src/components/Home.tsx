@@ -6,7 +6,11 @@ import { heatingApi, type HeatingOutlookDto } from '../lib/heatingApi';
 import { cacheConnectedSpaStatus, readCachedSpaStatus } from '../lib/spaSnapshotCache';
 import { ManualLogModal } from './ManualLogModal';
 
-interface HomeProps { state: AppState; }
+interface HomeProps {
+  state: AppState;
+  canControl?: boolean;
+  canLog?: boolean;
+}
 function finiteNumber(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value); }
 
 const BUBBLE_AUTO_RESTART_KEY = 'spararama:bubbles:auto-restart';
@@ -95,7 +99,7 @@ function EquipmentButton({ label, icon, on, highlighted = false, disabled, busy,
   );
 }
 
-export function Home({ state }: HomeProps) {
+export function Home({ state, canControl = true, canLog = true }: HomeProps) {
   const waterBody = useMemo(() => state.domain.waterBodies.find(item => item.id === state.domain.activeWaterBodyId) ?? state.domain.waterBodies[0], [state.domain.waterBodies, state.domain.activeWaterBodyId]);
   const connectivity = waterBody?.connectivity ?? 'wifi';
   const liveConnectorAvailable = waterBody?.connectorId === 'cleverspa';
@@ -190,6 +194,7 @@ export function Home({ state }: HomeProps) {
   }, [waterBody?.id, connectivity, liveConnectorAvailable]);
 
   const command = async (name: string, action: () => Promise<SpaStatusDto>) => {
+    if (!canControl) return;
     setBusy(name);
     setError('');
     try {
@@ -216,6 +221,7 @@ export function Home({ state }: HomeProps) {
   };
 
   const updateBubbleAutoRestart = async (enabled: boolean) => {
+    if (!canControl) return;
     setBubbleAutoRestartPreference(enabled);
     try { window.localStorage.setItem(BUBBLE_AUTO_RESTART_KEY, String(enabled)); } catch { /* storage is optional */ }
     if (!status || status.bubblePhase === 'idle') return;
@@ -232,14 +238,14 @@ export function Home({ state }: HomeProps) {
   };
 
   if (!waterBody) return null;
-  const manualModal = showManualLog ? <ManualLogModal state={state} onClose={() => setShowManualLog(false)} /> : null;
+  const manualModal = canLog && showManualLog ? <ManualLogModal state={state} onClose={() => setShowManualLog(false)} /> : null;
 
   if (connectivity === 'none') return <>
     <div className="p-4 max-w-xl mx-auto">
       <section className="rounded-3xl bg-white border border-slate-200 p-6">
         <div className="flex items-center gap-3 text-slate-700"><WifiOff className="w-6 h-6" aria-hidden="true" /><span className="font-black">Manual monitoring</span></div>
         <h2 className="text-3xl font-black text-slate-950 mt-3">{waterBody.name}</h2>
-        <div className="mt-5"><ManualReadingButton onClick={() => setShowManualLog(true)} /></div>
+        {canLog && <div className="mt-5"><ManualReadingButton onClick={() => setShowManualLog(true)} /></div>}
       </section>
     </div>{manualModal}
   </>;
@@ -249,7 +255,7 @@ export function Home({ state }: HomeProps) {
       <section className="rounded-3xl bg-white border border-slate-200 p-6">
         <div className="flex items-center gap-3 text-indigo-800"><Wifi className="w-6 h-6" aria-hidden="true" /><span className="font-black">Wi-Fi connector unavailable</span></div>
         <h2 className="text-3xl font-black text-slate-950 mt-3">{waterBody.name}</h2>
-        <div className="mt-5"><ManualReadingButton onClick={() => setShowManualLog(true)} /></div>
+        {canLog && <div className="mt-5"><ManualReadingButton onClick={() => setShowManualLog(true)} /></div>}
       </section>
     </div>{manualModal}
   </>;
@@ -282,13 +288,13 @@ export function Home({ state }: HomeProps) {
         {error && <p role="alert" className="mt-3 text-sm font-bold text-slate-800 bg-slate-100 rounded-xl p-3">{error}</p>}
         <div className="mt-5 flex flex-wrap gap-3">
           <RefreshButton refreshing={refreshing} acquiredAt={displayedStatus?.updatedAt} onClick={() => void refresh(true)} dark={false} label="Try again" />
-          <ManualReadingButton onClick={() => setShowManualLog(true)} />
+          {canLog && <ManualReadingButton onClick={() => setShowManualLog(true)} />}
         </div>
       </section>
     </div>{manualModal}
   </>;
 
-  const disabled = connectionRefreshing || !status || !reachable || busy !== null;
+  const disabled = connectionRefreshing || !status || !reachable || busy !== null || !canControl;
   const setTarget = (value: number) => {
     const max = state.config.maxTemp || 40;
     void command('target', () => spaApi.setTargetTemperature(Math.max(5, Math.min(max, value))));
@@ -355,7 +361,7 @@ export function Home({ state }: HomeProps) {
       <section>
         <div className="flex items-center justify-between gap-3 mb-3 px-1">
           <h3 className="text-xl font-black text-slate-950">Equipment</h3>
-          {connectionRefreshing && <span className="text-sm font-black text-slate-600">{displayedStatus ? 'Last known' : 'Refreshing'}</span>}
+          {!canControl ? <span className="text-sm font-black text-slate-600">View only</span> : connectionRefreshing && <span className="text-sm font-black text-slate-600">{displayedStatus ? 'Last known' : 'Refreshing'}</span>}
         </div>
         <div className="grid grid-cols-3 gap-3">
           <EquipmentButton label="Filter" icon={<Waves className="w-7 h-7" aria-hidden="true" />} on={Boolean(displayedStatus?.filterOn)} busy={busy === 'filter'} disabled={disabled} statusText={displayedStatus ? undefined : '—'} onToggle={() => status && void command('filter', () => spaApi.setFilter(!status.filterOn))} />
@@ -372,7 +378,7 @@ export function Home({ state }: HomeProps) {
           />
         </div>
 
-        {bubbleHasCooldown && <label className={`mt-3 min-h-12 px-1 flex items-center justify-between gap-4 text-sm font-black ${bubbleRestartUsed ? 'text-slate-500' : 'text-slate-800'}`}>
+        {bubbleHasCooldown && canControl && <label className={`mt-3 min-h-12 px-1 flex items-center justify-between gap-4 text-sm font-black ${bubbleRestartUsed ? 'text-slate-500' : 'text-slate-800'}`}>
           <span>{bubbleRestartUsed ? 'Auto restart used' : 'Restart bubbles once'}</span>
           <input
             type="checkbox"

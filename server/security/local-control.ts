@@ -3,18 +3,27 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Express, NextFunction, Request, RequestHandler, Response } from 'express';
 import { FirebaseCloudAuthenticator, type CloudAuthenticator } from '../remote/cloud/firebase-auth';
-import { FirebaseCloudControlStore } from '../remote/cloud/firebase-store';
 import type { CloudControlStore, CloudPrincipal, InstallationRole } from '../remote/cloud/service';
+import { FirebaseInstallationAccessStore } from './access-store';
+import {
+  defaultPermissionsForRole,
+  hasPermission,
+  normalizePermissions,
+  type InstallationAccess,
+  type InstallationPermission
+} from './permissions';
 
 const SESSION_COOKIE = 'spararama_local_control';
-const SESSION_VERSION = 1;
+const SESSION_VERSION = 2;
 const DEFAULT_SESSION_HOURS = 24 * 30;
 
 export interface LocalControlSession {
-  v: 1;
+  v: 2;
   uid: string;
   email?: string;
   role: InstallationRole;
+  permissions: InstallationPermission[];
+  generation: string;
   issuedAt: number;
   expiresAt: number;
 }
@@ -25,6 +34,7 @@ export interface LocalControlSecurityOptions {
   sessionTtlMs?: number;
   authenticator?: CloudAuthenticator;
   membershipStore?: Pick<CloudControlStore, 'getMembership'>;
+  accessStore?: Pick<FirebaseInstallationAccessStore, 'getAccess'>;
 }
 
 function parseList(value: string | undefined, lowerCase = false) {
@@ -158,13 +168,20 @@ export class LocalControlSessionCodec {
     private readonly ttlMs = DEFAULT_SESSION_HOURS * 60 * 60 * 1000
   ) {}
 
-  issue(principal: CloudPrincipal, accessRole: InstallationRole) {
+  issue(
+    principal: CloudPrincipal,
+    accessRole: InstallationRole,
+    permissions: InstallationPermission[] = defaultPermissionsForRole(accessRole),
+    generation = 'standalone'
+  ) {
     const issuedAt = this.now();
     const payload: LocalControlSession = {
       v: SESSION_VERSION,
       uid: principal.uid,
       ...(principal.email ? { email: principal.email } : {}),
       role: accessRole,
+      permissions: normalizePermissions(permissions, accessRole),
+      generation,
       issuedAt,
       expiresAt: issuedAt + this.ttlMs
     };
@@ -189,12 +206,18 @@ export class LocalControlSessionCodec {
         || typeof payload.uid !== 'string'
         || !payload.uid
         || !accessRole
+        || typeof payload.generation !== 'string'
+        || !payload.generation
         || typeof payload.issuedAt !== 'number'
         || typeof payload.expiresAt !== 'number'
         || payload.expiresAt <= this.now()
         || payload.expiresAt <= payload.issuedAt
       ) return null;
-      return { ...payload, role: accessRole } as LocalControlSession;
+      return {
+        ...payload,
+        role: accessRole,
+        permissions: normalizePermissions(payload.permissions, accessRole)
+      } as LocalControlSession;
     } catch {
       return null;
     }
@@ -209,7 +232,7 @@ export class LocalControlSecurity {
   private readonly now: () => number;
   private readonly codec: LocalControlSessionCodec;
   private authenticator?: CloudAuthenticator;
-  private membershipStore?: Pick<CloudControlStore, 'getMembership'>;
+  private accessStore?: Pick<FirebaseInstallationAccessStore, 'getAccess'>;
 
   constructor(private readonly options: LocalControlSecurityOptions = {}) {
     this.now = options.now || (() => Date.now());
@@ -218,7 +241,7 @@ export class LocalControlSecurity {
       ?? Math.max(1, Number.isFinite(configuredHours) ? configuredHours : DEFAULT_SESSION_HOURS) * 60 * 60 * 1000;
     this.codec = new LocalControlSessionCodec(options.secret || readOrCreateSecret(), this.now, ttlMs);
     this.authenticator = options.authenticator;
-    this.membershipStore = options.membershipStore;
+    this.accessStore = options.accessStore;
   }
 
   registerRoutes(app: Express) {
@@ -232,35 +255,59 @@ export class LocalControlSecurity {
       next();
       return;
     }
-    this.authorizeLocalSession(req, res, next);
+    this.authorizeLocalSession(req, res, next, 'spa_control');
   };
 
-  /**
-   * Protect a state-changing or billable local operation. Direct unproxied
-   * loopback remains the explicit recovery trust boundary; LAN/proxy callers need
-   * an owner/member local-control session.
-   */
+  readonly protectHeatingManagement: RequestHandler = (req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+      next();
+      return;
+    }
+    this.authorizeLocalSession(req, res, next, 'heating_manage');
+  };
+
+  /** Protect an authenticated local operation that can change state or incur cost. */
   readonly protectAuthenticatedOperation: RequestHandler = (req, res, next) => {
-    this.authorizeLocalSession(req, res, next);
+    this.authorizeLocalSession(req, res, next, 'spa_control');
   };
 
-  /**
-   * Require a fresh Firebase bearer token whose Spararama role is one of the
-   * supplied roles. Unlike the local session path this never falls back to
-   * "any valid Firebase user" when no allowlist/membership exists.
-   */
   requireBearerRole(allowedRoles: readonly InstallationRole[]): RequestHandler {
     return (req, res, next) => {
-      void this.authorizeBearerRequest(req, res, next, allowedRoles);
+      void this.authorizeBearerRequest(req, res, next, access => allowedRoles.includes(access.role));
     };
   }
 
-  private authorizeLocalSession(req: Request, res: Response, next: NextFunction) {
-    // A process reachable only through the local host is an explicit trusted
-    // boundary and remains the offline/recovery path. Requests arriving through
-    // a reverse proxy carry forwarding headers and are never treated as loopback.
+  requireBearerPermission(permission: InstallationPermission): RequestHandler {
+    return (req, res, next) => {
+      void this.authorizeBearerRequest(req, res, next, access => hasPermission(access, permission));
+    };
+  }
+
+  async authenticateBearer(authorization: string | undefined) {
+    const principal = await this.getAuthenticator().authenticateAuthorizationHeader(authorization);
+    const access = await this.resolveAccess(principal);
+    return { principal, access };
+  }
+
+  /** Invalidate every issued local-control cookie for a user immediately. */
+  invalidateSessions(uid: string) {
+    if (!uid) return;
+    const generations = this.readSessionGenerations();
+    generations[uid] = crypto.randomBytes(18).toString('base64url');
+    this.writeSessionGenerations(generations);
+  }
+
+  private authorizeLocalSession(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+    requiredPermission: InstallationPermission
+  ) {
+    // A direct process-local request remains the explicit offline/recovery trust
+    // boundary. Reverse-proxied requests carry forwarding headers and never get it.
     if (isDirectLoopbackRequest(req)) {
       res.locals.localControlRole = 'owner';
+      res.locals.localControlPermissions = defaultPermissionsForRole('owner');
       next();
       return;
     }
@@ -274,22 +321,24 @@ export class LocalControlSecurity {
     }
 
     const session = this.codec.verify(readCookie(req, SESSION_COOKIE));
-    if (!session) {
+    if (!session || session.generation !== this.sessionGeneration(session.uid)) {
       res.status(401).json({
         error: 'Sign in to use protected Spararama operations from another device.',
         code: 'local_auth_required'
       });
       return;
     }
-    if (session.role === 'viewer') {
+    if (!session.permissions.includes(requiredPermission)) {
       res.status(403).json({
-        error: 'This account has read-only access.',
-        code: 'read_only'
+        error: 'This account does not have permission for that action.',
+        code: 'missing_permission',
+        permission: requiredPermission
       });
       return;
     }
 
     res.locals.localControlRole = session.role;
+    res.locals.localControlPermissions = session.permissions;
     res.locals.localControlUid = session.uid;
     next();
   }
@@ -298,19 +347,19 @@ export class LocalControlSecurity {
     req: Request,
     res: Response,
     next: NextFunction,
-    allowedRoles: readonly InstallationRole[]
+    allowed: (access: InstallationAccess) => boolean
   ) {
     try {
-      const principal = await this.getAuthenticator().authenticateAuthorizationHeader(req.headers.authorization);
-      const accessRole = await this.resolveRole(principal);
-      if (!accessRole || !allowedRoles.includes(accessRole)) {
+      const { principal, access } = await this.authenticateBearer(req.headers.authorization);
+      if (!access || !allowed(access)) {
         res.status(403).json({
           error: 'This account is not authorised for this Spararama administration operation.',
           code: 'insufficient_role'
         });
         return;
       }
-      res.locals.localControlRole = accessRole;
+      res.locals.localControlRole = access.role;
+      res.locals.localControlPermissions = access.permissions;
       res.locals.localControlUid = principal.uid;
       next();
     } catch (error: any) {
@@ -343,17 +392,16 @@ export class LocalControlSecurity {
     }
 
     try {
-      const principal = await this.getAuthenticator().authenticateAuthorizationHeader(req.headers.authorization);
-      const accessRole = await this.resolveRole(principal);
-      if (!accessRole) {
+      const { principal, access } = await this.authenticateBearer(req.headers.authorization);
+      if (!access) {
         res.status(403).json({
-          error: 'This signed-in account is not authorised for local spa control.',
+          error: 'This signed-in account is not authorised for this Spararama installation.',
           code: 'local_control_forbidden'
         });
         return;
       }
 
-      const token = this.codec.issue(principal, accessRole);
+      const token = this.codec.issue(principal, access.role, access.permissions, this.sessionGeneration(principal.uid));
       const session = this.codec.verify(token)!;
       const maxAgeSeconds = Math.max(1, Math.floor((session.expiresAt - this.now()) / 1000));
       const attributes = [
@@ -365,7 +413,7 @@ export class LocalControlSecurity {
       ];
       if (isSecureRequest(req)) attributes.push('Secure');
       res.setHeader('Set-Cookie', attributes.join('; '));
-      res.json({ role: accessRole, expiresAt: session.expiresAt });
+      res.json({ role: access.role, permissions: access.permissions, expiresAt: session.expiresAt });
     } catch (error: any) {
       const status = Number(error?.statusCode || 0);
       if (status === 401 || status === 403) {
@@ -388,25 +436,64 @@ export class LocalControlSecurity {
     return this.authenticator;
   }
 
-  private getMembershipStore() {
-    if (!this.membershipStore) this.membershipStore = new FirebaseCloudControlStore();
-    return this.membershipStore;
+  private getAccessStore() {
+    if (!this.accessStore) this.accessStore = new FirebaseInstallationAccessStore();
+    return this.accessStore;
   }
 
-  private async resolveRole(principal: CloudPrincipal): Promise<InstallationRole | null> {
+  private sessionGenerationsPath() {
+    return path.join(authDirectory(), 'session-generations.json');
+  }
+
+  private readSessionGenerations(): Record<string, string> {
+    try {
+      const value = JSON.parse(fs.readFileSync(this.sessionGenerationsPath(), 'utf8'));
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') return {};
+      console.warn(`Could not read session generations: ${error?.message || String(error)}`);
+      return {};
+    }
+  }
+
+  private writeSessionGenerations(generations: Record<string, string>) {
+    const directory = authDirectory();
+    fs.mkdirSync(directory, { recursive: true });
+    const target = this.sessionGenerationsPath();
+    const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(temporary, JSON.stringify(generations, null, 2), { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(temporary, target);
+  }
+
+  private sessionGeneration(uid: string) {
+    const generations = this.readSessionGenerations();
+    const existing = generations[uid];
+    if (typeof existing === 'string' && existing) return existing;
+    const generated = crypto.randomBytes(18).toString('base64url');
+    generations[uid] = generated;
+    this.writeSessionGenerations(generations);
+    return generated;
+  }
+
+  private async resolveAccess(principal: CloudPrincipal): Promise<InstallationAccess | null> {
     const explicit = explicitLocalControlRole(principal);
-    if (explicit) return explicit;
+    if (explicit) return { role: explicit, permissions: defaultPermissionsForRole(explicit) };
 
     const installationId = String(process.env.REMOTE_INSTALLATION_ID || '').trim();
     if (!installationId) return null;
-    const membership = await this.getMembershipStore().getMembership(installationId, principal.uid);
-    return membership?.role || null;
+
+    // Tests and older integrations can still inject the coarse role-only store.
+    if (this.options.membershipStore) {
+      const membership = await this.options.membershipStore.getMembership(installationId, principal.uid);
+      return membership ? { role: membership.role, permissions: defaultPermissionsForRole(membership.role) } : null;
+    }
+    return this.getAccessStore().getAccess(installationId, principal.uid);
   }
 }
 
 export function registerLocalControlSecurity(app: Express, security = new LocalControlSecurity()) {
   security.registerRoutes(app);
   app.use('/api/spa', security.protectPhysicalControl);
-  app.use('/api/heating/schedules', security.protectPhysicalControl);
+  app.use('/api/heating/schedules', security.protectHeatingManagement);
   return security;
 }
