@@ -1,10 +1,13 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { PushRegistration, PushRegistryState } from './types';
+import type { PushRegistration, PushRegistryState, PushTargetDeliveryResult } from './types';
 
 export const PUSH_TOKEN_MAX_CHARS = 4096;
 export const PUSH_USER_AGENT_MAX_CHARS = 500;
 export const PUSH_LABEL_MAX_CHARS = 120;
+export const PUSH_DEVICE_NAME_MAX_CHARS = 120;
+export const PUSH_DEVICE_ID_MAX_CHARS = 120;
+export const PUSH_USER_UID_MAX_CHARS = 256;
 export const DEFAULT_PUSH_MAX_REGISTRATIONS = 20;
 export const DEFAULT_PUSH_REGISTRY_MAX_BYTES = 256 * 1024;
 
@@ -23,9 +26,23 @@ export interface PushRegistrationStoreOptions {
   maxRegistryBytes?: number;
 }
 
+export interface PushRegistrationInput {
+  token: string;
+  userUid?: string;
+  deviceId?: string;
+  deviceName?: string;
+  userAgent?: string;
+  label?: string;
+}
+
 function positiveInteger(value: unknown, fallback: number) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function optionalTrimmed(value: string | undefined) {
+  const trimmed = String(value || '').trim();
+  return trimmed || undefined;
 }
 
 export class PushRegistrationStore {
@@ -81,9 +98,15 @@ export class PushRegistrationStore {
     await fs.rename(temporaryPath, this.statePath);
   }
 
-  upsert(input: { token: string; userAgent?: string; label?: string }) {
+  upsert(input: PushRegistrationInput) {
     return this.mutate(async () => {
       const token = input.token.trim();
+      const userUid = optionalTrimmed(input.userUid);
+      const deviceId = optionalTrimmed(input.deviceId);
+      const deviceName = optionalTrimmed(input.deviceName);
+      const userAgent = optionalTrimmed(input.userAgent);
+      const label = optionalTrimmed(input.label);
+
       if (!token || token.length < 20 || token.length > PUSH_TOKEN_MAX_CHARS) {
         throw new PushRegistrationStoreError(
           'invalid_registration',
@@ -91,20 +114,38 @@ export class PushRegistrationStore {
           `FCM registration token must be between 20 and ${PUSH_TOKEN_MAX_CHARS} characters.`
         );
       }
-      if (input.userAgent && input.userAgent.length > PUSH_USER_AGENT_MAX_CHARS) {
+      if (userUid && userUid.length > PUSH_USER_UID_MAX_CHARS) {
+        throw new PushRegistrationStoreError('invalid_registration', 400, 'Push user ID is too long.');
+      }
+      if (deviceId && deviceId.length > PUSH_DEVICE_ID_MAX_CHARS) {
+        throw new PushRegistrationStoreError('invalid_registration', 400, 'Push device ID is too long.');
+      }
+      if (deviceName && deviceName.length > PUSH_DEVICE_NAME_MAX_CHARS) {
+        throw new PushRegistrationStoreError('invalid_registration', 400, 'Push device name is too long.');
+      }
+      if (userAgent && userAgent.length > PUSH_USER_AGENT_MAX_CHARS) {
         throw new PushRegistrationStoreError('invalid_registration', 400, 'Push user-agent value is too long.');
       }
-      if (input.label && input.label.length > PUSH_LABEL_MAX_CHARS) {
+      if (label && label.length > PUSH_LABEL_MAX_CHARS) {
         throw new PushRegistrationStoreError('invalid_registration', 400, 'Push registration label is too long.');
       }
 
       const state = await this.load();
       const now = Date.now();
       let registration = state.registrations.find(item => item.token === token);
+      if (!registration && userUid && deviceId) {
+        registration = state.registrations.find(item => item.userUid === userUid && item.deviceId === deviceId);
+      }
+
       if (registration) {
+        registration.token = token;
         registration.updatedAt = now;
-        registration.userAgent = input.userAgent || registration.userAgent;
-        registration.label = input.label || registration.label;
+        registration.lastRegisteredAt = now;
+        registration.userUid = userUid || registration.userUid;
+        registration.deviceId = deviceId || registration.deviceId;
+        registration.deviceName = deviceName || registration.deviceName;
+        registration.userAgent = userAgent || registration.userAgent;
+        registration.label = label || registration.label;
       } else {
         if (state.registrations.length >= this.maxRegistrations) {
           throw new PushRegistrationStoreError(
@@ -118,8 +159,13 @@ export class PushRegistrationStore {
           token,
           createdAt: now,
           updatedAt: now,
-          userAgent: input.userAgent,
-          label: input.label
+          lastRegisteredAt: now,
+          userUid,
+          deviceId,
+          deviceName,
+          userAgent,
+          label,
+          consecutiveDeliveryFailures: 0
         };
         state.registrations.push(registration);
       }
@@ -128,11 +174,11 @@ export class PushRegistrationStore {
     });
   }
 
-  removeById(id: string) {
+  removeById(id: string, userUid?: string) {
     return this.mutate(async () => {
       const state = await this.load();
       const before = state.registrations.length;
-      state.registrations = state.registrations.filter(item => item.id !== id);
+      state.registrations = state.registrations.filter(item => item.id !== id || Boolean(userUid && item.userUid !== userUid));
       if (state.registrations.length !== before) await this.save(state);
       return state.registrations.length !== before;
     });
@@ -151,8 +197,37 @@ export class PushRegistrationStore {
     });
   }
 
-  async list() {
-    return (await this.load()).registrations;
+  recordDeliveryResults(results: PushTargetDeliveryResult[], attemptedAt = Date.now()) {
+    if (!results.length) return Promise.resolve();
+    return this.mutate(async () => {
+      const state = await this.load();
+      let changed = false;
+      for (const result of results) {
+        const registration = state.registrations.find(item => item.id === result.registrationId);
+        if (!registration) continue;
+        changed = true;
+        registration.lastDeliveryAttemptAt = attemptedAt;
+        registration.updatedAt = Math.max(registration.updatedAt || 0, attemptedAt);
+        if (result.success) {
+          registration.lastProviderAcceptedAt = attemptedAt;
+          registration.lastDeliveryErrorAt = undefined;
+          registration.lastDeliveryErrorCode = undefined;
+          registration.lastDeliveryErrorMessage = undefined;
+          registration.consecutiveDeliveryFailures = 0;
+        } else {
+          registration.lastDeliveryErrorAt = attemptedAt;
+          registration.lastDeliveryErrorCode = result.errorCode;
+          registration.lastDeliveryErrorMessage = result.errorMessage;
+          registration.consecutiveDeliveryFailures = (registration.consecutiveDeliveryFailures || 0) + 1;
+        }
+      }
+      if (changed) await this.save(state);
+    });
+  }
+
+  async list(userUid?: string) {
+    const registrations = (await this.load()).registrations;
+    return userUid ? registrations.filter(item => item.userUid === userUid) : registrations;
   }
 
   private mutate<T>(operation: () => Promise<T>): Promise<T> {
