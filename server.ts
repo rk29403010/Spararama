@@ -26,6 +26,7 @@ import { NotificationPreferenceStore } from './server/notifications/preferences'
 import { registerNotificationRoutes } from './server/notifications/routes';
 import { SpaHealthMonitor } from './server/health/spa-health-monitor';
 import { SpaHealthSettingsStore } from './server/health/settings';
+import { SpaConnectivityHistoryStore } from './server/health/connectivity-history';
 import { registerSpaHealthRoutes } from './server/health/routes';
 import { AlexaAlertDispatcher } from './server/alerts/alexa-dispatcher';
 import { registerAlertRoutes } from './server/alerts/routes';
@@ -63,6 +64,7 @@ async function startServer() {
   const notificationPreferences = new NotificationPreferenceStore();
   const notificationService = new NotificationService(notificationStore, pushService, notificationPreferences);
   const spaHealthSettings = new SpaHealthSettingsStore();
+  const spaHealthHistory = new SpaConnectivityHistoryStore();
   registerPushRoutes(app, pushService, localControlSecurity);
   registerImageAnalysisRoutes(app, localControlSecurity);
 
@@ -102,7 +104,10 @@ async function startServer() {
   const temperatureResolver = new BestEffortTemperatureResolver(spaAdapter, telemetryStore);
   const heatingScheduler = new HeatingScheduler(spaAdapter, new HeatingStore(), notificationService);
   const heatingPlanner = new HeatingPlanner(spaAdapter, heatingScheduler, weather);
-  const spaHealth = new SpaHealthMonitor(spaAdapter, notificationService, heatingScheduler, { alertSuppression: spaHealthSettings });
+  const spaHealth = new SpaHealthMonitor(spaAdapter, notificationService, heatingScheduler, {
+    alertSuppression: spaHealthSettings,
+    historyStore: spaHealthHistory
+  });
   const alexaDirect = new AlexaSpaCommandService(spaAdapter, bubbles, heatingScheduler, { weatherService: weather });
   const remoteRuntime = createRemoteRuntime({
     spa: spaAdapter,
@@ -134,9 +139,9 @@ async function startServer() {
   const unsubscribeSpaEvents = spaAdapter.subscribe?.((event) => {
     if (event.kind === 'status') {
       void telemetry.collectNow(event.status);
-      void spaHealth.observeStatus(event.status, event.observedAt);
+      void spaHealth.observeStatus(event.status, event.observedAt, event.source || 'spa-event');
     } else if (event.kind === 'connection') {
-      void spaHealth.observeConnection(event.connected, event.observedAt);
+      void spaHealth.observeConnection(event.connected, event.observedAt, event.source || 'spa-event');
     }
   });
 
@@ -155,6 +160,7 @@ async function startServer() {
   console.log(`Firebase credential source: ${telemetryStatus.firebaseCredentialSource || 'not resolved'}`);
   console.log(`Background push enabled: ${pushService.enabled}`);
   console.log(`Telemetry collector ID: ${process.env.TELEMETRY_HOST_ID || 'machine hostname'}`);
+  console.log(`Spa connectivity history: ${spaHealthHistory.episodesPath}`);
   console.log(`Meross MSH300 sensor polling: ${merossSensors ? `enabled (${merossSensors.config.endpoint.host})` : 'disabled'}`);
   console.log(`Ecowitt LAN weather: ${ecowitt ? `enabled (${ecowitt.client.config.endpoint.host})` : 'disabled'}`);
   console.log(`Remote transport: ${remoteRuntime.config.configuredTransport} (${remoteRuntime.config.transport === 'none' ? 'disabled' : 'enabled'})`);
