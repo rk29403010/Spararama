@@ -54,7 +54,7 @@ test('push registration store keeps a stable user device when its FCM token rota
   }
 });
 
-test('push registration store only lets an owning user rename a device', async () => {
+test('push registration store only lets an owning user rename a device and preserves that name on refresh', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-push-rename-'));
   try {
     const store = new PushRegistrationStore(dir);
@@ -68,6 +68,16 @@ test('push registration store only lets an owning user rename a device', async (
     const renamed = await store.renameById(registration.id, 'user-1', 'Robin S24 Ultra');
     assert.equal(renamed.deviceName, 'Robin S24 Ultra');
     assert.equal((await store.list('user-1'))[0].deviceName, 'Robin S24 Ultra');
+
+    const refreshed = await store.upsert({
+      token: 'rename-registration-token-rotated-000002',
+      userUid: 'user-1',
+      deviceId: 'device-1',
+      deviceName: 'Android · Linux armv8l'
+    });
+    assert.equal(refreshed.id, registration.id);
+    assert.equal(refreshed.deviceName, 'Robin S24 Ultra');
+    assert.equal(refreshed.token, 'rename-registration-token-rotated-000002');
 
     await assert.rejects(
       store.renameById(registration.id, 'user-2', 'Not mine'),
