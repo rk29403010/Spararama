@@ -70,7 +70,9 @@ function unifiedNotificationInput(notification: HeatingNotification) {
         ...base,
         type: 'heating.target_reached',
         group: 'heating.progress' as const,
-        severity: 'info' as const
+        // Reaching target is worth retrying if a phone has a transient Push failure,
+        // but it is not an urgent/problem state.
+        severity: 'warning' as const
       };
     case 'heat_soak_complete':
       return {
@@ -246,7 +248,7 @@ export class HeatingScheduler {
     let changed = false;
 
     for (const schedule of state.schedules) {
-      if (!['scheduled', 'retrying'].includes(schedule.status)) continue;
+      if (['running-remote', 'running-manual', 'ready', 'cancelled', 'awaiting-manual-confirmation'].includes(schedule.status)) continue;
       if (now < schedule.startTime) continue;
       if (schedule.nextAttemptAt && now < schedule.nextAttemptAt) continue;
 
