@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bell, Check, TriangleAlert, X } from 'lucide-react';
+import { Bell, Check, X } from 'lucide-react';
 import { auth } from '../lib/firebase';
 import { heatingApi, type HeatingNotificationDto } from '../lib/heatingApi';
 import { listActiveNotifications, type SpararamaNotificationDto } from '../lib/notificationsApi';
@@ -8,6 +8,7 @@ import {
   syncPushRegistration,
   type ForegroundPushMessage
 } from '../lib/pushNotifications';
+import { InAppNotice, ModalBackdrop } from './OverlaySurface';
 
 function alertCopy(item: HeatingNotificationDto) {
   if (item.kind === 'target_reached') return { title: 'Hot tub temperature reached.', message: '' };
@@ -27,12 +28,6 @@ function toneFrequencies(kind: HeatingNotificationDto['kind']) {
   if (kind === 'target_reached') return [740, 980];
   if (kind === 'manual_start_required') return [620, 620, 900];
   return [];
-}
-
-function genericAlertClass(severity: SpararamaNotificationDto['severity'] | ForegroundPushMessage['severity']) {
-  if (severity === 'urgent') return 'border-rose-300 bg-rose-50 text-rose-950';
-  if (severity === 'warning') return 'border-amber-300 bg-amber-50 text-amber-950';
-  return 'border-slate-300 bg-white text-slate-950';
 }
 
 function foregroundVibration(message: ForegroundPushMessage) {
@@ -62,6 +57,7 @@ export function HeatingNotifications() {
   const [busy, setBusy] = useState(false);
   const seen = useRef(new Set<string>());
   const dismissedGeneric = useRef(new Set<string>());
+  const dismissedManual = useRef(new Set<string>());
   const foregroundPushIds = useRef(new Set<string>());
   const foregroundPushTimer = useRef<number | null>(null);
   const pushSynced = useRef(false);
@@ -131,9 +127,6 @@ export function HeatingNotifications() {
     const unsubscribe = subscribeToForegroundPush(message => {
       if (message.notificationId) {
         foregroundPushIds.current.add(message.notificationId);
-        // Heating still has a compatibility polling path during this migration.
-        // Treat the push as already presented so that path does not immediately
-        // show the same non-action notification again.
         seen.current.add(message.notificationId);
       }
 
@@ -186,9 +179,6 @@ export function HeatingNotifications() {
         if (!cancelled) {
           const message = error?.message || 'This browser could not register for background notifications.';
           pushSyncFailures.current += 1;
-          // A page refresh, backend restart or brief Wi-Fi transition can make a
-          // single background sync request fail. Do not cover the UI with a scary
-          // banner unless the problem persists across several polling cycles.
           if (pushSyncFailures.current >= 3) showPushProblem(message);
           console.warn(`Spararama push registration failed (${pushSyncFailures.current}): ${message}`);
         }
@@ -204,10 +194,6 @@ export function HeatingNotifications() {
         ]);
         if (cancelled) return;
 
-        // Heating still has its established modal/toast presentation while the
-        // migration is in progress. Planned-maintenance incidents stay in history
-        // but are not surfaced as foreground alerts. A notification already shown
-        // immediately by FCM is also skipped here to avoid a second in-app toast.
         const genericItem = generic.notifications.find(item =>
           !item.deliverySuppressed
           && !item.group.startsWith('heating.')
@@ -216,7 +202,10 @@ export function HeatingNotifications() {
         );
         setGenericNotice(genericItem || null);
 
-        const manual = notifications.find(item => item.kind === 'manual_start_required');
+        const manual = notifications.find(item =>
+          item.kind === 'manual_start_required'
+          && !dismissedManual.current.has(item.id)
+        );
         setManualPrompt(manual || null);
 
         for (const item of notifications) {
@@ -224,9 +213,6 @@ export function HeatingNotifications() {
           seen.current.add(item.id);
           const copy = alertCopy(item);
           signalForegroundAlert(item.kind);
-          // Background browser notifications now come only from the unified
-          // Push route. Creating a second Notification here caused duplicates
-          // when the app happened to be open while FCM also delivered the event.
           await heatingApi.markDelivered(item.id);
           if (!item.requiresConfirmation) setNotice({ ...item, title: copy.title, message: copy.message });
         }
@@ -251,6 +237,11 @@ export function HeatingNotifications() {
     }
   };
 
+  const dismissManual = () => {
+    if (manualPrompt) dismissedManual.current.add(manualPrompt.id);
+    setManualPrompt(null);
+  };
+
   const dismissPushProblem = () => {
     if (pushProblem) dismissedPushProblem.current = pushProblem;
     setPushProblem(null);
@@ -270,63 +261,58 @@ export function HeatingNotifications() {
 
   return <>
     {pushProblem && (
-      <div role="alert" className="fixed top-20 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-amber-300 bg-amber-50 text-amber-950 p-4 flex gap-3 shadow-lg">
-        <TriangleAlert className="w-6 h-6 text-amber-700 shrink-0" aria-hidden="true" />
-        <div className="flex-1 min-w-0">
-          <div className="font-black">Push notifications need attention</div>
-          <div className="text-sm font-bold mt-1 break-words">{pushProblem}</div>
-        </div>
-        <button type="button" aria-label="Dismiss push notification warning" onClick={dismissPushProblem} className="w-11 h-11 -mt-1 -mr-1 rounded-full hover:bg-black/5 flex items-center justify-center shrink-0"><X className="w-5 h-5" aria-hidden="true" /></button>
-      </div>
+      <InAppNotice
+        role="alert"
+        severity="warning"
+        title="Push notifications need attention"
+        message={pushProblem}
+        onDismiss={dismissPushProblem}
+      />
     )}
 
     {genericNotice && (
-      <div role="alert" className={`fixed top-36 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-lg rounded-2xl border p-4 flex gap-3 shadow-lg ${genericAlertClass(genericNotice.severity)}`}>
-        <TriangleAlert className="w-6 h-6 shrink-0" aria-hidden="true" />
-        <div className="flex-1 min-w-0">
-          <div className="font-black">{genericNotice.title}</div>
-          {genericNotice.message && <div className="text-sm font-bold mt-1 break-words">{genericNotice.message}</div>}
-        </div>
-        <button type="button" aria-label="Dismiss notification" onClick={dismissGeneric} className="w-11 h-11 -mt-1 -mr-1 rounded-full hover:bg-black/5 flex items-center justify-center"><X className="w-5 h-5" aria-hidden="true" /></button>
-      </div>
+      <InAppNotice
+        role="alert"
+        severity={genericNotice.severity}
+        title={genericNotice.title}
+        message={genericNotice.message}
+        onDismiss={dismissGeneric}
+      />
     )}
 
     {notice && (
-      <div role="status" className="fixed top-20 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-sm rounded-2xl bg-slate-950 text-white p-4 flex gap-3">
-        <Bell className="w-6 h-6 text-emerald-300 shrink-0" aria-hidden="true" />
-        <div className="flex-1 min-w-0">
-          <div className="text-lg font-black">{notice.title}</div>
-          {notice.message && <div className="text-sm font-bold text-slate-300 mt-1">{notice.message}</div>}
-        </div>
-        <button type="button" aria-label="Dismiss notification" onClick={() => setNotice(null)} className="w-11 h-11 -mt-1 -mr-1 rounded-full text-slate-300 hover:bg-white/10 flex items-center justify-center"><X className="w-5 h-5" aria-hidden="true" /></button>
-      </div>
+      <InAppNotice
+        title={notice.title}
+        message={notice.message}
+        onDismiss={() => setNotice(null)}
+      />
     )}
 
     {foregroundPush && (
-      <div role="status" className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-lg rounded-2xl border p-4 flex gap-3 shadow-xl ${genericAlertClass(foregroundPush.severity)}`}>
-        <Bell className="w-6 h-6 shrink-0" aria-hidden="true" />
-        <div className="flex-1 min-w-0">
-          <div className="text-xs font-black uppercase tracking-wide opacity-70">
-            {foregroundPush.kind === 'system.push_test' ? 'Push test received' : 'Push received while Spararama is open'}
-          </div>
-          <div className="font-black mt-0.5">{foregroundPush.title}</div>
-          {foregroundPush.body && <div className="text-sm font-bold mt-1 break-words opacity-80">{foregroundPush.body}</div>}
-        </div>
-        <button type="button" aria-label="Dismiss foreground push notification" onClick={dismissForegroundPush} className="w-11 h-11 -mt-1 -mr-1 rounded-full hover:bg-black/5 flex items-center justify-center shrink-0"><X className="w-5 h-5" aria-hidden="true" /></button>
-      </div>
+      <InAppNotice
+        placement="bottom"
+        severity={foregroundPush.severity}
+        eyebrow={foregroundPush.kind === 'system.push_test' ? 'Push test received' : 'Notification'}
+        title={foregroundPush.title}
+        message={foregroundPush.body}
+        onDismiss={dismissForegroundPush}
+      />
     )}
 
     {manualPrompt && (
-      <div className="fixed inset-0 bg-slate-950/70 z-50 flex items-end sm:items-center justify-center sm:p-4 overscroll-contain">
-        <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-sm p-6">
-          <div className="w-12 h-12 bg-amber-100 text-amber-800 rounded-2xl flex items-center justify-center mb-4"><Bell className="w-6 h-6" aria-hidden="true" /></div>
-          <h2 className="text-3xl font-black text-slate-950">{manualPrompt.title}</h2>
-          <p className="text-base font-bold text-slate-600 mt-2">{manualPrompt.message}</p>
-          <button type="button" disabled={busy} onClick={() => void confirmManual()} className="mt-6 w-full min-h-16 rounded-2xl bg-indigo-700 text-white text-lg font-black flex items-center justify-center gap-2 disabled:opacity-50">
-            <Check className="w-6 h-6" aria-hidden="true" />{busy ? 'Recording…' : 'Heater is on'}
+      <ModalBackdrop onDismiss={dismissManual}>
+        <div className="relative mx-auto w-full max-w-sm rounded-t-3xl bg-white p-6 shadow-2xl sm:rounded-3xl">
+          <button type="button" aria-label="Close message" onClick={dismissManual} className="absolute right-4 top-4 flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-700 hover:bg-slate-200">
+            <X className="h-5 w-5" aria-hidden="true" />
+          </button>
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-800"><Bell className="h-6 w-6" aria-hidden="true" /></div>
+          <h2 className="pr-12 text-3xl font-black text-slate-950">{manualPrompt.title}</h2>
+          <p className="mt-2 break-words text-base font-bold text-slate-600">{manualPrompt.message}</p>
+          <button type="button" disabled={busy} onClick={() => void confirmManual()} className="mt-6 flex min-h-16 w-full items-center justify-center gap-2 rounded-2xl bg-indigo-700 text-lg font-black text-white disabled:opacity-50">
+            <Check className="h-6 w-6" aria-hidden="true" />{busy ? 'Recording…' : 'Heater is on'}
           </button>
         </div>
-      </div>
+      </ModalBackdrop>
     )}
   </>;
 }

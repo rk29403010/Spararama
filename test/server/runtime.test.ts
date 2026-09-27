@@ -28,8 +28,11 @@ test('main server wires push, heating and equipment health through unified notif
   assert.match(source, /const notificationStore = new NotificationStore\(\)/);
   assert.match(source, /const notificationService = new NotificationService\(notificationStore, pushService, notificationPreferences\)/);
   assert.match(source, /const spaHealthSettings = new SpaHealthSettingsStore\(\)/);
+  assert.match(source, /const spaHealthHistory = new SpaConnectivityHistoryStore\(\)/);
   assert.match(source, /new HeatingScheduler\(spaAdapter, new HeatingStore\(\), notificationService\)/);
-  assert.match(source, /new SpaHealthMonitor\(spaAdapter, notificationService, heatingScheduler, \{ alertSuppression: spaHealthSettings \}\)/);
+  assert.match(source, /new SpaHealthMonitor\(spaAdapter, notificationService, heatingScheduler, \{/);
+  assert.match(source, /alertSuppression: spaHealthSettings/);
+  assert.match(source, /historyStore: spaHealthHistory/);
   assert.match(source, /registerPushRoutes\(app, pushService, localControlSecurity\)/);
   assert.match(source, /registerNotificationRoutes\(app, notificationService, localControlSecurity\)/);
   assert.match(source, /registerSpaHealthRoutes\(app, spaHealth, spaHealthSettings, localControlSecurity\)/);

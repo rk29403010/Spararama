@@ -31,6 +31,13 @@ export function registerSpaHealthRoutes(
     });
   }));
 
+  app.get('/api/spa-health/connectivity-history', requireMember, asyncRoute(async (req, res) => {
+    const requestedLimit = Number(req.query.limit || 100);
+    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(500, Math.floor(requestedLimit))) : 100;
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await monitor.getConnectivityHistory(limit));
+  }));
+
   app.patch('/api/spa-health/settings', requireSpaControl, asyncRoute(async (req, res) => {
     const paused = req.body?.offlineAlertsPaused;
     if (typeof paused !== 'boolean') {

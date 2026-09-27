@@ -64,18 +64,36 @@ test('spa health monitor ignores a short communication interruption', async () =
   });
 });
 
+test('spa health monitor gives a full grace period from the first observed failure', async () => {
+  await withMonitor(async ({ monitor, notifications }) => {
+    const started = 1_500_000;
+    await monitor.observeStatus(spaStatus({ connected: true, lastContactAt: started - 600_000 }), started);
+    await monitor.observeConnection(false, started + 1_000);
+
+    // A stale last-contact timestamp must not backdate the outage timer and turn
+    // one newly observed failure into an immediate alert.
+    await monitor.observeStatus(spaStatus({ connected: false, lastContactAt: started - 600_000 }), started + 179_000);
+    assert.equal(monitor.getStatus().state, 'suspect');
+    assert.equal((await notifications.listActive()).length, 0);
+
+    await monitor.observeStatus(spaStatus({ connected: false, lastContactAt: started - 600_000 }), started + 181_000);
+    assert.equal(monitor.getStatus().state, 'offline');
+  });
+});
+
 test('spa health monitor opens and resolves one sustained offline incident', async () => {
   await withMonitor(async ({ monitor, notifications }) => {
     const started = 2_000_000;
     await monitor.observeStatus(spaStatus({ connected: true, lastContactAt: started }), started);
     await monitor.observeConnection(false, started + 1_000);
-    await monitor.observeStatus(spaStatus({ connected: false, lastContactAt: started }), started + 180_000);
+    await monitor.observeStatus(spaStatus({ connected: false, lastContactAt: started }), started + 181_000);
 
     let active = await notifications.listActive();
     assert.equal(monitor.getStatus().state, 'offline');
     assert.equal(active.length, 1);
     assert.equal(active[0].type, 'equipment.spa_offline');
     assert.equal(active[0].severity, 'warning');
+    assert.equal(active[0].title, "Hot tub can't be contacted");
 
     await monitor.observeStatus(spaStatus({ connected: true, lastContactAt: started + 240_000 }), started + 240_000);
     active = await notifications.listActive();
@@ -107,12 +125,12 @@ test('spa health monitor escalates an outage when planned heating is due', async
   await withMonitor(async ({ monitor, notifications }) => {
     await monitor.observeStatus(spaStatus({ connected: true, lastContactAt: started }), started);
     await monitor.observeConnection(false, started + 1_000);
-    await monitor.observeStatus(spaStatus({ connected: false, lastContactAt: started }), started + 180_000);
+    await monitor.observeStatus(spaStatus({ connected: false, lastContactAt: started }), started + 181_000);
 
     const active = await notifications.listActive();
     assert.equal(active.length, 1);
     assert.equal(active[0].severity, 'urgent');
-    assert.match(active[0].title, /Heating cannot start/);
+    assert.match(active[0].title, /Heating can't start/);
     assert.equal(active[0].context?.heatingScheduleId, 'schedule-1');
   }, heating);
 });
@@ -124,7 +142,7 @@ test('planned maintenance keeps the offline incident but suppresses route delive
     const started = 4_000_000;
     await monitor.observeStatus(spaStatus({ connected: true, lastContactAt: started }), started);
     await monitor.observeConnection(false, started + 1_000);
-    await monitor.observeStatus(spaStatus({ connected: false, lastContactAt: started }), started + 180_000);
+    await monitor.observeStatus(spaStatus({ connected: false, lastContactAt: started }), started + 181_000);
 
     let active = await notifications.listActive();
     assert.equal(active.length, 1);
@@ -132,7 +150,7 @@ test('planned maintenance keeps the offline incident but suppresses route delive
     assert.equal(active[0].context?.deliverySuppressed, true);
 
     suppressed = false;
-    await monitor.refreshAlertState(started + 181_000);
+    await monitor.refreshAlertState(started + 182_000);
     active = await notifications.listActive();
     assert.equal(active.length, 1);
     assert.equal(active[0].deliverySuppressed, undefined);
