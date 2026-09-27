@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AppState, ActiveReminder } from '../types';
 import { logEvent } from '../lib/firebase';
 import { Bell, Check, Minus, Plus, X } from 'lucide-react';
+import { ModalBackdrop } from './OverlaySurface';
 
 interface ReminderModalProps {
   state: AppState;
@@ -90,8 +91,8 @@ export function ReminderModal({ state, updateState }: ReminderModalProps) {
   const nudge = (amount: number) => setCurrentTemp(value => Math.min(maxTemp, Math.max(minTemp, value + amount)));
 
   return (
-    <div className="fixed inset-0 bg-slate-950/70 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 overscroll-contain">
-      <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-sm p-5 sm:p-6 shadow-2xl relative">
+    <ModalBackdrop onDismiss={handleDismiss}>
+      <div className="relative mx-auto w-full max-w-sm rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl sm:p-6">
         <button type="button" aria-label="Dismiss reminder" onClick={handleDismiss} className="absolute top-4 right-4 w-12 h-12 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center hover:bg-slate-200">
           <X className="w-6 h-6" aria-hidden="true" />
         </button>
@@ -148,6 +149,6 @@ export function ReminderModal({ state, updateState }: ReminderModalProps) {
           )}
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }
