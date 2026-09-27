@@ -206,3 +206,91 @@ test('delivery-suppressed incident is recorded and sends once delivery resumes',
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test('active warning is backfilled to a device that registers after the incident opens', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-notification-backfill-'));
+  try {
+    const store = new NotificationStore(dir);
+    const preferences = new NotificationPreferenceStore(dir);
+    const registrations: Array<{ id: string; userUid: string; deviceName: string }> = [];
+    const sent: string[] = [];
+    const push = {
+      enabled: true,
+      listRegistrations: async () => registrations,
+      sendNotificationToRegistration: async (registrationId: string) => {
+        sent.push(registrationId);
+        return {
+          enabled: true,
+          targetCount: 1,
+          successCount: 1,
+          failureCount: 0,
+          retryableFailureCount: 0,
+          removedInvalidCount: 0,
+          targets: [{ registrationId, label: 'Phone', success: true, invalid: false, retryable: false }]
+        };
+      }
+    };
+    const service = new NotificationService(store, push as any, preferences);
+    const notice = await service.publish({
+      type: 'equipment.spa_offline',
+      group: 'equipment',
+      severity: 'warning',
+      title: 'Hot tub is offline',
+      message: 'No contact.',
+      incidentKey: 'spa-connectivity'
+    });
+    assert.deepEqual(sent, []);
+
+    registrations.push({ id: 'phone', userUid: 'robin', deviceName: 'Phone' });
+    await service.processRetries(Date.now());
+
+    assert.deepEqual(sent, ['phone']);
+    const delivery = (await store.load()).deliveries.find(item => item.notificationId === notice.id && item.targetId === 'phone');
+    assert.equal(delivery?.status, 'provider_accepted');
+    assert.equal(delivery?.attemptNumber, 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('informational notices are not backfilled to newly registered devices', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'spararama-notification-info-backfill-'));
+  try {
+    const store = new NotificationStore(dir);
+    const preferences = new NotificationPreferenceStore(dir);
+    const registrations: Array<{ id: string; userUid: string; deviceName: string }> = [];
+    let sends = 0;
+    const push = {
+      enabled: true,
+      listRegistrations: async () => registrations,
+      sendNotificationToRegistration: async () => {
+        sends += 1;
+        return {
+          enabled: true,
+          targetCount: 1,
+          successCount: 1,
+          failureCount: 0,
+          retryableFailureCount: 0,
+          removedInvalidCount: 0,
+          targets: [{ registrationId: 'phone', label: 'Phone', success: true, invalid: false, retryable: false }]
+        };
+      }
+    };
+    const service = new NotificationService(store, push as any, preferences);
+    await service.publish({
+      type: 'heating.started',
+      group: 'heating.progress',
+      severity: 'info',
+      title: 'Spa heating started',
+      message: 'Heater is on.'
+    });
+
+    registrations.push({ id: 'phone', userUid: 'robin', deviceName: 'Phone' });
+    await service.processRetries(Date.now());
+
+    assert.equal(sends, 0);
+    assert.equal((await store.load()).deliveries.length, 0);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
