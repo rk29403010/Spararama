@@ -170,25 +170,36 @@ export async function waitForActiveServiceWorker(
 }
 
 export async function syncPushRegistration(options: { requestPermission?: boolean } = {}): Promise<PushSetupResult> {
-  const config = await getPushConfig();
-  if (!config.enabled || !config.configured || !config.vapidKey || !firebaseApp) {
-    return { status: 'disabled', message: 'FCM push is not fully configured on the Spararama server.' };
+  // Notification permission must be requested while the browser still considers
+  // this call part of the user's click/tap. In particular, mobile Chrome can
+  // drop transient user activation if we await network/Firebase work first.
+  if (!firebaseApp) {
+    return { status: 'disabled', message: 'Firebase is not configured in this Spararama browser build.' };
   }
   if (!window.isSecureContext) {
     return { status: 'insecure-origin', message: 'Background push requires HTTPS (or localhost).' };
   }
-  if (!(await browserCanPush())) {
-    return { status: 'unsupported', message: 'This browser does not support Firebase Web Push.' };
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+    return { status: 'unsupported', message: 'This browser does not support background notifications.' };
   }
 
-  if (Notification.permission === 'default' && options.requestPermission) {
-    await Notification.requestPermission();
+  let permission = Notification.permission;
+  if (permission === 'default' && options.requestPermission) {
+    permission = await Notification.requestPermission();
   }
-  if (Notification.permission === 'denied') {
+  if (permission === 'denied') {
     return { status: 'permission-denied', message: 'Notifications are blocked for Spararama in this browser.' };
   }
-  if (Notification.permission !== 'granted') {
+  if (permission !== 'granted') {
     return { status: 'permission-required', message: 'Notification permission has not been granted yet.' };
+  }
+
+  const config = await getPushConfig();
+  if (!config.enabled || !config.configured || !config.vapidKey) {
+    return { status: 'disabled', message: 'FCM push is not fully configured on the Spararama server.' };
+  }
+  if (!(await browserCanPush())) {
+    return { status: 'unsupported', message: 'This browser does not support Firebase Web Push.' };
   }
 
   if (!auth?.currentUser) throw new Error('Sign in to enable push notifications on this device.');
