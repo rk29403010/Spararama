@@ -21,12 +21,18 @@ test('runtime counters accumulate while equipment is on', async () => {
   assert.equal(afterHeating.heaterRuntimeSeconds, 1800);
 });
 
-test('main server wires secured background push registration to the same heating push service', async () => {
+test('main server wires push, heating and equipment health through unified notifications', async () => {
   const source = await fs.readFile(path.join(process.cwd(), 'server.ts'), 'utf8');
   assert.match(source, /const localControlSecurity = registerLocalControlSecurity\(app\)/);
   assert.match(source, /const pushService = new PushService\(\)/);
-  assert.match(source, /new HeatingScheduler\(spaAdapter, new HeatingStore\(\), pushService\)/);
+  assert.match(source, /const notificationStore = new NotificationStore\(\)/);
+  assert.match(source, /const notificationService = new NotificationService\(notificationStore, pushService, notificationPreferences\)/);
+  assert.match(source, /const spaHealthSettings = new SpaHealthSettingsStore\(\)/);
+  assert.match(source, /new HeatingScheduler\(spaAdapter, new HeatingStore\(\), notificationService\)/);
+  assert.match(source, /new SpaHealthMonitor\(spaAdapter, notificationService, heatingScheduler, \{ alertSuppression: spaHealthSettings \}\)/);
   assert.match(source, /registerPushRoutes\(app, pushService, localControlSecurity\)/);
+  assert.match(source, /registerNotificationRoutes\(app, notificationService, localControlSecurity\)/);
+  assert.match(source, /registerSpaHealthRoutes\(app, spaHealth, spaHealthSettings, localControlSecurity\)/);
 });
 
 test('production Node runtime is built outside the public dist directory', async () => {

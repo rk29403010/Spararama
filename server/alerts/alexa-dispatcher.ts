@@ -1,22 +1,41 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { HeatingStore } from '../heating/store';
-import type { HeatingNotification } from '../heating/types';
+import { NotificationPreferenceStore } from '../notifications/preferences';
+import { NotificationStore } from '../notifications/store';
+import type { NotificationDelivery, SpararamaNotification } from '../notifications/types';
 import { VoiceMonkeyService, type VoiceMonkeySettingsInput } from './voice-monkey';
 
 const POLL_INTERVAL_MS = 10_000;
 const MAX_NOTIFICATION_AGE_MS = 30 * 60_000;
 const RETRY_BASE_MS = 30_000;
 const RETRY_MAX_MS = 15 * 60_000;
+const MAX_RETRY_ATTEMPTS = 12;
+const ALEXA_TARGET_ID = 'household-alexa';
 
 interface DeliveryState {
-  sentNotificationIds: string[];
+  sentKeys: string[];
 }
 
-function alexaSpeech(notification: HeatingNotification) {
-  if (notification.kind === 'target_reached') return 'Hot tub temperature reached.';
-  if (notification.kind === 'heat_soak_complete') return 'Your hot tub is ready!';
-  return null;
+function alexaSpeech(notification: SpararamaNotification) {
+  switch (notification.type) {
+    case 'heating.target_reached':
+      return 'Hot tub temperature reached.';
+    case 'heating.ready':
+      return 'Your hot tub is ready!';
+    case 'heating.auto_start_failed':
+    case 'heating.manual_start_required':
+      return 'Hot tub heating needs attention.';
+    case 'equipment.spa_offline':
+      return notification.severity === 'urgent'
+        ? 'The hot tub is offline and scheduled heating is at risk.'
+        : 'The hot tub appears to be offline.';
+    default:
+      return null;
+  }
+}
+
+function deliveryKey(notification: SpararamaNotification) {
+  return [notification.id, notification.type, notification.severity, notification.title, notification.message].join('|');
 }
 
 export class AlexaAlertDispatcher {
@@ -26,28 +45,18 @@ export class AlexaAlertDispatcher {
   private readonly statePath: string;
 
   constructor(
-    private readonly heatingStore = new HeatingStore(),
+    private readonly notificationStore = new NotificationStore(),
+    private readonly preferences = new NotificationPreferenceStore(),
     private readonly voiceMonkey = new VoiceMonkeyService(),
     stateDir = process.env.ALERT_DELIVERY_DIR || path.join(process.cwd(), 'data', 'alerts')
   ) {
     this.statePath = path.join(stateDir, 'alexa.json');
   }
 
-  status() {
-    return this.voiceMonkey.status();
-  }
-
-  configure(input: VoiceMonkeySettingsInput) {
-    return this.voiceMonkey.configure(input);
-  }
-
-  listSpeakers(candidateToken?: string) {
-    return this.voiceMonkey.listSpeakers(candidateToken);
-  }
-
-  announce(text: string) {
-    return this.voiceMonkey.announce(text);
-  }
+  status() { return this.voiceMonkey.status(); }
+  configure(input: VoiceMonkeySettingsInput) { return this.voiceMonkey.configure(input); }
+  listSpeakers(candidateToken?: string) { return this.voiceMonkey.listSpeakers(candidateToken); }
+  announce(text: string) { return this.voiceMonkey.announce(text); }
 
   start() {
     if (this.timer) return;
@@ -74,9 +83,9 @@ export class AlexaAlertDispatcher {
   private async loadDeliveryState(): Promise<DeliveryState> {
     try {
       const parsed = JSON.parse(await fs.readFile(this.statePath, 'utf8'));
-      return { sentNotificationIds: Array.isArray(parsed?.sentNotificationIds) ? parsed.sentNotificationIds : [] };
+      return { sentKeys: Array.isArray(parsed?.sentKeys) ? parsed.sentKeys : [] };
     } catch (error: any) {
-      if (error?.code === 'ENOENT') return { sentNotificationIds: [] };
+      if (error?.code === 'ENOENT') return { sentKeys: [] };
       throw error;
     }
   }
@@ -88,41 +97,96 @@ export class AlexaAlertDispatcher {
     await fs.rename(temporaryPath, this.statePath);
   }
 
+  private retryAt(attempts: number, now: number) {
+    return now + Math.min(RETRY_MAX_MS, RETRY_BASE_MS * (2 ** Math.max(0, attempts - 1)));
+  }
+
+  private async recordDelivery(
+    notification: SpararamaNotification,
+    attemptNumber: number,
+    now: number,
+    success: boolean,
+    errorMessage?: string
+  ) {
+    const retryable = !success && attemptNumber < MAX_RETRY_ATTEMPTS;
+    const record: NotificationDelivery = {
+      id: crypto.randomUUID(),
+      notificationId: notification.id,
+      route: 'alexa',
+      targetId: ALEXA_TARGET_ID,
+      targetLabel: 'Alexa / Voice Monkey',
+      status: success ? 'provider_accepted' : 'failed',
+      attemptNumber,
+      attemptedAt: now,
+      ...(success ? { providerAcceptedAt: now } : {}),
+      ...(!success ? {
+        retryable,
+        ...(retryable ? { nextAttemptAt: this.retryAt(attemptNumber, now) } : {}),
+        errorCode: 'alexa_announcement_failed',
+        errorMessage: errorMessage || 'Voice Monkey did not accept the Alexa announcement.'
+      } : {})
+    };
+    await this.notificationStore.appendDelivery(record);
+    return record;
+  }
+
   private async processInternal(now: number) {
     const status = await this.voiceMonkey.status();
     if (!status.enabled || !status.configured) return;
 
-    const heating = await this.heatingStore.load();
+    const notificationState = await this.notificationStore.load();
     const delivery = await this.loadDeliveryState();
-    const sent = new Set(delivery.sentNotificationIds);
+    const sent = new Set(delivery.sentKeys);
     let changed = false;
 
-    for (const notification of heating.notifications) {
+    for (const notification of notificationState.notifications) {
+      if (notification.resolvedAt || notification.deliverySuppressed) continue;
       const speech = alexaSpeech(notification);
-      if (!speech || sent.has(notification.id)) continue;
-      if (now - notification.createdAt > MAX_NOTIFICATION_AGE_MS) continue;
+      if (!speech) continue;
+      if (!(await this.preferences.alexaEnabled(notification.group))) continue;
+      if (notification.expiresAt && notification.expiresAt <= now) continue;
+      if (now - notification.createdAt > MAX_NOTIFICATION_AGE_MS && notification.severity !== 'urgent') continue;
 
-      const retry = this.retries.get(notification.id);
+      const key = deliveryKey(notification);
+      if (sent.has(key)) continue;
+      const retry = this.retries.get(key);
       if (retry && now < retry.nextAttemptAt) continue;
+      const attemptNumber = (retry?.attempts || 0) + 1;
+      if (attemptNumber > MAX_RETRY_ATTEMPTS) continue;
 
       try {
         const result = await this.voiceMonkey.announce(speech);
-        if (!result.sent) continue;
-        sent.add(notification.id);
-        this.retries.delete(notification.id);
-        changed = true;
-      } catch (error) {
-        const attempts = (retry?.attempts || 0) + 1;
-        this.retries.set(notification.id, {
-          attempts,
-          nextAttemptAt: now + Math.min(RETRY_MAX_MS, RETRY_BASE_MS * (2 ** Math.max(0, attempts - 1)))
-        });
+        if (result.sent) {
+          await this.recordDelivery(notification, attemptNumber, now, true);
+          sent.add(key);
+          this.retries.delete(key);
+          changed = true;
+          continue;
+        }
+
+        const record = await this.recordDelivery(notification, attemptNumber, now, false);
+        if (record.retryable && record.nextAttemptAt) {
+          this.retries.set(key, { attempts: attemptNumber, nextAttemptAt: record.nextAttemptAt });
+        } else {
+          this.retries.delete(key);
+        }
+      } catch (error: any) {
+        const record = await this.recordDelivery(
+          notification,
+          attemptNumber,
+          now,
+          false,
+          error?.message || String(error)
+        );
+        if (record.retryable && record.nextAttemptAt) {
+          this.retries.set(key, { attempts: attemptNumber, nextAttemptAt: record.nextAttemptAt });
+        } else {
+          this.retries.delete(key);
+        }
         console.error('Alexa announcement failed:', error);
       }
     }
 
-    if (changed) {
-      await this.saveDeliveryState({ sentNotificationIds: Array.from(sent).slice(-1000) });
-    }
+    if (changed) await this.saveDeliveryState({ sentKeys: Array.from(sent).slice(-1000) });
   }
 }

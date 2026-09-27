@@ -37,29 +37,33 @@ importScripts('https://www.gstatic.com/firebasejs/${FIREBASE_WEB_SDK_VERSION}/fi
 firebase.initializeApp(${firebaseConfig});
 const messaging = firebase.messaging();
 
-function vibrationFor(kind) {
+function vibrationFor(kind, severity) {
   if (kind === 'heat_soak_complete') return [300, 120, 300, 120, 650];
   if (kind === 'target_reached') return [220, 120, 350];
   if (kind === 'manual_start_required') return [250, 120, 250, 120, 500];
+  if (severity === 'urgent') return [250, 120, 250, 120, 500];
+  if (severity === 'warning') return [220, 120, 350];
   return [160];
 }
 
 messaging.onBackgroundMessage((payload) => {
   const data = payload.data || {};
   const title = data.title || 'Spararama';
-  const attention = ['manual_start_required', 'target_reached', 'heat_soak_complete'].includes(data.kind);
+  const legacyAttention = ['manual_start_required', 'target_reached', 'heat_soak_complete'].includes(data.kind);
+  const attention = data.severity === 'urgent' || legacyAttention;
   const options = {
     body: data.body || '',
-    tag: data.notificationId ? 'spararama-' + data.notificationId : 'spararama-heating',
+    tag: data.notificationId ? 'spararama-' + data.notificationId : 'spararama-notification',
     renotify: attention,
-    requireInteraction: data.kind === 'manual_start_required' || data.kind === 'heat_soak_complete',
+    requireInteraction: attention,
     silent: false,
-    vibrate: vibrationFor(data.kind),
+    vibrate: vibrationFor(data.kind, data.severity),
     data: {
       url: data.url || '/',
       scheduleId: data.scheduleId,
       notificationId: data.notificationId,
-      kind: data.kind
+      kind: data.kind,
+      severity: data.severity
     }
   };
   return self.registration.showNotification(title, options);
@@ -82,6 +86,10 @@ self.addEventListener('notificationclick', (event) => {
 `;
 }
 
+function signedInUid(res: Response) {
+  return String(res.locals.localControlUid || '').trim();
+}
+
 export function registerPushRoutes(app: Express, push: PushService, security: LocalControlSecurity) {
   app.get('/api/push/config', asyncRoute(async (_req, res) => {
     const status = await push.status();
@@ -89,36 +97,99 @@ export function registerPushRoutes(app: Express, push: PushService, security: Lo
     res.json({ ...status, browserApiKeyConfigured, configured: status.configured && browserApiKeyConfigured });
   }));
 
+  const requireMember = security.requireBearerRole(['owner', 'member', 'viewer']);
+
+  app.get('/api/push/registrations', requireMember, asyncRoute(async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const uid = signedInUid(res);
+    res.json({ registrations: await push.listRegistrations(uid || undefined) });
+  }));
+
   app.post(
     '/api/push/registrations',
-    security.protectAuthenticatedOperation,
+    requireMember,
     express.json({ limit: PUSH_REGISTRATION_BODY_LIMIT }),
     asyncRoute(async (req, res) => {
       const token = typeof req.body?.token === 'string' ? req.body.token : '';
+      const uid = signedInUid(res);
       const registration = await push.register({
         token,
+        userUid: uid || undefined,
+        deviceId: typeof req.body?.deviceId === 'string' ? req.body.deviceId : undefined,
+        deviceName: typeof req.body?.deviceName === 'string' ? req.body.deviceName : undefined,
         userAgent: typeof req.body?.userAgent === 'string' ? req.body.userAgent : undefined,
         label: typeof req.body?.label === 'string' ? req.body.label : undefined
       });
-      res.status(201).json({ id: registration.id, createdAt: registration.createdAt, updatedAt: registration.updatedAt });
+      res.status(201).json({
+        id: registration.id,
+        createdAt: registration.createdAt,
+        updatedAt: registration.updatedAt,
+        lastRegisteredAt: registration.lastRegisteredAt,
+        deviceId: registration.deviceId,
+        deviceName: registration.deviceName
+      });
     })
   );
 
-  app.delete('/api/push/registrations/:id', security.protectAuthenticatedOperation, asyncRoute(async (req, res) => {
-    res.json({ removed: await push.unregister(req.params.id) });
+  app.patch(
+    '/api/push/registrations/:id',
+    requireMember,
+    express.json({ limit: PUSH_REGISTRATION_BODY_LIMIT }),
+    asyncRoute(async (req, res) => {
+      const uid = signedInUid(res);
+      if (!uid) {
+        res.status(409).json({ error: 'Sign in to rename a push device.' });
+        return;
+      }
+      const deviceName = typeof req.body?.deviceName === 'string' ? req.body.deviceName : '';
+      const registration = await push.store.renameById(req.params.id, uid, deviceName);
+      const { token: _token, ...safe } = registration;
+      res.json(safe);
+    })
+  );
+
+  app.delete('/api/push/registrations/:id', requireMember, asyncRoute(async (req, res) => {
+    const uid = signedInUid(res);
+    res.json({ removed: await push.unregister(req.params.id, uid || undefined) });
   }));
 
-  app.post('/api/push/test', security.protectAuthenticatedOperation, asyncRoute(async (_req, res) => {
+  app.post('/api/push/registrations/:id/test', requireMember, asyncRoute(async (req, res) => {
+    const uid = signedInUid(res);
+    if (!uid) {
+      res.status(409).json({ error: 'Sign in through the normal Spararama address to test a specific device.' });
+      return;
+    }
     const now = Date.now();
-    const result = await push.sendHeatingNotification({
+    const result = await push.sendNotificationToRegistration(req.params.id, {
       id: `push-test-${now}`,
-      scheduleId: 'push-test',
-      kind: 'heater_started',
-      createdAt: now,
+      type: 'system.push_test',
+      severity: 'info',
+      title: 'Spararama device test',
+      message: 'This device can receive Spararama background notifications.'
+    }, uid);
+    if (result.targetCount === 0) {
+      res.status(404).json({ error: 'Push device not found for this user.', ...result });
+      return;
+    }
+    res.json(result);
+  }));
+
+  app.post('/api/push/test', requireMember, asyncRoute(async (_req, res) => {
+    const uid = signedInUid(res);
+    const registrations = await push.listRegistrations(uid || undefined);
+    const current = registrations[0];
+    if (!current) {
+      res.status(404).json({ error: 'No push device is registered for this user.' });
+      return;
+    }
+    const now = Date.now();
+    const result = await push.sendNotificationToRegistration(current.id, {
+      id: `push-test-${now}`,
+      type: 'system.push_test',
+      severity: 'info',
       title: 'Spararama notifications enabled',
-      message: 'Background push notifications are working on this device.',
-      requiresConfirmation: false
-    });
+      message: 'Background push notifications are working on this device.'
+    }, uid || undefined);
     res.json(result);
   }));
 

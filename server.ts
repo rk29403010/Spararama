@@ -20,6 +20,13 @@ import { HeatingStore } from './server/heating/store';
 import { registerHeatingRoutes } from './server/heating/routes';
 import { PushService } from './server/push/service';
 import { registerPushRoutes } from './server/push/routes';
+import { NotificationService } from './server/notifications/service';
+import { NotificationStore } from './server/notifications/store';
+import { NotificationPreferenceStore } from './server/notifications/preferences';
+import { registerNotificationRoutes } from './server/notifications/routes';
+import { SpaHealthMonitor } from './server/health/spa-health-monitor';
+import { SpaHealthSettingsStore } from './server/health/settings';
+import { registerSpaHealthRoutes } from './server/health/routes';
 import { AlexaAlertDispatcher } from './server/alerts/alexa-dispatcher';
 import { registerAlertRoutes } from './server/alerts/routes';
 import { AlexaSpaCommandService } from './server/alexa/direct';
@@ -50,23 +57,27 @@ async function startServer() {
     next();
   });
 
-  // Physical-control mutations are safe on direct loopback and require an
-  // authenticated session with the relevant installation permission when reached
-  // from another LAN device. The same boundary protects push registration and
-  // billable image analysis before their request bodies are parsed.
   const localControlSecurity = registerLocalControlSecurity(app);
   const pushService = new PushService();
+  const notificationStore = new NotificationStore();
+  const notificationPreferences = new NotificationPreferenceStore();
+  const notificationService = new NotificationService(notificationStore, pushService, notificationPreferences);
+  const spaHealthSettings = new SpaHealthSettingsStore();
   registerPushRoutes(app, pushService, localControlSecurity);
   registerImageAnalysisRoutes(app, localControlSecurity);
 
-  // Ordinary JSON API requests should never need the old 50 MB global allowance.
-  // Large image analysis and tiny push registration bodies have route-specific
-  // parsers registered above with their own limits.
   app.use(express.json({ limit: "1mb" }));
-  registerUserManagementRoutes(app, localControlSecurity);
+  registerUserManagementRoutes(app, localControlSecurity, undefined, {
+    beforeUserRemoved: async uid => {
+      const registrations = await pushService.store.list(uid);
+      for (const registration of registrations) await pushService.unregister(registration.id, uid);
+      await notificationPreferences.removeUser(uid);
+    }
+  });
+  registerNotificationRoutes(app, notificationService, localControlSecurity);
 
   const spaAdapter = createSpaAdapter();
-  const alexaAlerts = new AlexaAlertDispatcher();
+  const alexaAlerts = new AlexaAlertDispatcher(notificationStore, notificationPreferences);
   const bubbles = new BubbleSessionManager(
     spaAdapter,
     bubblePolicyForAdapter(),
@@ -89,8 +100,9 @@ async function startServer() {
   const merossSensors = createMerossMsh300SensorSource();
   const environmentalSensors = combineSensorSources(merossSensors, ecowitt?.sensorSource);
   const temperatureResolver = new BestEffortTemperatureResolver(spaAdapter, telemetryStore);
-  const heatingScheduler = new HeatingScheduler(spaAdapter, new HeatingStore(), pushService);
+  const heatingScheduler = new HeatingScheduler(spaAdapter, new HeatingStore(), notificationService);
   const heatingPlanner = new HeatingPlanner(spaAdapter, heatingScheduler, weather);
+  const spaHealth = new SpaHealthMonitor(spaAdapter, notificationService, heatingScheduler, { alertSuppression: spaHealthSettings });
   const alexaDirect = new AlexaSpaCommandService(spaAdapter, bubbles, heatingScheduler, { weatherService: weather });
   const remoteRuntime = createRemoteRuntime({
     spa: spaAdapter,
@@ -101,6 +113,7 @@ async function startServer() {
   registerSpaRoutes(app, spaAdapter, temperatureResolver, bubbles);
   registerWeatherRoutes(app, weather);
   registerHeatingRoutes(app, heatingScheduler, heatingPlanner);
+  registerSpaHealthRoutes(app, spaHealth, spaHealthSettings, localControlSecurity);
   registerAlertRoutes(app, alexaAlerts, localControlSecurity);
   registerDirectAlexaRoutes(app, alexaDirect);
   registerSpaHistoryRoutes(app);
@@ -112,21 +125,23 @@ async function startServer() {
   telemetry.setIntervalSeconds(telemetrySettings.intervalSeconds);
   telemetry.start();
   if (firebaseTelemetry.enabled) {
-    // Register only this active collector. Historical collector documents and
-    // samples remain intact, but old hosts are no longer refreshed indefinitely.
     const identity = telemetry.getIdentity();
     void firebaseTelemetry.registerCollector(identity.hostId, identity.collectorVersion).catch((error: any) => {
       console.warn(`Could not register this telemetry collector with Firebase: ${error?.message || String(error)}`);
     });
   }
 
-  // Event-capable adapters can provide an immediate observation. Feed that exact
-  // status into telemetry instead of re-reading the spa, otherwise a status event
-  // would trigger another status request and recursively generate more events.
   const unsubscribeSpaEvents = spaAdapter.subscribe?.((event) => {
-    if (event.kind === 'status') void telemetry.collectNow(event.status);
+    if (event.kind === 'status') {
+      void telemetry.collectNow(event.status);
+      void spaHealth.observeStatus(event.status, event.observedAt);
+    } else if (event.kind === 'connection') {
+      void spaHealth.observeConnection(event.connected, event.observedAt);
+    }
   });
 
+  notificationService.start();
+  spaHealth.start();
   heatingScheduler.start();
   alexaAlerts.start();
   bubbles.start();
@@ -159,6 +174,7 @@ async function startServer() {
     res.json({
       status: "ok",
       spaAdapter: process.env.SPA_ADAPTER || 'bridge',
+      spaHealth: spaHealth.getStatus(),
       telemetry: combinedTelemetryStatus(),
       remote: remoteRuntime.agent.getStatus()
     });
@@ -240,6 +256,8 @@ async function startServer() {
 
   const shutdown = () => {
     unsubscribeSpaEvents?.();
+    notificationService.stop();
+    spaHealth.stop();
     telemetry.stop();
     heatingScheduler.stop();
     alexaAlerts.stop();

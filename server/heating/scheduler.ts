@@ -1,13 +1,16 @@
-import { PushService } from '../push/service';
+import type { NotificationService } from '../notifications/service';
 import type { SpaAdapter } from '../spa/types';
 import { HeatingStore } from './store';
-import type { HeatingNotification, HeatingSchedule } from './types';
+import type { HeatingNotification, HeatingNotificationKind, HeatingSchedule } from './types';
 
 const RETRY_DELAY_MS = 20_000;
 const MAX_ATTEMPTS = 3;
-const PUSH_RETRY_BASE_MS = 30_000;
-const PUSH_RETRY_MAX_MS = 15 * 60_000;
 const TARGET_HOLD_TOLERANCE_C = 0.5;
+
+export interface HeatingNotificationPublisher {
+  publish: NotificationService['publish'];
+  resolveIncident: NotificationService['resolveIncident'];
+}
 
 function finiteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
@@ -21,8 +24,64 @@ function readyTimeText(timestamp: number) {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-function nextPushRetryDelay(attempts: number) {
-  return Math.min(PUSH_RETRY_MAX_MS, PUSH_RETRY_BASE_MS * (2 ** Math.max(0, attempts - 1)));
+function notificationIncidentKey(notification: Pick<HeatingNotification, 'scheduleId' | 'kind'>) {
+  return `heating:${notification.scheduleId}:${notification.kind}`;
+}
+
+function notificationExpiry(notification: HeatingNotification) {
+  if (notification.kind === 'manual_start_required') return undefined;
+  if (notification.kind === 'heat_soak_complete') return notification.createdAt + (4 * 60 * 60_000);
+  return notification.createdAt + (60 * 60_000);
+}
+
+function unifiedNotificationInput(notification: HeatingNotification) {
+  const base = {
+    incidentKey: notificationIncidentKey(notification),
+    title: notification.title,
+    message: notification.message,
+    context: {
+      scheduleId: notification.scheduleId,
+      heatingKind: notification.kind,
+      legacyNotificationId: notification.id
+    },
+    expiresAt: notificationExpiry(notification)
+  };
+
+  switch (notification.kind) {
+    case 'manual_start_required':
+      return {
+        ...base,
+        type: notification.title === 'Heating did not start automatically'
+          ? 'heating.auto_start_failed'
+          : 'heating.manual_start_required',
+        group: 'heating.action_required' as const,
+        severity: 'urgent' as const,
+        requiresAcknowledgement: true
+      };
+    case 'heater_started':
+      return {
+        ...base,
+        type: 'heating.started',
+        group: 'heating.progress' as const,
+        severity: 'info' as const
+      };
+    case 'target_reached':
+      return {
+        ...base,
+        type: 'heating.target_reached',
+        group: 'heating.progress' as const,
+        // Reaching target is worth retrying if a phone has a transient Push failure,
+        // but it is not an urgent/problem state.
+        severity: 'warning' as const
+      };
+    case 'heat_soak_complete':
+      return {
+        ...base,
+        type: 'heating.ready',
+        group: 'heating.progress' as const,
+        severity: 'warning' as const
+      };
+  }
 }
 
 export class HeatingScheduler {
@@ -32,7 +91,7 @@ export class HeatingScheduler {
   constructor(
     private readonly spa: SpaAdapter,
     private readonly store = new HeatingStore(),
-    private readonly push: PushService = new PushService()
+    private readonly notifications?: HeatingNotificationPublisher
   ) {}
 
   start() {
@@ -120,6 +179,9 @@ export class HeatingScheduler {
     notification.deliveredAt = notification.deliveredAt || now;
     if (!notification.requiresConfirmation) notification.resolvedAt = notification.resolvedAt || now;
     await this.store.save(state);
+    if (!notification.requiresConfirmation) {
+      await this.notifications?.resolveIncident(notificationIncidentKey(notification), 'shown_in_app');
+    }
     return notification;
   }
 
@@ -132,10 +194,17 @@ export class HeatingScheduler {
     schedule.manualStartedAt = now;
     schedule.updatedAt = now;
     if (finiteNumber(temperatureC)) schedule.manualStartTemperatureC = temperatureC;
+    const resolvedNotifications: HeatingNotification[] = [];
     for (const notification of state.notifications) {
-      if (notification.scheduleId === scheduleId && notification.kind === 'manual_start_required' && !notification.resolvedAt) notification.resolvedAt = now;
+      if (notification.scheduleId === scheduleId && notification.kind === 'manual_start_required' && !notification.resolvedAt) {
+        notification.resolvedAt = now;
+        resolvedNotifications.push(notification);
+      }
     }
     await this.store.save(state);
+    for (const notification of resolvedNotifications) {
+      await this.notifications?.resolveIncident(notificationIncidentKey(notification), 'manual_start_confirmed');
+    }
     await this.store.appendEvent({ id: crypto.randomUUID(), scheduleId, timestamp: now, type: 'manual_started', details: { temperatureC: schedule.manualStartTemperatureC } });
     return schedule;
   }
@@ -153,10 +222,17 @@ export class HeatingScheduler {
     schedule.status = 'cancelled';
     schedule.updatedAt = now;
     schedule.nextAttemptAt = undefined;
+    const resolvedNotifications: HeatingNotification[] = [];
     for (const notification of state.notifications) {
-      if (notification.scheduleId === scheduleId && !notification.resolvedAt) notification.resolvedAt = now;
+      if (notification.scheduleId === scheduleId && !notification.resolvedAt) {
+        notification.resolvedAt = now;
+        resolvedNotifications.push(notification);
+      }
     }
     await this.store.save(state);
+    for (const notification of resolvedNotifications) {
+      await this.notifications?.resolveIncident(notificationIncidentKey(notification), 'heating_schedule_cancelled');
+    }
     await this.store.appendEvent({ id: crypto.randomUUID(), scheduleId, timestamp: now, type: 'cancelled' });
     return schedule;
   }
@@ -172,7 +248,7 @@ export class HeatingScheduler {
     let changed = false;
 
     for (const schedule of state.schedules) {
-      if (!['scheduled', 'retrying'].includes(schedule.status)) continue;
+      if (['running-remote', 'running-manual', 'ready', 'cancelled', 'awaiting-manual-confirmation'].includes(schedule.status)) continue;
       if (now < schedule.startTime) continue;
       if (schedule.nextAttemptAt && now < schedule.nextAttemptAt) continue;
 
@@ -329,32 +405,12 @@ export class HeatingScheduler {
       }
     }
 
-    if (this.push.enabled) {
+    if (this.notifications) {
       for (const notification of state.notifications) {
-        if (notification.resolvedAt || notification.pushSentAt) continue;
-        if (notification.pushNextAttemptAt && now < notification.pushNextAttemptAt) continue;
-
-        const result = await this.push.sendHeatingNotification(notification);
-        if (result.targetCount === 0) continue;
-
-        notification.pushAttempts = (notification.pushAttempts || 0) + 1;
-        notification.pushLastAttemptAt = now;
+        if (notification.resolvedAt || notification.unifiedNotificationPublishedAt) continue;
+        await this.notifications.publish(unifiedNotificationInput(notification));
+        notification.unifiedNotificationPublishedAt = now;
         changed = true;
-
-        if (result.successCount > 0) {
-          notification.pushSentAt = now;
-          notification.pushNextAttemptAt = undefined;
-          notification.pushLastError = result.failureCount > 0
-            ? `${result.failureCount} push target(s) failed; ${result.successCount} accepted.`
-            : undefined;
-        } else {
-          notification.pushLastError = result.error || `${result.failureCount} push target(s) failed.`;
-          if (result.retryableFailureCount > 0) {
-            notification.pushNextAttemptAt = now + nextPushRetryDelay(notification.pushAttempts);
-          } else {
-            notification.pushNextAttemptAt = undefined;
-          }
-        }
       }
     }
 

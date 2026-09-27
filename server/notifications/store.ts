@@ -1,0 +1,86 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import type { NotificationDelivery, NotificationEventRecord, NotificationStateFile } from './types';
+
+const EMPTY_STATE: NotificationStateFile = { notifications: [], deliveries: [] };
+
+export class NotificationStore {
+  readonly baseDir: string;
+  readonly statePath: string;
+  readonly eventsPath: string;
+  readonly deliveriesPath: string;
+  private appendQueue: Promise<void> = Promise.resolve();
+
+  constructor(baseDir = process.env.NOTIFICATION_DIR || path.join(process.cwd(), 'data', 'notifications')) {
+    this.baseDir = baseDir;
+    this.statePath = path.join(baseDir, 'state.json');
+    this.eventsPath = path.join(baseDir, 'events.ndjson');
+    this.deliveriesPath = path.join(baseDir, 'deliveries.ndjson');
+  }
+
+  async load(): Promise<NotificationStateFile> {
+    try {
+      const parsed = JSON.parse(await fs.readFile(this.statePath, 'utf8'));
+      return {
+        notifications: Array.isArray(parsed?.notifications) ? parsed.notifications : [],
+        deliveries: Array.isArray(parsed?.deliveries) ? parsed.deliveries : []
+      };
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') return { ...EMPTY_STATE, notifications: [], deliveries: [] };
+      throw error;
+    }
+  }
+
+  async save(state: NotificationStateFile) {
+    await fs.mkdir(this.baseDir, { recursive: true });
+    const temporaryPath = `${this.statePath}.${process.pid}.tmp`;
+    await fs.writeFile(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    await fs.rename(temporaryPath, this.statePath);
+  }
+
+  appendEvent(event: NotificationEventRecord) {
+    return this.appendText(this.eventsPath, `${JSON.stringify(event)}\n`);
+  }
+
+  appendDelivery(delivery: NotificationDelivery) {
+    return this.appendText(this.deliveriesPath, `${JSON.stringify(delivery)}\n`);
+  }
+
+  appendDeliveries(deliveries: NotificationDelivery[]) {
+    if (!deliveries.length) return Promise.resolve();
+    return this.appendText(
+      this.deliveriesPath,
+      deliveries.map(delivery => JSON.stringify(delivery)).join('\n') + '\n'
+    );
+  }
+
+  async listDeliveryAudit(notificationId: string, limit = 100): Promise<NotificationDelivery[]> {
+    const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+    try {
+      const text = await fs.readFile(this.deliveriesPath, 'utf8');
+      const matches: NotificationDelivery[] = [];
+      for (const line of text.split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const record = JSON.parse(line) as NotificationDelivery;
+          if (record?.notificationId === notificationId) matches.push(record);
+        } catch {
+          // One corrupt audit line should not make the rest of delivery history unreadable.
+        }
+      }
+      return matches.sort((a, b) => b.attemptedAt - a.attemptedAt).slice(0, safeLimit);
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') return [];
+      throw error;
+    }
+  }
+
+  private appendText(filePath: string, text: string) {
+    const run = this.appendQueue.then(async () => {
+      await fs.mkdir(this.baseDir, { recursive: true });
+      await fs.appendFile(filePath, text, 'utf8');
+    });
+    this.appendQueue = run.then(() => undefined, () => undefined);
+    return run;
+  }
+}

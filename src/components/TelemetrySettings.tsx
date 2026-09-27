@@ -1,41 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Bell, RefreshCw, Volume2 } from 'lucide-react';
+import { RefreshCw, Volume2 } from 'lucide-react';
 import { alertsApi, type AlexaAlertStatus, type AlexaSpeakerDto } from '../lib/alertsApi';
-import { syncPushRegistration, testPushNotification } from '../lib/pushNotifications';
 
 const AIR_HORN_CHIME = 'soundbank://soundlibrary/alarms/air_horns/air_horn_01';
 type ChimeChoice = 'none' | 'air-horn' | 'custom';
 
-function playReadySignal() {
-  if ('vibrate' in navigator) navigator.vibrate([300, 120, 300, 120, 650]);
-  try {
-    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const context = new AudioContextClass();
-    const startAt = context.currentTime + 0.02;
-    [784, 988, 1175].forEach((frequency, index) => {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      const toneStart = startAt + index * 0.22;
-      const toneEnd = toneStart + 0.16;
-      oscillator.frequency.value = frequency;
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      gain.gain.setValueAtTime(0.0001, toneStart);
-      gain.gain.exponentialRampToValueAtTime(0.18, toneStart + 0.025);
-      gain.gain.exponentialRampToValueAtTime(0.0001, toneEnd);
-      oscillator.start(toneStart);
-      oscillator.stop(toneEnd + 0.02);
-    });
-    window.setTimeout(() => void context.close(), 1200);
-  } catch {
-    // Visual notification remains useful if browser audio is unavailable.
-  }
-}
-
 export function TelemetrySettings() {
-  const [phoneBusy, setPhoneBusy] = useState(false);
-  const [phoneMessage, setPhoneMessage] = useState<string | null>(null);
   const [alexa, setAlexa] = useState<AlexaAlertStatus | null>(null);
   const [alexaEnabled, setAlexaEnabled] = useState(true);
   const [alexaDevice, setAlexaDevice] = useState('');
@@ -77,7 +47,7 @@ export function TelemetrySettings() {
         // The explicit refresh action reports lookup errors when the user needs them.
       }
     }).catch(error => {
-      if (active) setAlexaMessage(error?.message || 'Sign in to configure Alexa alerts.');
+      if (active) setAlexaMessage(error?.message || 'Sign in to configure Alexa announcements.');
     });
     return () => { active = false; };
   }, []);
@@ -103,30 +73,6 @@ export function TelemetrySettings() {
       setAlexaMessage(error?.message || 'Unable to load Alexa speakers.');
     } finally {
       setSpeakerBusy(false);
-    }
-  };
-
-  const testPhoneAlerts = async () => {
-    setPhoneBusy(true);
-    setPhoneMessage(null);
-    try {
-      const registration = await syncPushRegistration({ requestPermission: true });
-      if (registration.status !== 'enabled') {
-        setPhoneMessage(registration.message);
-        return;
-      }
-      playReadySignal();
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('Your hot tub is ready!', { tag: 'spararama-alert-test' });
-      }
-      const result = await testPushNotification();
-      setPhoneMessage(result.successCount > 0
-        ? 'Phone alerts enabled. Test push sent.'
-        : 'Local sound/vibration tested. Background push has no active target yet.');
-    } catch (error: any) {
-      setPhoneMessage(error?.message || 'Unable to test phone alerts.');
-    } finally {
-      setPhoneBusy(false);
     }
   };
 
@@ -173,18 +119,13 @@ export function TelemetrySettings() {
 
   return (
     <section className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 space-y-5">
-      <h3 className="text-xl font-black text-slate-950 flex items-center gap-2"><Bell className="w-5 h-5 text-indigo-700" aria-hidden="true" />Alerts</h3>
-
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-start gap-3">
+        <Volume2 className="w-6 h-6 text-indigo-700 shrink-0 mt-0.5" aria-hidden="true" />
         <div>
-          <div className="font-black text-slate-800 text-base sm:text-lg">This phone</div>
-          <div className="text-sm font-bold text-slate-600">Push, vibration and sound</div>
+          <h3 className="text-xl font-black text-slate-950">Alexa setup</h3>
+          <p className="text-sm font-bold text-slate-600">Choose the household speaker and Voice Monkey connection. Which notification groups Alexa announces is controlled above under Notifications.</p>
         </div>
-        <button type="button" disabled={phoneBusy} onClick={() => void testPhoneAlerts()} className="min-h-12 px-4 rounded-xl bg-indigo-700 text-white font-black disabled:opacity-50 flex items-center gap-2 shrink-0">
-          <Volume2 className="w-5 h-5" aria-hidden="true" />{phoneBusy ? 'Testing…' : 'Enable & test'}
-        </button>
       </div>
-      {phoneMessage && <p role="status" className="text-sm font-bold text-slate-600">{phoneMessage}</p>}
 
       <div className="border-t border-slate-200 pt-5 space-y-4">
         <div className="flex items-center justify-between gap-4">

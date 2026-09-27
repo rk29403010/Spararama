@@ -36,10 +36,20 @@ function requireInstallation(res: Response) {
   return id;
 }
 
+export interface UserManagementHooks {
+  /**
+   * Runs before installation access is removed. Use this for local resources that
+   * must stop following the user, such as push devices and notification choices.
+   * If cleanup fails, access removal is aborted so the operation can be retried.
+   */
+  beforeUserRemoved?: (uid: string) => Promise<void>;
+}
+
 export function registerUserManagementRoutes(
   app: Express,
   security: LocalControlSecurity,
-  store = new FirebaseInstallationAccessStore()
+  store = new FirebaseInstallationAccessStore(),
+  hooks: UserManagementHooks = {}
 ) {
   app.get('/api/access/me', asyncRoute(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -115,6 +125,11 @@ export function registerUserManagementRoutes(
       res.status(409).json({ error: 'You cannot remove your own account.' });
       return;
     }
+    if (!uid) {
+      res.status(400).json({ error: 'User ID is required.' });
+      return;
+    }
+    await hooks.beforeUserRemoved?.(uid);
     await store.removeUser(id, uid);
     security.invalidateSessions(uid);
     res.status(204).end();

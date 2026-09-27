@@ -1,0 +1,137 @@
+import { auth } from './firebase';
+
+export type NotificationSeverity = 'info' | 'warning' | 'urgent';
+export type NotificationGroup =
+  | 'heating.action_required'
+  | 'heating.progress'
+  | 'heating.schedule'
+  | 'equipment'
+  | 'water_care'
+  | 'system';
+
+export type NotificationGroupPreferences = Record<NotificationGroup, boolean>;
+
+export interface SpararamaNotificationDto {
+  id: string;
+  type: string;
+  group: NotificationGroup;
+  severity: NotificationSeverity;
+  title: string;
+  message: string;
+  createdAt: number;
+  updatedAt: number;
+  expiresAt?: number;
+  incidentKey?: string;
+  context?: Record<string, unknown>;
+  requiresAcknowledgement: boolean;
+  deliverySuppressed?: boolean;
+  acknowledgedAt?: number;
+  resolvedAt?: number;
+  resolutionReason?: string;
+}
+
+export interface NotificationDeliveryDto {
+  id: string;
+  notificationId: string;
+  route: 'push' | 'alexa';
+  targetId: string;
+  targetLabel?: string;
+  status: 'provider_accepted' | 'failed';
+  attemptNumber: number;
+  attemptedAt: number;
+  providerAcceptedAt?: number;
+  retryable?: boolean;
+  nextAttemptAt?: number;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface PersonalNotificationPreferencesDto {
+  push: NotificationGroupPreferences;
+}
+
+export interface SharedNotificationPreferencesDto {
+  alexa: NotificationGroupPreferences;
+}
+
+export interface SpaHealthSettingsDto {
+  offlineAlertsPaused: boolean;
+  offlineAlertsPausedUntil?: number;
+  updatedAt?: number;
+  health?: {
+    state: 'online' | 'suspect' | 'offline';
+    lastSuccessfulContactAt?: number;
+    suspectSince?: number;
+  };
+}
+
+async function authenticatedJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const user = auth?.currentUser;
+  if (!user) throw new Error('Sign in to manage notification settings.');
+  const token = await user.getIdToken();
+  const response = await fetch(path, {
+    ...init,
+    credentials: 'same-origin',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(init?.headers || {})
+    }
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(typeof body?.error === 'string' ? body.error : `Notification request failed (${response.status}).`);
+  return body as T;
+}
+
+export async function listActiveNotifications() {
+  const response = await fetch('/api/notifications', { headers: { Accept: 'application/json' } });
+  if (!response.ok) throw new Error(`Notification request failed (${response.status}).`);
+  return response.json() as Promise<{ notifications: SpararamaNotificationDto[] }>;
+}
+
+export function listRecentNotifications(limit = 20) {
+  return authenticatedJson<{ notifications: SpararamaNotificationDto[] }>(`/api/notifications/recent?limit=${Math.max(1, Math.min(100, limit))}`);
+}
+
+export function getNotificationDeliveries(notificationId: string, limit = 100) {
+  return authenticatedJson<{ deliveries: NotificationDeliveryDto[] }>(
+    `/api/notifications/${encodeURIComponent(notificationId)}/deliveries?limit=${Math.max(1, Math.min(500, limit))}`
+  );
+}
+
+export function getPersonalNotificationPreferences() {
+  return authenticatedJson<PersonalNotificationPreferencesDto>('/api/notification-preferences/me');
+}
+
+export function updatePersonalNotificationPreferences(push: Partial<NotificationGroupPreferences>) {
+  return authenticatedJson<PersonalNotificationPreferencesDto>('/api/notification-preferences/me', {
+    method: 'PATCH',
+    body: JSON.stringify({ push })
+  });
+}
+
+export function getSharedNotificationPreferences() {
+  return authenticatedJson<SharedNotificationPreferencesDto>('/api/notification-preferences/shared');
+}
+
+export function updateSharedNotificationPreferences(alexa: Partial<NotificationGroupPreferences>) {
+  return authenticatedJson<SharedNotificationPreferencesDto>('/api/notification-preferences/shared', {
+    method: 'PATCH',
+    body: JSON.stringify({ alexa })
+  });
+}
+
+export function getSpaHealthSettings() {
+  return authenticatedJson<SpaHealthSettingsDto>('/api/spa-health/settings');
+}
+
+export function updateSpaHealthSettings(offlineAlertsPaused: boolean, offlineAlertsPausedUntil?: number) {
+  return authenticatedJson<SpaHealthSettingsDto>('/api/spa-health/settings', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      offlineAlertsPaused,
+      ...(offlineAlertsPausedUntil ? { offlineAlertsPausedUntil } : {})
+    })
+  });
+}
