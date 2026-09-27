@@ -1,4 +1,4 @@
-import { deleteToken, getMessaging, getToken, isSupported } from 'firebase/messaging';
+import { deleteToken, getMessaging, getToken, isSupported, onMessage, type MessagePayload } from 'firebase/messaging';
 import { auth, firebaseApp } from './firebase';
 
 const REGISTRATION_ID_KEY = 'spararama_push_registration_id';
@@ -52,6 +52,16 @@ export interface PushDeliveryDto {
   removedInvalidCount: number;
   targets: PushTargetDeliveryDto[];
   error?: string;
+}
+
+export interface ForegroundPushMessage {
+  notificationId?: string;
+  kind: string;
+  severity: 'info' | 'warning' | 'urgent';
+  title: string;
+  body: string;
+  url: string;
+  requiresConfirmation: boolean;
 }
 
 export type PushSetupStatus =
@@ -112,6 +122,20 @@ function defaultDeviceName() {
   return platform;
 }
 
+function foregroundMessage(payload: MessagePayload): ForegroundPushMessage {
+  const data = payload.data || {};
+  const severity = data.severity === 'urgent' || data.severity === 'warning' ? data.severity : 'info';
+  return {
+    notificationId: data.notificationId || undefined,
+    kind: data.kind || 'system.notification',
+    severity,
+    title: data.title || payload.notification?.title || 'Spararama',
+    body: data.body || payload.notification?.body || '',
+    url: data.url || '/',
+    requiresConfirmation: data.requiresConfirmation === 'true'
+  };
+}
+
 export function getPushConfig() {
   return requestJson<PushConfigDto>('/api/push/config');
 }
@@ -131,6 +155,22 @@ export function currentPushDeviceId() {
 async function browserCanPush() {
   if (!('Notification' in window) || !('serviceWorker' in navigator)) return false;
   return isSupported();
+}
+
+/**
+ * Firebase routes foreground messages to the page rather than the service worker.
+ * Keep one page-level listener so a test or real alert is visible while Spararama
+ * is open, while the generated service worker continues to own background/locked
+ * delivery.
+ */
+export function subscribeToForegroundPush(listener: (message: ForegroundPushMessage) => void) {
+  if (!firebaseApp || typeof window === 'undefined') return () => {};
+  try {
+    return onMessage(getMessaging(firebaseApp), payload => listener(foregroundMessage(payload)));
+  } catch (error) {
+    console.warn('Could not start foreground Firebase messaging listener', error);
+    return () => {};
+  }
 }
 
 export async function waitForActiveServiceWorker(
