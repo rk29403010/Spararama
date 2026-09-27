@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Bell, Check, TriangleAlert, X } from 'lucide-react';
+import { auth } from '../lib/firebase';
 import { heatingApi, type HeatingNotificationDto } from '../lib/heatingApi';
 import { listActiveNotifications, type SpararamaNotificationDto } from '../lib/notificationsApi';
 import { syncPushRegistration } from '../lib/pushNotifications';
@@ -39,6 +40,8 @@ export function HeatingNotifications() {
   const seen = useRef(new Set<string>());
   const dismissedGeneric = useRef(new Set<string>());
   const pushSynced = useRef(false);
+  const pushSyncFailures = useRef(0);
+  const dismissedPushProblem = useRef<string | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
 
   const armAudio = () => {
@@ -94,22 +97,39 @@ export function HeatingNotifications() {
   useEffect(() => {
     let cancelled = false;
 
+    const showPushProblem = (message: string) => {
+      if (dismissedPushProblem.current !== message) setPushProblem(message);
+    };
+
     const syncPushIfAllowed = async () => {
-      if (pushSynced.current || !('Notification' in window) || Notification.permission !== 'granted') return;
+      if (
+        pushSynced.current
+        || !('Notification' in window)
+        || Notification.permission !== 'granted'
+        || !auth?.currentUser
+      ) return;
+
       try {
         const result = await syncPushRegistration();
         if (cancelled) return;
         if (result.status === 'enabled') {
           pushSynced.current = true;
+          pushSyncFailures.current = 0;
+          dismissedPushProblem.current = null;
           setPushProblem(null);
         } else {
-          setPushProblem(result.message);
+          pushSyncFailures.current = 0;
+          showPushProblem(result.message);
         }
       } catch (error: any) {
         if (!cancelled) {
           const message = error?.message || 'This browser could not register for background notifications.';
-          setPushProblem(message);
-          console.warn(`Spararama push registration failed: ${message}`);
+          pushSyncFailures.current += 1;
+          // A page refresh, backend restart or brief Wi-Fi transition can make a
+          // single background sync request fail. Do not cover the UI with a scary
+          // banner unless the problem persists across several polling cycles.
+          if (pushSyncFailures.current >= 3) showPushProblem(message);
+          console.warn(`Spararama push registration failed (${pushSyncFailures.current}): ${message}`);
         }
       }
     };
@@ -168,6 +188,11 @@ export function HeatingNotifications() {
     }
   };
 
+  const dismissPushProblem = () => {
+    if (pushProblem) dismissedPushProblem.current = pushProblem;
+    setPushProblem(null);
+  };
+
   const dismissGeneric = () => {
     if (!genericNotice) return;
     dismissedGeneric.current.add(`${genericNotice.id}:${genericNotice.updatedAt}`);
@@ -178,10 +203,11 @@ export function HeatingNotifications() {
     {pushProblem && (
       <div role="alert" className="fixed top-20 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-amber-300 bg-amber-50 text-amber-950 p-4 flex gap-3 shadow-lg">
         <TriangleAlert className="w-6 h-6 text-amber-700 shrink-0" aria-hidden="true" />
-        <div className="min-w-0">
+        <div className="flex-1 min-w-0">
           <div className="font-black">Push notifications need attention</div>
           <div className="text-sm font-bold mt-1 break-words">{pushProblem}</div>
         </div>
+        <button type="button" aria-label="Dismiss push notification warning" onClick={dismissPushProblem} className="w-11 h-11 -mt-1 -mr-1 rounded-full hover:bg-black/5 flex items-center justify-center shrink-0"><X className="w-5 h-5" aria-hidden="true" /></button>
       </div>
     )}
 
