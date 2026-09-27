@@ -3,7 +3,11 @@ import { Bell, Check, TriangleAlert, X } from 'lucide-react';
 import { auth } from '../lib/firebase';
 import { heatingApi, type HeatingNotificationDto } from '../lib/heatingApi';
 import { listActiveNotifications, type SpararamaNotificationDto } from '../lib/notificationsApi';
-import { syncPushRegistration } from '../lib/pushNotifications';
+import {
+  subscribeToForegroundPush,
+  syncPushRegistration,
+  type ForegroundPushMessage
+} from '../lib/pushNotifications';
 
 function alertCopy(item: HeatingNotificationDto) {
   if (item.kind === 'target_reached') return { title: 'Hot tub temperature reached.', message: '' };
@@ -25,20 +29,41 @@ function toneFrequencies(kind: HeatingNotificationDto['kind']) {
   return [];
 }
 
-function genericAlertClass(severity: SpararamaNotificationDto['severity']) {
+function genericAlertClass(severity: SpararamaNotificationDto['severity'] | ForegroundPushMessage['severity']) {
   if (severity === 'urgent') return 'border-rose-300 bg-rose-50 text-rose-950';
   if (severity === 'warning') return 'border-amber-300 bg-amber-50 text-amber-950';
   return 'border-slate-300 bg-white text-slate-950';
+}
+
+function foregroundVibration(message: ForegroundPushMessage) {
+  if (message.kind === 'heating.heat_soak_complete' || message.kind === 'heat_soak_complete') return [300, 120, 300, 120, 650];
+  if (message.kind === 'heating.target_reached' || message.kind === 'target_reached') return [220, 120, 350];
+  if (message.kind === 'heating.manual_start_required' || message.kind === 'manual_start_required') return [250, 120, 250, 120, 500];
+  if (message.severity === 'urgent') return [250, 120, 250, 120, 500];
+  if (message.severity === 'warning') return [220, 120, 350];
+  return [160];
+}
+
+function foregroundFrequencies(message: ForegroundPushMessage) {
+  if (message.kind === 'heating.heat_soak_complete' || message.kind === 'heat_soak_complete') return [784, 988, 1175];
+  if (message.kind === 'heating.target_reached' || message.kind === 'target_reached') return [740, 980];
+  if (message.kind === 'heating.manual_start_required' || message.kind === 'manual_start_required') return [620, 620, 900];
+  if (message.severity === 'urgent') return [620, 620, 900];
+  if (message.severity === 'warning') return [740, 980];
+  return [880];
 }
 
 export function HeatingNotifications() {
   const [manualPrompt, setManualPrompt] = useState<HeatingNotificationDto | null>(null);
   const [notice, setNotice] = useState<HeatingNotificationDto | null>(null);
   const [genericNotice, setGenericNotice] = useState<SpararamaNotificationDto | null>(null);
+  const [foregroundPush, setForegroundPush] = useState<ForegroundPushMessage | null>(null);
   const [pushProblem, setPushProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const seen = useRef(new Set<string>());
   const dismissedGeneric = useRef(new Set<string>());
+  const foregroundPushIds = useRef(new Set<string>());
+  const foregroundPushTimer = useRef<number | null>(null);
   const pushSynced = useRef(false);
   const pushSyncFailures = useRef(0);
   const dismissedPushProblem = useRef<string | null>(null);
@@ -55,11 +80,7 @@ export function HeatingNotifications() {
     }
   };
 
-  const signalForegroundAlert = (kind: HeatingNotificationDto['kind']) => {
-    const vibration = vibrationPattern(kind);
-    if (vibration.length && 'vibrate' in navigator) navigator.vibrate(vibration);
-
-    const frequencies = toneFrequencies(kind);
+  const playFrequencies = (frequencies: number[]) => {
     const context = audioContext.current;
     if (!frequencies.length || !context || context.state !== 'running') return;
 
@@ -84,6 +105,18 @@ export function HeatingNotifications() {
     }
   };
 
+  const signalForegroundAlert = (kind: HeatingNotificationDto['kind']) => {
+    const vibration = vibrationPattern(kind);
+    if (vibration.length && 'vibrate' in navigator) navigator.vibrate(vibration);
+    playFrequencies(toneFrequencies(kind));
+  };
+
+  const signalForegroundPush = (message: ForegroundPushMessage) => {
+    const vibration = foregroundVibration(message);
+    if (vibration.length && 'vibrate' in navigator) navigator.vibrate(vibration);
+    playFrequencies(foregroundFrequencies(message));
+  };
+
   useEffect(() => {
     const arm = () => armAudio();
     window.addEventListener('pointerdown', arm, true);
@@ -91,6 +124,34 @@ export function HeatingNotifications() {
     return () => {
       window.removeEventListener('pointerdown', arm, true);
       window.removeEventListener('keydown', arm, true);
+    };
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToForegroundPush(message => {
+      if (message.notificationId) {
+        foregroundPushIds.current.add(message.notificationId);
+        // Heating still has a compatibility polling path during this migration.
+        // Treat the push as already presented so that path does not immediately
+        // show the same non-action notification again.
+        seen.current.add(message.notificationId);
+      }
+
+      signalForegroundPush(message);
+      setForegroundPush(message);
+      if (foregroundPushTimer.current !== null) window.clearTimeout(foregroundPushTimer.current);
+      if (message.severity !== 'urgent' && !message.requiresConfirmation) {
+        foregroundPushTimer.current = window.setTimeout(() => {
+          setForegroundPush(current => current?.notificationId === message.notificationId ? null : current);
+          foregroundPushTimer.current = null;
+        }, message.kind === 'system.push_test' ? 7_000 : 10_000);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      if (foregroundPushTimer.current !== null) window.clearTimeout(foregroundPushTimer.current);
+      foregroundPushTimer.current = null;
     };
   }, []);
 
@@ -145,10 +206,12 @@ export function HeatingNotifications() {
 
         // Heating still has its established modal/toast presentation while the
         // migration is in progress. Planned-maintenance incidents stay in history
-        // but are not surfaced as foreground alerts.
+        // but are not surfaced as foreground alerts. A notification already shown
+        // immediately by FCM is also skipped here to avoid a second in-app toast.
         const genericItem = generic.notifications.find(item =>
           !item.deliverySuppressed
           && !item.group.startsWith('heating.')
+          && !foregroundPushIds.current.has(item.id)
           && !dismissedGeneric.current.has(`${item.id}:${item.updatedAt}`)
         );
         setGenericNotice(genericItem || null);
@@ -199,6 +262,12 @@ export function HeatingNotifications() {
     setGenericNotice(null);
   };
 
+  const dismissForegroundPush = () => {
+    if (foregroundPushTimer.current !== null) window.clearTimeout(foregroundPushTimer.current);
+    foregroundPushTimer.current = null;
+    setForegroundPush(null);
+  };
+
   return <>
     {pushProblem && (
       <div role="alert" className="fixed top-20 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-amber-300 bg-amber-50 text-amber-950 p-4 flex gap-3 shadow-lg">
@@ -230,6 +299,20 @@ export function HeatingNotifications() {
           {notice.message && <div className="text-sm font-bold text-slate-300 mt-1">{notice.message}</div>}
         </div>
         <button type="button" aria-label="Dismiss notification" onClick={() => setNotice(null)} className="w-11 h-11 -mt-1 -mr-1 rounded-full text-slate-300 hover:bg-white/10 flex items-center justify-center"><X className="w-5 h-5" aria-hidden="true" /></button>
+      </div>
+    )}
+
+    {foregroundPush && (
+      <div role="status" className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-lg rounded-2xl border p-4 flex gap-3 shadow-xl ${genericAlertClass(foregroundPush.severity)}`}>
+        <Bell className="w-6 h-6 shrink-0" aria-hidden="true" />
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-black uppercase tracking-wide opacity-70">
+            {foregroundPush.kind === 'system.push_test' ? 'Push test received' : 'Push received while Spararama is open'}
+          </div>
+          <div className="font-black mt-0.5">{foregroundPush.title}</div>
+          {foregroundPush.body && <div className="text-sm font-bold mt-1 break-words opacity-80">{foregroundPush.body}</div>}
+        </div>
+        <button type="button" aria-label="Dismiss foreground push notification" onClick={dismissForegroundPush} className="w-11 h-11 -mt-1 -mr-1 rounded-full hover:bg-black/5 flex items-center justify-center shrink-0"><X className="w-5 h-5" aria-hidden="true" /></button>
       </div>
     )}
 
