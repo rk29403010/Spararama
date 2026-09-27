@@ -37,6 +37,7 @@ import './server/heating-notification-routing.test';
 import './server/notifications.test';
 import './server/notification-route-independence.test';
 import './server/spa-health-monitor.test';
+import './server/connectivity-history.test';
 import './server/spa-health-settings.test';
 import './server/system-update.test';
 import './server/push-store.test';
