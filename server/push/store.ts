@@ -143,7 +143,10 @@ export class PushRegistrationStore {
         registration.lastRegisteredAt = now;
         registration.userUid = userUid || registration.userUid;
         registration.deviceId = deviceId || registration.deviceId;
-        registration.deviceName = deviceName || registration.deviceName;
+        // The client supplies an auto-detected name on every refresh. Once a user
+        // renames the device, keep that chosen name rather than overwriting it on
+        // the next automatic registration sync.
+        registration.deviceName = registration.deviceName || deviceName;
         registration.userAgent = userAgent || registration.userAgent;
         registration.label = label || registration.label;
       } else {
