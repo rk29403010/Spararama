@@ -39,6 +39,13 @@ function pushPayload(notification: SpararamaNotification) {
   } as const;
 }
 
+function needsPushBackfill(notification: SpararamaNotification, now: number) {
+  return notification.severity !== 'info'
+    && !notification.resolvedAt
+    && !notification.deliverySuppressed
+    && (!notification.expiresAt || notification.expiresAt > now);
+}
+
 export class NotificationService {
   private operation = Promise.resolve();
   private timer: NodeJS.Timeout | null = null;
@@ -303,6 +310,49 @@ export class NotificationService {
     }
 
     let changed = false;
+
+    // If an actionable incident opened while a device had no usable registration
+    // (or while its group was disabled), deliver it once the device becomes an
+    // eligible Push target. This also lets a newly added phone learn about an
+    // unresolved warning/urgent incident without waiting for that incident to
+    // change again. Informational progress notices are deliberately not backfilled.
+    for (const notification of state.notifications) {
+      if (!needsPushBackfill(notification, now)) continue;
+      for (const registration of registrations) {
+        if (!registration.userUid) continue;
+        const key = `${notification.id}:${registration.id}`;
+        if (latestByTarget.has(key)) continue;
+        if (!(await this.preferences.userPushEnabled(registration.userUid, notification.group))) continue;
+
+        const result = await this.push.sendNotificationToRegistration(registration.id, pushPayload(notification));
+        const target = result.targets[0];
+        const accepted = Boolean(target?.success);
+        const retryable = Boolean(target?.retryable && !accepted);
+        const nextAttemptAt = this.nextAttemptAt(notification, 1, retryable, now);
+        const record: NotificationDelivery = {
+          id: crypto.randomUUID(),
+          notificationId: notification.id,
+          route: 'push',
+          targetId: registration.id,
+          targetLabel: target?.label || registration.deviceName || registration.label,
+          status: accepted ? 'provider_accepted' : 'failed',
+          attemptNumber: 1,
+          attemptedAt: now,
+          ...(accepted ? { providerAcceptedAt: now } : {}),
+          ...(!accepted ? {
+            retryable,
+            ...(nextAttemptAt ? { nextAttemptAt } : {}),
+            errorCode: target?.errorCode || (result.targetCount === 0 ? 'registration_missing' : 'push_failed'),
+            errorMessage: target?.errorMessage || result.error || (result.targetCount === 0 ? 'Push registration no longer exists.' : 'Push delivery failed.')
+          } : {})
+        };
+        state.deliveries.push(record);
+        latestByTarget.set(key, record);
+        await this.store.appendDelivery(record);
+        changed = true;
+      }
+    }
+
     for (const delivery of latestByTarget.values()) {
       if (delivery.status !== 'failed' || !delivery.retryable || !delivery.nextAttemptAt || now < delivery.nextAttemptAt) continue;
       if (delivery.attemptNumber >= MAX_PUSH_RETRY_ATTEMPTS) continue;
