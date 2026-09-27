@@ -142,6 +142,11 @@ export function NotificationSettings() {
       || null;
   }, [devices]);
 
+  const otherDevices = useMemo(
+    () => devices.filter(device => device.id !== currentDevice?.id),
+    [devices, currentDevice?.id]
+  );
+
   const enablePush = async () => {
     setSaving('device');
     setMessage(null);
@@ -167,6 +172,8 @@ export function NotificationSettings() {
     setError(null);
     try {
       await disablePushNotifications();
+      setEditingDeviceId(null);
+      setEditingDeviceName('');
       setMessage('Push notifications are disabled on this device.');
       await load();
     } catch (reason) {
@@ -221,10 +228,6 @@ export function NotificationSettings() {
   };
 
   const removeDevice = async (device: PushRegistrationDto) => {
-    if (device.id === currentDevice?.id) {
-      await disablePush();
-      return;
-    }
     setSaving(`remove:${device.id}`);
     setMessage(null);
     setError(null);
@@ -317,6 +320,8 @@ export function NotificationSettings() {
     );
   }
 
+  const currentDeviceEditing = Boolean(currentDevice && editingDeviceId === currentDevice.id);
+
   return (
     <section className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 space-y-6">
       <div className="flex items-center gap-3">
@@ -334,7 +339,22 @@ export function NotificationSettings() {
             <div className="font-black text-slate-950">This device</div>
             {currentDevice ? (
               <>
-                <div className="text-sm font-bold text-slate-600 mt-1">{currentDevice.deviceName || currentDevice.label || 'Browser device'}</div>
+                {currentDeviceEditing ? (
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      autoFocus
+                      value={editingDeviceName}
+                      onChange={event => setEditingDeviceName(event.target.value)}
+                      maxLength={120}
+                      className="min-h-11 min-w-0 flex-1 rounded-xl border border-slate-300 px-3 font-bold text-slate-950 bg-white"
+                      aria-label="Device name"
+                    />
+                    <button type="button" disabled={!editingDeviceName.trim() || saving === `rename:${currentDevice.id}`} onClick={() => void saveRename()} className="w-11 h-11 rounded-xl bg-indigo-700 text-white flex items-center justify-center disabled:opacity-50" aria-label="Save device name"><Check className="w-5 h-5" aria-hidden="true" /></button>
+                    <button type="button" onClick={() => { setEditingDeviceId(null); setEditingDeviceName(''); }} className="w-11 h-11 rounded-xl bg-white border border-slate-300 text-slate-700 flex items-center justify-center" aria-label="Cancel rename"><X className="w-5 h-5" aria-hidden="true" /></button>
+                  </div>
+                ) : (
+                  <div className="text-sm font-bold text-slate-600 mt-1">{currentDevice.deviceName || currentDevice.label || 'Browser device'}</div>
+                )}
                 <div className="text-xs font-bold text-slate-500 mt-1">Last registered: {timeText(currentDevice.lastRegisteredAt || currentDevice.updatedAt)}</div>
                 <div className="text-xs font-bold text-slate-500">Last accepted by Firebase: {timeText(currentDevice.lastProviderAcceptedAt)}</div>
                 {currentDevice.lastDeliveryErrorCode && <div className="text-xs font-bold text-rose-800 mt-1 break-words">{currentDevice.lastDeliveryErrorCode}{currentDevice.lastDeliveryErrorMessage ? ` - ${currentDevice.lastDeliveryErrorMessage}` : ''}</div>}
@@ -344,24 +364,26 @@ export function NotificationSettings() {
             )}
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" disabled={saving === 'device'} onClick={() => void enablePush()} className="min-h-11 px-4 rounded-xl bg-indigo-700 text-white font-black disabled:opacity-50">
-            {saving === 'device' ? 'Working…' : currentDevice ? 'Repair / refresh' : 'Enable push'}
-          </button>
-          {currentDevice && <button type="button" disabled={saving === `test:${currentDevice.id}`} onClick={() => void testDevice(currentDevice)} className="min-h-11 px-4 rounded-xl bg-slate-950 text-white font-black disabled:opacity-50 flex items-center gap-2"><Send className="w-4 h-4" aria-hidden="true" />{saving === `test:${currentDevice.id}` ? 'Testing…' : 'Send test'}</button>}
-          {currentDevice && <button type="button" disabled={saving === 'device'} onClick={() => void disablePush()} className="min-h-11 px-4 rounded-xl bg-white border border-slate-300 text-slate-800 font-black disabled:opacity-50">Disable on this device</button>}
-        </div>
+        {!currentDeviceEditing && (
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={saving === 'device'} onClick={() => void enablePush()} className="min-h-11 px-4 rounded-xl bg-indigo-700 text-white font-black disabled:opacity-50">
+              {saving === 'device' ? 'Working…' : currentDevice ? 'Repair / refresh' : 'Enable push'}
+            </button>
+            {currentDevice && <button type="button" disabled={saving === `test:${currentDevice.id}`} onClick={() => void testDevice(currentDevice)} className="min-h-11 px-4 rounded-xl bg-slate-950 text-white font-black disabled:opacity-50 flex items-center gap-2"><Send className="w-4 h-4" aria-hidden="true" />{saving === `test:${currentDevice.id}` ? 'Testing…' : 'Send test'}</button>}
+            {currentDevice && <button type="button" onClick={() => startRename(currentDevice)} className="min-h-11 px-4 rounded-xl bg-white border border-slate-300 text-slate-800 font-black flex items-center gap-2"><Pencil className="w-4 h-4" aria-hidden="true" />Rename</button>}
+            {currentDevice && <button type="button" disabled={saving === 'device'} onClick={() => void disablePush()} className="min-h-11 px-4 rounded-xl bg-white border border-slate-300 text-slate-800 font-black disabled:opacity-50">Disable on this device</button>}
+          </div>
+        )}
       </div>
 
-      {devices.length > 0 && (
+      {otherDevices.length > 0 && (
         <div className="space-y-3">
           <div>
-            <h4 className="font-black text-slate-950">Your registered devices</h4>
+            <h4 className="font-black text-slate-950">Other registered devices</h4>
             <p className="text-sm font-bold text-slate-600">Each browser or phone is an independent Push destination.</p>
           </div>
           <div className="space-y-2">
-            {devices.map(device => {
-              const isCurrent = device.id === currentDevice?.id;
+            {otherDevices.map(device => {
               const editing = editingDeviceId === device.id;
               return (
                 <div key={device.id} className="rounded-2xl border border-slate-200 bg-white p-3">
@@ -383,7 +405,7 @@ export function NotificationSettings() {
                         </div>
                       ) : (
                         <>
-                          <div className="font-black text-slate-900 truncate">{device.deviceName || device.label || 'Browser device'}{isCurrent ? <span className="ml-2 text-xs text-indigo-700">This device</span> : null}</div>
+                          <div className="font-black text-slate-900 truncate">{device.deviceName || device.label || 'Browser device'}</div>
                           <div className="text-xs font-bold text-slate-500 mt-1">Registered {timeText(device.lastRegisteredAt || device.updatedAt)} · Last accepted {timeText(device.lastProviderAcceptedAt)}</div>
                           {device.lastDeliveryErrorCode && <div className="text-xs font-bold text-rose-800 mt-1 break-words">{device.lastDeliveryErrorCode}{device.lastDeliveryErrorMessage ? ` - ${device.lastDeliveryErrorMessage}` : ''}</div>}
                         </>
@@ -394,7 +416,7 @@ export function NotificationSettings() {
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button type="button" onClick={() => startRename(device)} className="min-h-10 px-3 rounded-xl bg-slate-100 text-slate-800 font-black flex items-center gap-1.5"><Pencil className="w-4 h-4" aria-hidden="true" />Rename</button>
                       <button type="button" disabled={saving === `test:${device.id}`} onClick={() => void testDevice(device)} className="min-h-10 px-3 rounded-xl bg-slate-100 text-slate-800 font-black flex items-center gap-1.5"><Send className="w-4 h-4" aria-hidden="true" />{saving === `test:${device.id}` ? 'Testing…' : 'Test'}</button>
-                      <button type="button" disabled={saving === `remove:${device.id}` || saving === 'device'} onClick={() => void removeDevice(device)} className="min-h-10 px-3 rounded-xl bg-rose-50 text-rose-800 font-black flex items-center gap-1.5"><Trash2 className="w-4 h-4" aria-hidden="true" />{isCurrent ? 'Disable' : saving === `remove:${device.id}` ? 'Removing…' : 'Remove'}</button>
+                      <button type="button" disabled={saving === `remove:${device.id}`} onClick={() => void removeDevice(device)} className="min-h-10 px-3 rounded-xl bg-rose-50 text-rose-800 font-black flex items-center gap-1.5"><Trash2 className="w-4 h-4" aria-hidden="true" />{saving === `remove:${device.id}` ? 'Removing…' : 'Remove'}</button>
                     </div>
                   )}
                 </div>

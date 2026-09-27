@@ -266,7 +266,7 @@ export default function App() {
         {invitePending && !user && <div className="bg-indigo-100 border-t border-indigo-200 px-4 py-2 text-center text-indigo-950 text-sm font-black">You have a Spararama invite. Sign in with the Google account you want to use.</div>}
         {!user && !invitePending && <div className="bg-amber-100 border-t border-amber-200 px-4 py-2 text-center text-amber-950 text-sm font-black">Not signed in - status is view only and personal activity won't sync.</div>}
         {user && accessLoading && <div className="bg-slate-100 border-t border-slate-200 px-4 py-2 text-center text-slate-700 text-sm font-black">Checking Spararama permissions…</div>}
-        {user && !accessLoading && !access?.authorized && !canSpaControl && <div className="bg-amber-100 border-t border-amber-200 px-4 py-2 text-center text-amber-950 text-sm font-black">View only - this Google account has not been authorised for controls.</div>}
+        {user && !accessLoading && !accessError && !access?.authorized && !canSpaControl && <div className="bg-amber-100 border-t border-amber-200 px-4 py-2 text-center text-amber-950 text-sm font-black">View only - this Google account has not been authorised for controls.</div>}
         {user && accessError && <div className="bg-rose-100 border-t border-rose-200 px-4 py-2 text-center text-rose-950 text-sm font-black">{accessError}</div>}
       </header>
 
