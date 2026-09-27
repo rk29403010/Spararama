@@ -25,6 +25,7 @@ const WeatherConfiguration = lazy(() => import('./components/WeatherConfiguratio
 const BleC600Settings = lazy(() => import('./components/BleC600Settings').then(module => ({ default: module.BleC600Settings })));
 const RemoteHome = lazy(() => import('./components/RemoteHome').then(module => ({ default: module.RemoteHome })));
 const UserManagement = lazy(() => import('./components/UserManagement').then(module => ({ default: module.UserManagement })));
+const NotificationSettings = lazy(() => import('./components/NotificationSettings').then(module => ({ default: module.NotificationSettings })));
 
 type AppTab = 'home' | 'heating' | 'chemicals' | 'logs' | 'log' | 'settings';
 
@@ -338,6 +339,7 @@ export default function App() {
                   </label>
                 </section>
 
+                <ErrorBoundary resetKey="notification-settings" title="Notification settings failed"><NotificationSettings /></ErrorBoundary>
                 <ErrorBoundary resetKey="user-management" title="User management failed"><UserManagement /></ErrorBoundary>
                 <TelemetrySettings />
                 <ErrorBoundary resetKey="developer-settings" title="Developer settings failed"><DeveloperSettings /></ErrorBoundary>
