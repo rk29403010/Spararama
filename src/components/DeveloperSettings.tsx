@@ -1,12 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bell, RefreshCw, Wrench } from 'lucide-react';
+import { RefreshCw, Wrench } from 'lucide-react';
 import { systemApi, type SystemUpdateStatusDto } from '../lib/systemApi';
-import {
-  listPushRegistrations,
-  syncPushRegistration,
-  testPushRegistration,
-  type PushRegistrationDto
-} from '../lib/pushNotifications';
 
 const DEVELOPER_MODE_KEY = 'spararama.developerMode';
 const UPDATE_PENDING_KEY = 'spararama.updatePendingStartedAt';
@@ -33,18 +27,11 @@ function clearPendingUpdate() {
   try { window.sessionStorage.removeItem(UPDATE_PENDING_KEY); } catch { /* optional */ }
 }
 
-function timeText(timestamp: number | undefined) {
-  return timestamp ? new Date(timestamp).toLocaleString() : 'Never';
-}
-
 export function DeveloperSettings() {
   const [developerMode, setDeveloperMode] = useState(initialDeveloperMode);
   const [status, setStatus] = useState<SystemUpdateStatusDto | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [pushDevices, setPushDevices] = useState<PushRegistrationDto[]>([]);
-  const [pushBusy, setPushBusy] = useState<string | null>(null);
-  const [pushMessage, setPushMessage] = useState<string | null>(null);
   const pollTimer = useRef<number | null>(null);
 
   function clearPoll() {
@@ -56,52 +43,6 @@ export function DeveloperSettings() {
     const next = await systemApi.updateStatus();
     setStatus(next);
     return next;
-  }
-
-  async function loadPushDevices() {
-    try {
-      const result = await listPushRegistrations();
-      setPushDevices(result.registrations);
-      setPushMessage(null);
-    } catch (error: any) {
-      setPushDevices([]);
-      setPushMessage(error?.message || 'Unable to read push registrations.');
-    }
-  }
-
-  async function registerThisDevice() {
-    setPushBusy('__register__');
-    setPushMessage('Registering this browser for background notifications…');
-    try {
-      const result = await syncPushRegistration({ requestPermission: true });
-      setPushMessage(result.message);
-      await loadPushDevices();
-    } catch (error: any) {
-      setPushMessage(error?.message || 'Could not register this device for push notifications.');
-    } finally {
-      setPushBusy(null);
-    }
-  }
-
-  async function testDevice(id: string) {
-    setPushBusy(id);
-    setPushMessage('Sending test notification…');
-    try {
-      const result = await testPushRegistration(id);
-      const target = result.targets[0];
-      if (target?.success) {
-        setPushMessage('Firebase accepted the test notification for this device.');
-      } else {
-        setPushMessage(target?.errorCode
-          ? `${target.errorCode}${target.errorMessage ? ` - ${target.errorMessage}` : ''}`
-          : result.error || 'Push test failed.');
-      }
-      await loadPushDevices();
-    } catch (error: any) {
-      setPushMessage(error?.message || 'Push test failed.');
-    } finally {
-      setPushBusy(null);
-    }
   }
 
   function finishSuccessfulUpdate(next: SystemUpdateStatusDto) {
@@ -153,7 +94,6 @@ export function DeveloperSettings() {
   useEffect(() => {
     if (!developerMode) return;
     let active = true;
-    void loadPushDevices();
     loadStatus().then(next => {
       if (!active) return;
       const pendingStartedAt = readPendingUpdate();
@@ -225,69 +165,33 @@ export function DeveloperSettings() {
       </label>
 
       {developerMode && (
-        <div className="border-t border-slate-200 pt-4 space-y-5">
-          <div className="space-y-3">
-            {status?.supported ? (
-              <>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="font-black text-slate-800">Backend version</div>
-                    <div className="text-sm font-bold text-slate-600 truncate">
-                      {status.currentBranch || status.branch || 'branch unknown'}{status.commit ? ` · ${status.commit}` : ''}
-                    </div>
+        <div className="border-t border-slate-200 pt-4 space-y-3">
+          {status?.supported ? (
+            <>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-black text-slate-800">Backend version</div>
+                  <div className="text-sm font-bold text-slate-600 truncate">
+                    {status.currentBranch || status.branch || 'branch unknown'}{status.commit ? ` · ${status.commit}` : ''}
                   </div>
-                  <button
-                    type="button"
-                    disabled={working || status.dirty}
-                    onClick={() => void updateAndRestart()}
-                    className="min-h-12 px-4 rounded-xl bg-slate-950 text-white font-black disabled:opacity-45 flex items-center gap-2 shrink-0"
-                  >
-                    <RefreshCw className={`w-5 h-5 ${working ? 'animate-spin' : ''}`} aria-hidden="true" />
-                    {checking ? 'Checking…' : working ? 'Updating…' : 'Update & restart'}
-                  </button>
                 </div>
-                {status.dirty && <p role="alert" className="text-sm font-bold text-amber-900">Local changes detected - update is disabled.</p>}
-              </>
-            ) : (
-              <p className="text-sm font-bold text-slate-600">{status?.reason || 'Checking backend update support…'}</p>
-            )}
-            {message && <p role="status" className="text-sm font-bold text-slate-600 break-words">{message}</p>}
-          </div>
+                <button
+                  type="button"
+                  disabled={working || status.dirty}
+                  onClick={() => void updateAndRestart()}
+                  className="min-h-12 px-4 rounded-xl bg-slate-950 text-white font-black disabled:opacity-45 flex items-center gap-2 shrink-0"
+                >
+                  <RefreshCw className={`w-5 h-5 ${working ? 'animate-spin' : ''}`} aria-hidden="true" />
+                  {checking ? 'Checking…' : working ? 'Updating…' : 'Update & restart'}
+                </button>
+              </div>
+              {status.dirty && <p role="alert" className="text-sm font-bold text-amber-900">Local changes detected - update is disabled.</p>}
+            </>
+          ) : (
+            <p className="text-sm font-bold text-slate-600">{status?.reason || 'Checking backend update support…'}</p>
+          )}
 
-          <div className="border-t border-slate-200 pt-4 space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <Bell className="w-5 h-5 text-indigo-700" aria-hidden="true" />
-                <div className="font-black text-slate-900">Push devices</div>
-              </div>
-              <div className="flex gap-2">
-                <button type="button" disabled={pushBusy === '__register__'} onClick={() => void registerThisDevice()} className="min-h-10 px-3 rounded-xl bg-indigo-700 text-white font-black disabled:opacity-50">{pushBusy === '__register__' ? 'Registering…' : 'Register this device'}</button>
-                <button type="button" onClick={() => void loadPushDevices()} className="min-h-10 px-3 rounded-xl bg-slate-100 font-black text-slate-800">Refresh</button>
-              </div>
-            </div>
-
-            {pushDevices.length === 0 ? (
-              <p className="text-sm font-bold text-slate-600">No push devices are registered for this signed-in user.</p>
-            ) : (
-              <div className="space-y-3">
-                {pushDevices.map(device => (
-                  <div key={device.id} className="rounded-2xl bg-slate-50 p-3 flex flex-col sm:flex-row sm:items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="font-black text-slate-900 truncate">{device.deviceName || device.label || 'Browser device'}</div>
-                      <div className="text-xs font-bold text-slate-600 mt-1">Registered: {timeText(device.lastRegisteredAt || device.updatedAt)}</div>
-                      <div className="text-xs font-bold text-slate-600">Last accepted: {timeText(device.lastProviderAcceptedAt)}</div>
-                      {device.lastDeliveryErrorCode && <div className="text-xs font-bold text-rose-800 mt-1 break-words">{device.lastDeliveryErrorCode}{device.lastDeliveryErrorMessage ? ` - ${device.lastDeliveryErrorMessage}` : ''}</div>}
-                      {Boolean(device.consecutiveDeliveryFailures) && <div className="text-xs font-black text-rose-900">Consecutive failures: {device.consecutiveDeliveryFailures}</div>}
-                    </div>
-                    <button type="button" disabled={pushBusy === device.id} onClick={() => void testDevice(device.id)} className="min-h-11 px-4 rounded-xl bg-indigo-700 text-white font-black disabled:opacity-50">
-                      {pushBusy === device.id ? 'Testing…' : 'Send test'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            {pushMessage && <p role="status" className="text-sm font-bold text-slate-600 break-words">{pushMessage}</p>}
-          </div>
+          {message && <p role="status" className="text-sm font-bold text-slate-600 break-words">{message}</p>}
         </div>
       )}
     </section>
