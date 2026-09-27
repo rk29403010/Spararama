@@ -33,6 +33,7 @@ import './server/temperature-resolver.test';
 import './server/weather.test';
 import './server/heating-planner.test';
 import './server/heating-scheduler.test';
+import './server/heating-notification-routing.test';
 import './server/notifications.test';
 import './server/notification-route-independence.test';
 import './server/spa-health-monitor.test';
