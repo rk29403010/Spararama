@@ -8,6 +8,7 @@ import { NotificationCentreButton } from './components/NotificationCentreButton'
 import { ReminderModal } from './components/ReminderModal';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import type { SettingsTab } from './components/SettingsPage';
 import { ClipboardPlus, Droplets, Flame, Settings, List, LogOut, User as UserIcon, House } from 'lucide-react';
 import { subscribeToAuthChanges, signOutUser } from './lib/firebase';
 import { isCloudRuntime } from './lib/runtime';
@@ -18,19 +19,15 @@ const Heating = lazy(() => import('./components/Heating').then(module => ({ defa
 const Chemicals = lazy(() => import('./components/Chemicals').then(module => ({ default: module.Chemicals })));
 const Logs = lazy(() => import('./components/Logs').then(module => ({ default: module.Logs })));
 const ManualLogModal = lazy(() => import('./components/ManualLogModal').then(module => ({ default: module.ManualLogModal })));
-const TelemetrySettings = lazy(() => import('./components/TelemetrySettings').then(module => ({ default: module.TelemetrySettings })));
-const DeveloperSettings = lazy(() => import('./components/DeveloperSettings').then(module => ({ default: module.DeveloperSettings })));
-const SpaConfiguration = lazy(() => import('./components/SpaConfiguration').then(module => ({ default: module.SpaConfiguration })));
-const WeatherConfiguration = lazy(() => import('./components/WeatherConfiguration').then(module => ({ default: module.WeatherConfiguration })));
-const BleC600Settings = lazy(() => import('./components/BleC600Settings').then(module => ({ default: module.BleC600Settings })));
 const RemoteHome = lazy(() => import('./components/RemoteHome').then(module => ({ default: module.RemoteHome })));
-const UserManagement = lazy(() => import('./components/UserManagement').then(module => ({ default: module.UserManagement })));
-const NotificationSettings = lazy(() => import('./components/NotificationSettings').then(module => ({ default: module.NotificationSettings })));
+const SettingsPage = lazy(() => import('./components/SettingsPage').then(module => ({ default: module.SettingsPage })));
 
 type AppTab = 'home' | 'heating' | 'chemicals' | 'logs' | 'log' | 'settings';
 
 const TAB_ORDER: AppTab[] = ['home', 'heating', 'chemicals', 'logs', 'log', 'settings'];
+const SETTINGS_TABS: SettingsTab[] = ['general', 'hot-tub', 'water-testing', 'notifications', 'users', 'advanced'];
 const ACTIVE_TAB_STORAGE_KEY = 'spararama.activeTab';
+const SETTINGS_TAB_STORAGE_KEY = 'spararama.settingsTab';
 
 function RouteFallback() {
   return (
@@ -58,6 +55,16 @@ function initialTab(): AppTab {
     return stored && TAB_ORDER.includes(stored) ? stored : 'home';
   } catch {
     return 'home';
+  }
+}
+
+function initialSettingsTab(): SettingsTab {
+  if (typeof window === 'undefined') return 'general';
+  try {
+    const stored = window.localStorage.getItem(SETTINGS_TAB_STORAGE_KEY) as SettingsTab | null;
+    return stored && SETTINGS_TABS.includes(stored) ? stored : 'general';
+  } catch {
+    return 'general';
   }
 }
 
@@ -146,6 +153,7 @@ function blocksTabSwipe(target: EventTarget | null) {
 export default function App() {
   const [state, setState] = useState<AppState | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>(initialTab);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>(initialSettingsTab);
   const [user, setUser] = useState<User | null>(null);
   const [authInitialized, setAuthInitialized] = useState(false);
   const swipeStart = useRef<{ x: number; y: number; blocked: boolean } | null>(null);
@@ -153,6 +161,7 @@ export default function App() {
   const canSpaControl = can('spa_control');
   const canManageHeating = can('heating_manage');
   const canManageWater = can('water_testing');
+  const canAdmin = can('user_admin');
 
   useEffect(() => {
     loadState().then(s => setState(s));
@@ -169,13 +178,26 @@ export default function App() {
   }, [activeTab]);
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem(SETTINGS_TAB_STORAGE_KEY, settingsTab);
+    } catch {
+      // Remembering the current settings section is best effort if storage is unavailable.
+    }
+  }, [settingsTab]);
+
+  useEffect(() => {
     if (accessLoading || isCloudRuntime) return;
     const denied = (activeTab === 'heating' && !canManageHeating)
       || ((activeTab === 'chemicals' || activeTab === 'logs' || activeTab === 'log') && !canManageWater);
     if (denied) setActiveTab('home');
-  }, [activeTab, accessLoading, canManageHeating, canManageWater]);
+    if (settingsTab === 'users' && !canAdmin) setSettingsTab('general');
+  }, [activeTab, settingsTab, accessLoading, canAdmin, canManageHeating, canManageWater]);
 
   const updateState = (newState: AppState) => { setState(newState); saveState(newState); };
+  const openSettings = (tab?: SettingsTab) => {
+    if (tab) setSettingsTab(tab);
+    setActiveTab('settings');
+  };
 
   const handleSwipeStart = (event: React.TouchEvent<HTMLElement>) => {
     const touch = event.touches[0];
@@ -248,7 +270,7 @@ export default function App() {
             )}
             {user && access?.authorized && (
               <ErrorBoundary resetKey="notification-centre" title="Notifications unavailable">
-                <NotificationCentreButton onOpenSettings={() => setActiveTab('settings')} />
+                <NotificationCentreButton onOpenSettings={() => openSettings('notifications')} />
               </ErrorBoundary>
             )}
             <button
@@ -256,7 +278,7 @@ export default function App() {
               aria-label="Settings"
               title="Settings"
               aria-current={activeTab === 'settings' ? 'page' : undefined}
-              onClick={() => setActiveTab('settings')}
+              onClick={() => openSettings()}
               className={`w-12 h-12 rounded-xl flex items-center justify-center active:scale-[0.98] transition-colors ${activeTab === 'settings' ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'}`}
             >
               <Settings className="w-5 h-5" aria-hidden="true" />
@@ -279,71 +301,14 @@ export default function App() {
             {activeTab === 'logs' && (canManageWater ? <Logs state={state} /> : <PermissionNotice title="History" />)}
             {activeTab === 'log' && (canManageWater ? <ManualLogModal state={state} onClose={() => setActiveTab('logs')} /> : <PermissionNotice title="Log" />)}
             {activeTab === 'settings' && (
-              <div className="p-4 sm:p-8 text-slate-700 max-w-2xl mx-auto space-y-5">
-                <h2 className="text-3xl font-black tracking-tight text-slate-950">Settings</h2>
-                <ErrorBoundary resetKey="spa-configuration" title="Spa / pool settings failed"><SpaConfiguration state={state} updateState={updateState} /></ErrorBoundary>
-                <ErrorBoundary resetKey="weather-configuration" title="Weather settings failed"><WeatherConfiguration /></ErrorBoundary>
-                <ErrorBoundary resetKey="ble-c600-settings" title="BLE-C600 settings failed"><BleC600Settings /></ErrorBoundary>
-
-                <section className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 space-y-6">
-                  <h3 className="text-xl font-black text-slate-950">Preferences</h3>
-                  <label className="flex items-center justify-between gap-4">
-                    <span className="font-black text-slate-800 text-base sm:text-lg">Account</span>
-                    {user ? <button type="button" className="min-h-12 px-4 bg-slate-100 text-slate-800 rounded-xl font-black flex items-center gap-2 hover:bg-slate-200" onClick={signOutUser}><LogOut className="w-5 h-5" aria-hidden="true" />Sign out</button> : <GoogleSignInButton />}
-                  </label>
-
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="font-black text-slate-800 text-base sm:text-lg">Temperature scale</span>
-                    <div className="flex bg-slate-100 p-1 rounded-xl">
-                      <button type="button" aria-pressed={state.config.temperatureScale === 'C'} className={`min-h-11 px-4 rounded-lg font-black ${state.config.temperatureScale === 'C' ? 'bg-white text-slate-950 border border-slate-200' : 'text-slate-700'}`} onClick={() => updateState({...state, config: {...state.config, temperatureScale: 'C'}})}>°C</button>
-                      <button type="button" aria-pressed={state.config.temperatureScale === 'F'} className={`min-h-11 px-4 rounded-lg font-black ${state.config.temperatureScale === 'F' ? 'bg-white text-slate-950 border border-slate-200' : 'text-slate-700'}`} onClick={() => updateState({...state, config: {...state.config, temperatureScale: 'F'}})}>°F</button>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="font-black text-slate-800 text-base sm:text-lg">Time format</span>
-                    <div className="flex bg-slate-100 p-1 rounded-xl">
-                      <button type="button" aria-pressed={state.config.timeFormat === '12h'} className={`min-h-11 px-4 rounded-lg font-black ${state.config.timeFormat === '12h' ? 'bg-white text-slate-950 border border-slate-200' : 'text-slate-700'}`} onClick={() => updateState({...state, config: {...state.config, timeFormat: '12h'}})}>12h</button>
-                      <button type="button" aria-pressed={state.config.timeFormat === '24h'} className={`min-h-11 px-4 rounded-lg font-black ${state.config.timeFormat === '24h' ? 'bg-white text-slate-950 border border-slate-200' : 'text-slate-700'}`} onClick={() => updateState({...state, config: {...state.config, timeFormat: '24h'}})}>24h</button>
-                    </div>
-                  </div>
-
-                  <label className="flex items-center justify-between gap-4">
-                    <span className="font-black text-slate-800 text-base sm:text-lg">Usual ready time</span>
-                    <input name="default-ready-time" autoComplete="off" type="time" value={state.config.defaultReadyTime} onChange={event => updateState({...state, config: {...state.config, defaultReadyTime: event.target.value}})} className="min-h-12 bg-slate-100 text-slate-950 font-black px-4 py-2 rounded-xl" />
-                  </label>
-
-                  <label className="flex items-center justify-between gap-4">
-                    <span className="font-black text-slate-800 text-base sm:text-lg">Usual water temperature</span>
-                    <div className="flex items-center gap-2"><input name="default-target" autoComplete="off" inputMode="numeric" type="number" value={state.config.defaultHeatingTarget} onChange={event => updateState({...state, config: {...state.config, defaultHeatingTarget: Number(event.target.value) || 40}})} className="min-h-12 bg-slate-100 text-slate-950 font-black px-3 py-2 rounded-xl w-24 text-center" /><span className="font-black">°{state.config.temperatureScale}</span></div>
-                  </label>
-
-                  <label className="flex items-center justify-between gap-4">
-                    <div><span className="font-black text-slate-800 text-base sm:text-lg block">Heat soak</span><span className="text-sm font-bold text-slate-600 block">Extra time at target before bathing</span></div>
-                    <div className="flex items-center gap-2"><input name="heat-soak-minutes" autoComplete="off" inputMode="numeric" type="number" step="5" min="0" value={state.config.heatSoakMinutes ?? 30} onChange={event => updateState({...state, config: {...state.config, heatSoakMinutes: parseInt(event.target.value) || 0}})} className="min-h-12 bg-slate-100 text-slate-950 font-black px-3 py-2 rounded-xl w-24 text-center" /><span className="font-black">min</span></div>
-                  </label>
-
-                  <label className="min-h-12 flex items-center justify-between gap-4 cursor-pointer">
-                    <span className="font-black text-slate-800 text-base sm:text-lg">Alert when target reached</span>
-                    <input type="checkbox" checked={state.config.alertOnTargetReached !== false} onChange={event => updateState({...state, config: {...state.config, alertOnTargetReached: event.target.checked}})} className="w-6 h-6 accent-indigo-700" />
-                  </label>
-
-                  <label className="min-h-12 flex items-center justify-between gap-4 cursor-pointer">
-                    <span className="font-black text-slate-800 text-base sm:text-lg">Alert after heat soak</span>
-                    <input type="checkbox" checked={state.config.alertOnHeatSoakComplete !== false} onChange={event => updateState({...state, config: {...state.config, alertOnHeatSoakComplete: event.target.checked}})} className="w-6 h-6 accent-indigo-700" />
-                  </label>
-
-                  <label className="flex items-center justify-between gap-4">
-                    <span className="font-black text-slate-800 text-base sm:text-lg">Electricity price</span>
-                    <div className="flex items-center gap-2"><span className="font-black">£</span><input name="electricity-rate" autoComplete="off" inputMode="decimal" type="number" step="0.0001" min="0" value={state.config.electricityRatePerKwh} onChange={event => updateState({...state, config: {...state.config, electricityRatePerKwh: parseFloat(event.target.value) || 0}})} className="min-h-12 bg-slate-100 text-slate-950 font-black px-3 py-2 rounded-xl w-28 text-center" /><span className="font-black text-sm">/kWh</span></div>
-                  </label>
-                </section>
-
-                <ErrorBoundary resetKey="notification-settings" title="Notification settings failed"><NotificationSettings /></ErrorBoundary>
-                <ErrorBoundary resetKey="user-management" title="User management failed"><UserManagement /></ErrorBoundary>
-                <TelemetrySettings />
-                <ErrorBoundary resetKey="developer-settings" title="Developer settings failed"><DeveloperSettings /></ErrorBoundary>
-              </div>
+              <SettingsPage
+                state={state}
+                updateState={updateState}
+                user={user}
+                activeTab={settingsTab}
+                onTabChange={setSettingsTab}
+                canAdmin={canAdmin}
+              />
             )}
           </Suspense>
         </ErrorBoundary>
