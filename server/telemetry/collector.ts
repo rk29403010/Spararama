@@ -29,6 +29,7 @@ export interface TelemetrySensorSource {
 const SPA_EVENT_FIELDS: Array<keyof SpaStatus> = [
   'connected', 'waterTemperatureC', 'targetTemperatureC', 'heaterOn', 'filterOn', 'bubblesOn', 'transport', 'deviceFilterMinutes'
 ];
+const SPA_FAULT_FIELDS = ['filterOverdue', 'superheat', 'undercooling'] as const;
 const WEATHER_NUMERIC_FIELDS: Array<keyof WeatherObservation> = [
   'latitude', 'longitude', 'temperatureC', 'humidityPercent', 'pressureHpa', 'windSpeedMps', 'windDirectionDegrees',
   'cloudPercent', 'precipitationMm', 'shortwaveRadiationWm2'
@@ -109,6 +110,20 @@ function spaChanges(previous: SpaStatus | null, current: SpaStatus) {
     (patch as any)[field] = current[field];
     fields.push(`spa.${String(field)}`);
   }
+
+  let faultsChanged = false;
+  const faults = {
+    filterOverdue: Boolean(current.faults?.filterOverdue),
+    superheat: Boolean(current.faults?.superheat),
+    undercooling: Boolean(current.faults?.undercooling)
+  };
+  for (const fault of SPA_FAULT_FIELDS) {
+    if (Boolean(previous.faults?.[fault]) === faults[fault]) continue;
+    faultsChanged = true;
+    fields.push(`spa.faults.${fault}`);
+  }
+  if (faultsChanged) patch.faults = faults;
+
   return { patch, fields };
 }
 
