@@ -25,6 +25,12 @@ export interface BubbleSessionDto {
   bubbleAutoRestartUsed: boolean;
 }
 
+export interface SpaFaultsDto {
+  filterOverdue: boolean;
+  superheat: boolean;
+  undercooling: boolean;
+}
+
 export interface SpaStatusDto extends Partial<BubbleSessionDto> {
   transport: 'mock' | 'lan' | 'cloud' | 'manual';
   connected: boolean;
@@ -41,6 +47,7 @@ export interface SpaStatusDto extends Partial<BubbleSessionDto> {
   bubblesOn: boolean;
   filterRuntimeSeconds: number;
   heaterRuntimeSeconds: number;
+  faults?: SpaFaultsDto;
   updatedAt: number;
   lastContactAt?: number;
   contactFailureCount?: number;
