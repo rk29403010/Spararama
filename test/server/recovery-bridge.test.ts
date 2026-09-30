@@ -16,7 +16,12 @@ test('recovery bridge status is normalized into Spararama spa status', async () 
         heater: true,
         filter: true,
         bubbles: false,
-        filterMinutes: 123
+        filterMinutes: 123,
+        alerts: {
+          filterOverdue: false,
+          superheat: true,
+          undercooling: false
+        }
       }));
       return;
     }
@@ -37,6 +42,11 @@ test('recovery bridge status is normalized into Spararama spa status', async () 
     assert.equal(status.heaterOn, true);
     assert.equal(status.filterOn, true);
     assert.equal(status.deviceFilterMinutes, 123);
+    assert.deepEqual(status.faults, {
+      filterOverdue: false,
+      superheat: true,
+      undercooling: false
+    });
     assert.equal(status.contactFailureCount, 0);
     assert.ok(status.lastContactAt);
   } finally {
