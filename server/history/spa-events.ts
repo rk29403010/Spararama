@@ -20,8 +20,14 @@ export interface SpaHistoryEvent {
   source?: string;
 }
 
+let appendQueue: Promise<void> = Promise.resolve();
+
+function spaEventsPath() {
+  return process.env.SPA_HISTORY_FILE || path.join(process.cwd(), 'history', 'spa-events.jsonl');
+}
+
 async function readSpaEvents() {
-  const filePath = path.join(process.cwd(), 'history', 'spa-events.jsonl');
+  const filePath = spaEventsPath();
   let text = '';
   try {
     text = await fs.readFile(filePath, 'utf8');
@@ -43,6 +49,16 @@ async function readSpaEvents() {
     }
   }
   return events;
+}
+
+export function appendSpaHistoryEvent(event: SpaHistoryEvent) {
+  const operation = appendQueue.then(async () => {
+    const filePath = spaEventsPath();
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.appendFile(filePath, `${JSON.stringify(event)}\n`, 'utf8');
+  });
+  appendQueue = operation.then(() => undefined, () => undefined);
+  return operation;
 }
 
 export function registerSpaHistoryRoutes(app: Express) {

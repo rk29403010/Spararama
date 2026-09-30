@@ -209,6 +209,17 @@ function usualTubMarkers(since: number, end: number, readyTime: string, enabled:
   return markers;
 }
 
+function faultLabel(event: SpaHistoryEventDto) {
+  const explicit = event.details?.label;
+  if (typeof explicit === 'string' && explicit.trim()) return explicit;
+  switch (event.details?.fault) {
+    case 'superheat': return 'Overheat';
+    case 'undercooling': return 'Temperature fault';
+    case 'filterOverdue': return 'Filter warning';
+    default: return 'Spa fault';
+  }
+}
+
 function HeatTooltip({ active, payload, label, timeFormat = '24h' }: any) {
   if (!active || !payload?.length) return null;
   const point = payload.find((item: any) => item?.payload)?.payload;
@@ -424,6 +435,17 @@ export function Logs({ state }: LogsProps) {
     .filter(log => log?.type === 'manual_log' && (log?.data?.action === 'entered_tub' || log?.data?.action === 'exited_tub'))
     .map(log => ({ timestamp: logTimestamp(log), action: log.data.action }))
     .filter(item => item.timestamp >= heatWindow.since && item.timestamp <= heatWindow.end), [logs, heatWindow]);
+  const faultMarkers = useMemo(() => historyEvents
+    .filter(event => event.type === 'fault')
+    .map(event => ({
+      id: event.id,
+      timestamp: observationTimestamp(event.observed_at),
+      action: event.action === 'cleared' ? 'cleared' as const : 'started' as const,
+      label: faultLabel(event)
+    }))
+    .filter((event): event is { id: string; timestamp: number; action: 'started' | 'cleared'; label: string } =>
+      event.timestamp !== null && event.timestamp >= heatWindow.since && event.timestamp <= heatWindow.end
+    ), [historyEvents, heatWindow]);
 
   const chemistry = useMemo(() => {
     const points: any[] = [];
@@ -539,6 +561,18 @@ export function Logs({ state }: LogsProps) {
                     {heatPeriods.map((period, index) => <ReferenceArea key={`${period.start}-${index}`} yAxisId="temp" x1={period.start} x2={period.end} fill="#f59e0b" fillOpacity={0.10} strokeOpacity={0} />)}
                     {usualMarkers.map((timestamp, index) => <ReferenceLine key={`usual-${timestamp}`} yAxisId="temp" x={timestamp} stroke="#059669" strokeOpacity={0.55} strokeDasharray="4 4" label={index === usualMarkers.length - 1 ? { value: 'usual time', position: 'insideTopRight', fill: '#047857', fontSize: 12, fontWeight: 700 } : undefined} />)}
                     {bathingMarkers.map(marker => <ReferenceLine key={`${marker.timestamp}-${marker.action}`} yAxisId="temp" x={marker.timestamp} stroke="#047857" strokeOpacity={0.9} strokeDasharray="2 3" />)}
+                    {faultMarkers.map((marker, index) => (
+                      <ReferenceLine
+                        key={`fault-${marker.id}`}
+                        yAxisId="temp"
+                        x={marker.timestamp}
+                        stroke={marker.action === 'started' ? '#b91c1c' : '#15803d'}
+                        strokeWidth={marker.action === 'started' ? 2.5 : 1.5}
+                        strokeOpacity={0.9}
+                        strokeDasharray={marker.action === 'started' ? '3 2' : '2 4'}
+                        label={marker.action === 'started' ? { value: marker.label, position: index % 2 === 0 ? 'insideTopLeft' : 'insideTopRight', fill: '#991b1b', fontSize: 11, fontWeight: 800 } : undefined}
+                      />
+                    ))}
                     {waterGaps.map((gap, index) => (
                       <ReferenceLine
                         key={`water-gap-${gap.startTimestamp}-${index}`}
@@ -573,17 +607,28 @@ export function Logs({ state }: LogsProps) {
                 <span className="flex items-center gap-2"><span className="w-6 h-1 rounded bg-red-600" aria-hidden="true" />Water</span>
                 <span className="flex items-center gap-2"><span className="w-6 h-0.5 bg-slate-500" aria-hidden="true" />Target</span>
                 <span className="flex items-center gap-2"><span className="w-5 h-3 rounded bg-amber-100" aria-hidden="true" />Heater</span>
+                {faultMarkers.length > 0 && <span className="flex items-center gap-2"><span className="h-5 border-l-2 border-dashed border-red-700" aria-hidden="true" />Fault</span>}
                 {user && <span className="flex items-center gap-2"><span className="w-4 h-4 rounded-full bg-indigo-200 border-2 border-indigo-800" aria-hidden="true" />Manual</span>}
                 {hasProbeWater && <span className="flex items-center gap-2"><span className="w-4 h-4 rounded-full bg-cyan-100 border-2 border-cyan-700" aria-hidden="true" />BLE probe</span>}
                 {hasWeather && <span className="flex items-center gap-2"><span className="w-6 h-0.5 bg-slate-600" aria-hidden="true" />Outside</span>}
               </div>
-              {(telemetry.rolledUp || telemetryError || waterGaps.length > 0 || targetGaps.length > 0) && (
+              {faultMarkers.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2 text-sm font-bold">
+                  {faultMarkers.map(marker => (
+                    <span key={`fault-summary-${marker.id}`} className={`rounded-lg px-2.5 py-1.5 ${marker.action === 'started' ? 'bg-red-50 text-red-900 border border-red-200' : 'bg-emerald-50 text-emerald-900 border border-emerald-200'}`}>
+                      {formatLogDateTime(marker.timestamp, state.config.timeFormat)} - {marker.label}{marker.action === 'cleared' ? ' cleared' : ''}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {(telemetry.rolledUp || telemetryError || waterGaps.length > 0 || targetGaps.length > 0 || faultMarkers.length > 0) && (
                 <details className="mt-3 text-sm font-bold text-slate-600">
                   <summary className="min-h-11 cursor-pointer flex items-center">Data details</summary>
                   <div className="pb-2 space-y-1">
                     {telemetry.rolledUp && <p>{telemetry.rawTotal.toLocaleString()} readings condensed for this view.</p>}
                     {waterGaps.length > 0 && <p>Dashed water lines span periods with no confirmed temperature data.</p>}
                     {targetGaps.length > 0 && <p>Dotted target lines span periods with no confirmed target-temperature data.</p>}
+                    {faultMarkers.length > 0 && <p>Red fault lines mark a spa diagnostic becoming active; green lines mark it clearing.</p>}
                     {telemetryError && <p>Refresh failed; showing the last loaded graph.</p>}
                   </div>
                 </details>

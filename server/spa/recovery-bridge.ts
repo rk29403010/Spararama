@@ -10,6 +10,11 @@ interface RecoveryStatus {
   filter?: boolean;
   bubbles?: boolean;
   filterMinutes?: number;
+  alerts?: {
+    filterOverdue?: boolean;
+    superheat?: boolean;
+    undercooling?: boolean;
+  };
 }
 
 interface BridgeEventPayload {
@@ -113,6 +118,11 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
       filterRuntimeSeconds: this.filterRuntimeSeconds,
       heaterRuntimeSeconds: this.heaterRuntimeSeconds,
       deviceFilterMinutes: Number.isFinite(raw.filterMinutes) ? Number(raw.filterMinutes) : undefined,
+      faults: {
+        filterOverdue: Boolean(raw.alerts?.filterOverdue),
+        superheat: Boolean(raw.alerts?.superheat),
+        undercooling: Boolean(raw.alerts?.undercooling)
+      },
       updatedAt: Number.isFinite(parsedUpdatedAt) ? parsedUpdatedAt : now,
       lastContactAt: now,
       contactFailureCount: 0
@@ -146,6 +156,7 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
       bubblesOn: false,
       filterRuntimeSeconds: this.filterRuntimeSeconds,
       heaterRuntimeSeconds: this.heaterRuntimeSeconds,
+      faults: { filterOverdue: false, superheat: false, undercooling: false },
       updatedAt: 0,
       contactFailureCount: this.contactFailureCount
     };
@@ -247,8 +258,6 @@ export class RecoveryBridgeSpaAdapter implements SpaAdapter {
     if (!before.filterOn) {
       const filtering = await this.setFilter(true);
       if (!filtering.filterOn) throw new Error('Spa did not confirm that filtration started before heating.');
-      // Do not impose a long fixed delay. Most starts should remain near-immediate;
-      // this short settle covers the physical flow interlock seen on the live tub.
       if (this.heaterFlowWarmupMs > 0) await this.sleep(this.heaterFlowWarmupMs);
     }
 
