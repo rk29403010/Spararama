@@ -20,13 +20,17 @@ export interface SpaHistoryEvent {
   source?: string;
 }
 
-const spaEventsPath = path.join(process.cwd(), 'history', 'spa-events.jsonl');
 let appendQueue: Promise<void> = Promise.resolve();
 
+function spaEventsPath() {
+  return process.env.SPA_HISTORY_FILE || path.join(process.cwd(), 'history', 'spa-events.jsonl');
+}
+
 async function readSpaEvents() {
+  const filePath = spaEventsPath();
   let text = '';
   try {
-    text = await fs.readFile(spaEventsPath, 'utf8');
+    text = await fs.readFile(filePath, 'utf8');
   } catch (error: any) {
     if (error?.code === 'ENOENT') return [] as SpaHistoryEvent[];
     throw error;
@@ -49,8 +53,9 @@ async function readSpaEvents() {
 
 export function appendSpaHistoryEvent(event: SpaHistoryEvent) {
   const operation = appendQueue.then(async () => {
-    await fs.mkdir(path.dirname(spaEventsPath), { recursive: true });
-    await fs.appendFile(spaEventsPath, `${JSON.stringify(event)}\n`, 'utf8');
+    const filePath = spaEventsPath();
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.appendFile(filePath, `${JSON.stringify(event)}\n`, 'utf8');
   });
   appendQueue = operation.then(() => undefined, () => undefined);
   return operation;
