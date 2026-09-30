@@ -1,3 +1,9 @@
+export interface SpaFaults {
+  filterOverdue: boolean;
+  superheat: boolean;
+  undercooling: boolean;
+}
+
 export interface SpaStatus {
   transport: 'mock' | 'lan' | 'cloud' | 'manual';
   connected: boolean;
@@ -9,6 +15,7 @@ export interface SpaStatus {
   filterRuntimeSeconds: number;
   heaterRuntimeSeconds: number;
   deviceFilterMinutes?: number;
+  faults?: SpaFaults;
   /** Timestamp of the data currently displayed. Preserved when a connection drops. */
   updatedAt: number;
   /** Last time the backend successfully contacted the spa. */
