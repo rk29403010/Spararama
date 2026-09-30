@@ -1,6 +1,7 @@
 import type { HeatingSchedule } from '../heating/types';
+import { appendSpaHistoryEvent } from '../history/spa-events';
 import type { NotificationService } from '../notifications/service';
-import type { SpaAdapter, SpaStatus } from '../spa/types';
+import type { SpaAdapter, SpaFaults, SpaStatus } from '../spa/types';
 
 export type SpaHealthState = 'online' | 'suspect' | 'offline';
 
@@ -25,9 +26,40 @@ const DEFAULT_STALE_AFTER_MS = 90_000;
 const DEFAULT_CHECK_INTERVAL_MS = 60_000;
 const RELEVANT_OVERDUE_WINDOW_MS = 12 * 60 * 60_000;
 const INCIDENT_KEY = 'spa-connectivity';
+const FAULT_KEYS: Array<keyof SpaFaults> = ['superheat', 'undercooling', 'filterOverdue'];
+const EMPTY_FAULTS: SpaFaults = { filterOverdue: false, superheat: false, undercooling: false };
+
+const FAULT_DETAILS: Record<keyof SpaFaults, { label: string; type: string; baseTitle: string; message: string }> = {
+  superheat: {
+    label: 'Overheat',
+    type: 'equipment.spa_superheat',
+    baseTitle: 'Hot tub overheat protection triggered',
+    message: 'The hot tub reports an overheat condition. Heating and remote control are blocked until it clears.'
+  },
+  undercooling: {
+    label: 'Temperature fault',
+    type: 'equipment.spa_undercooling',
+    baseTitle: 'Hot tub temperature fault',
+    message: 'The hot tub reports an undercooling or temperature-sensor condition. Heating and remote control are blocked until it clears.'
+  },
+  filterOverdue: {
+    label: 'Filter warning',
+    type: 'equipment.spa_filter_overdue',
+    baseTitle: 'Hot tub filter warning',
+    message: 'The hot tub reports that the filter is overdue. Spararama blocks remote control until the warning clears.'
+  }
+};
 
 function timeText(timestamp: number) {
-  return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function normalizedFaults(status: SpaStatus): SpaFaults {
+  return {
+    filterOverdue: Boolean(status.faults?.filterOverdue),
+    superheat: Boolean(status.faults?.superheat),
+    undercooling: Boolean(status.faults?.undercooling)
+  };
 }
 
 export class SpaHealthMonitor {
@@ -41,6 +73,7 @@ export class SpaHealthMonitor {
   private state: SpaHealthState = 'online';
   private lastSuccessfulContactAt = 0;
   private suspectSince = 0;
+  private previousFaults: SpaFaults | null = null;
 
   constructor(
     private readonly spa: SpaAdapter,
@@ -60,6 +93,7 @@ export class SpaHealthMonitor {
       state: this.state,
       lastSuccessfulContactAt: this.lastSuccessfulContactAt || undefined,
       suspectSince: this.suspectSince || undefined,
+      activeFaults: this.previousFaults || EMPTY_FAULTS,
       offlineAfterMs: this.offlineAfterMs,
       staleAfterMs: this.staleAfterMs,
       checkIntervalMs: this.checkIntervalMs
@@ -107,6 +141,11 @@ export class SpaHealthMonitor {
   refreshAlertState(now = this.now()) {
     return this.enqueue(async () => {
       if (this.state === 'offline') await this.publishOfflineIncident(now);
+      if (this.previousFaults) {
+        for (const fault of FAULT_KEYS) {
+          if (this.previousFaults[fault]) await this.publishFaultIncident(fault, now);
+        }
+      }
     });
   }
 
@@ -120,6 +159,7 @@ export class SpaHealthMonitor {
     if (status.connected) {
       const contactAt = Number.isFinite(status.lastContactAt) ? Number(status.lastContactAt) : observedAt;
       await this.markOnline(contactAt);
+      await this.handleFaults(status, observedAt);
       return;
     }
 
@@ -127,6 +167,103 @@ export class SpaHealthMonitor {
       this.lastSuccessfulContactAt = Math.max(this.lastSuccessfulContactAt, Number(status.lastContactAt));
     }
     await this.markFailure(observedAt);
+  }
+
+  private async handleFaults(status: SpaStatus, observedAt: number) {
+    const current = normalizedFaults(status);
+    const previous = this.previousFaults;
+    this.previousFaults = current;
+
+    for (const fault of FAULT_KEYS) {
+      const changed = previous === null ? current[fault] : previous[fault] !== current[fault];
+      if (changed) {
+        await this.logFaultTransition(fault, current[fault], status, observedAt);
+        if (!current[fault]) {
+          await this.notifications.resolveIncident(`spa-fault-${fault}`, 'spa_fault_cleared');
+          continue;
+        }
+      }
+
+      // Re-publishing an unchanged incident is cheap and de-duplicated by the
+      // notification service. It also lets a newly-created heating schedule
+      // upgrade an existing fault notice to say that the requested bath is at risk.
+      if (current[fault]) await this.publishFaultIncident(fault, observedAt);
+    }
+  }
+
+  private async logFaultTransition(fault: keyof SpaFaults, active: boolean, status: SpaStatus, observedAt: number) {
+    const details: Record<string, unknown> = {
+      fault,
+      label: FAULT_DETAILS[fault].label,
+      active,
+      heater_on: status.heaterOn,
+      filter_on: status.filterOn,
+      bubbles_on: status.bubblesOn
+    };
+    if (Number.isFinite(status.waterTemperatureC)) details.water_temperature_c = status.waterTemperatureC;
+    if (Number.isFinite(status.targetTemperatureC)) details.target_temperature_c = status.targetTemperatureC;
+
+    try {
+      await appendSpaHistoryEvent({
+        schema: 'spa-event/v1',
+        id: `fault-${fault}-${active ? 'started' : 'cleared'}-${observedAt}-${crypto.randomUUID()}`,
+        observed_at: new Date(observedAt).toISOString(),
+        time_precision: 'millisecond',
+        type: 'fault',
+        action: active ? 'started' : 'cleared',
+        details,
+        notes: active
+          ? 'Automatically captured from the CleverSpa diagnostic flags.'
+          : 'Automatically captured when the CleverSpa diagnostic flag cleared.',
+        source: 'cleverspa_api'
+      });
+    } catch (error: any) {
+      console.warn(`Could not append spa fault history: ${error?.message || String(error)}`);
+    }
+  }
+
+  private async publishFaultIncident(fault: keyof SpaFaults, now: number) {
+    const info = FAULT_DETAILS[fault];
+    const schedule = await this.relevantHeatingSchedule(now);
+    const heatingDue = Boolean(schedule && schedule.startTime <= now);
+    const heatingRunning = Boolean(schedule && ['running-remote', 'running-manual'].includes(schedule.status));
+    const targetMissed = Boolean(schedule && schedule.targetTime < now);
+    const bathAtRisk = heatingDue || heatingRunning || targetMissed;
+    const severity = fault === 'superheat' || bathAtRisk ? 'urgent' : 'warning';
+
+    let title = info.baseTitle;
+    let message = info.message;
+    if (schedule) {
+      if (bathAtRisk) {
+        title = `${info.label} - ${timeText(schedule.targetTime)} bath at risk`;
+        message += targetMissed
+          ? ` The planned ${timeText(schedule.targetTime)} ready time has passed.`
+          : ` The planned ${timeText(schedule.targetTime)} ready time is at risk.`;
+      } else {
+        message += ` Heating is planned for ${timeText(schedule.startTime)} for a ${timeText(schedule.targetTime)} bath; the fault needs to clear before Spararama can control the tub.`;
+      }
+    }
+
+    await this.notifications.publish({
+      type: info.type,
+      group: 'equipment',
+      severity,
+      title,
+      message,
+      incidentKey: `spa-fault-${fault}`,
+      requiresAcknowledgement: severity === 'urgent',
+      context: {
+        fault,
+        ...(schedule ? {
+          heatingScheduleId: schedule.id,
+          heatingStartTime: schedule.startTime,
+          heatingTargetTime: schedule.targetTime,
+          heatingStatus: schedule.status,
+          heatingTargetMissed: targetMissed,
+          bathingTimeAtRisk: bathAtRisk
+        } : {})
+      }
+    });
   }
 
   private async markOnline(observedAt: number) {
